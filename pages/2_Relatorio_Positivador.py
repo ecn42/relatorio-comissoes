@@ -1067,7 +1067,7 @@ def main():
     st.markdown("Mostrando dados Positivador + Estruturadas")
     
     # Database file path
-    db_path = "financial_data.db"
+    db_path = "/mnt/databases/financial_data.db"
     
     # Connect to database and create tables
     conn = sqlite3.connect(db_path)

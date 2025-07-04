@@ -13,5 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Expose the port that Streamlit runs on
 EXPOSE 8080
 
+
 # Define the command to run your Streamlit app
 ENTRYPOINT ["streamlit", "run", "relatorio_comissoes.py", "--server.port=8080", "--server.address=0.0.0.0"]

@@ -34,7 +34,7 @@ class CommissionDataManager:
     We use a class to organize our code better and avoid repeating database connection logic.
     """
     
-    def __init__(self, db_path="commission_data.db"):
+    def __init__(self, db_path="/mnt/databases/commission_data.db"):
         """
         Initialize the database connection and create tables if they don't exist.
         
