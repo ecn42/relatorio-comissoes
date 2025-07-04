@@ -19,3 +19,18 @@ dist/
 # Virtual environment
 venv/
 .venv/
+
+#Internal Archives
+
+P1/
+P2/
+cross_sell_clients.txt
+
+# Jupyter/IPython Notebook
+.ipynb_checkpoints/
+
+# IDEs & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
