@@ -129,7 +129,7 @@ def get_month_year_key(date_obj):
         return None
     return f"{date_obj.year}-{date_obj.month:02d}"
 
-def load_cross_sell_clients(file_path="cross_sell_clients.txt"):
+def load_cross_sell_clients(file_path="/mnt/databases/cross_sell_clients.txt"):
     """
     Loads client codes from a text file for cross-sell analysis.
     

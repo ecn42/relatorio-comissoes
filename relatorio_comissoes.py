@@ -1195,7 +1195,7 @@ def create_cross_sell_analysis(df_filtered):
     # Continue with remaining sections using similar enhanced formatting...
     # [Rest of the function continues with similar improvements]
 
-def load_cross_sell_clients(file_path="cross_sell_clients.txt"):
+def load_cross_sell_clients(file_path="/mnt/databases/cross_sell_clients.txt"):
     """
     Loads client codes from a text file for cross-sell analysis.
     
