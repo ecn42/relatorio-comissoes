@@ -406,10 +406,10 @@ def clean_column_names(df):
         'Net Em M': 'Net_Em_M',
         'Net Renda Fixa': 'Net_Renda_Fixa',
         'Net Fundos Imobiliários': 'Net_Fundos_Imobiliarios',
-        'Net Renda Variável': 'Net_Renda_Variavel',
+        'Net Renda Variavel': 'Net_Renda_Variavel',
         'Net Fundos': 'Net_Fundos',
         'Net Financeiro': 'Net_Financeiro',
-        'Net Previdência': 'Net_Previdencia',
+        'Net Previdencia': 'Net_Previdencia',
         'Net Outros': 'Net_Outros',
         'Receita Aluguel': 'Receita_Aluguel',
         'Receita Complemento Pacote Corretagem': 'Receita_Complemento_Pacote_Corretagem',
@@ -618,13 +618,15 @@ def fix_data_types(df):
     numeric_columns = [
         'Net_Em_M', 'Net_em_M_1', 'Net_Renda_Variavel', 'Net_Fundos_Imobiliarios',
         'Net_Financeiro', 'Receita_no_Mes', 'Receita_Bovespa', 'Receita_Futuros',
-        'Receita_RF_Bancarios', 'Receita_RF_Privados', 'Receita_RF_Publicos'
+        'Receita_RF_Bancarios', 'Receita_RF_Privados', 'Receita_RF_Publicos',
+        'Receita_Aluguel', 'Receita_Complemento_Pacote_Corretagem' # Added for completeness
     ]
     
     # Convert numeric columns
     for col in numeric_columns:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            # Using errors='coerce' will turn non-numeric values into NaN, which can then be filled with 0
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
     # Boolean/categorical columns that should be standardized
     boolean_columns = ['Operou_Bolsa', 'Ativou_em_M']
@@ -635,13 +637,17 @@ def fix_data_types(df):
     return df
 
 def load_estruturadas_data(db_path):
-    """Load estruturadas data from database"""
+    """
+    Load estruturadas data from database and enrich it with Tipo_Pessoa from financial_data.
+    """
     if not os.path.exists(db_path):
         return None
     
     try:
         conn = sqlite3.connect(db_path)
-        query = """
+        
+        # 1. Load structured data
+        query_estruturadas = """
         SELECT 
             Cliente,
             Data,
@@ -653,8 +659,28 @@ def load_estruturadas_data(db_path):
         FROM estruturadas 
         WHERE Cod_A IS NOT NULL AND Cod_A != ''
         """
-        df_estruturadas = pd.read_sql_query(query, conn)
+        df_estruturadas = pd.read_sql_query(query_estruturadas, conn)
+        
+        # 2. Load latest Tipo_Pessoa for each Cliente from financial_data
+        # We need the most recent Tipo_Pessoa for each client.
+        # This subquery gets the max Data_Posicao for each client, then joins to get the Tipo_Pessoa
+        query_tipo_pessoa = """
+        SELECT 
+            t1.Cliente, 
+            t1.Tipo_Pessoa
+        FROM financial_data t1
+        INNER JOIN (
+            SELECT Cliente, MAX(Data_Posicao) as Max_Data_Posicao
+            FROM financial_data
+            GROUP BY Cliente
+        ) t2 ON t1.Cliente = t2.Cliente AND t1.Data_Posicao = t2.Max_Data_Posicao;
+        """
+        df_tipo_pessoa = pd.read_sql_query(query_tipo_pessoa, conn)
+        
         conn.close()
+        
+        if df_estruturadas.empty:
+            return pd.DataFrame()
         
         # Apply 0.8 multiplier to Comissao
         df_estruturadas['Comissao_Estruturada'] = pd.to_numeric(
@@ -666,6 +692,20 @@ def load_estruturadas_data(db_path):
         df_estruturadas['Month_Year'] = df_estruturadas['Data_Parsed'].apply(
             lambda x: get_month_year_key(x) if x else None
         )
+
+        # Merge Tipo_Pessoa from financial_data
+        # Ensure 'Cliente' columns are of the same type for merging
+        df_estruturadas['Cliente'] = df_estruturadas['Cliente'].astype(str)
+        df_tipo_pessoa['Cliente'] = df_tipo_pessoa['Cliente'].astype(str)
+        
+        df_estruturadas = df_estruturadas.merge(
+            df_tipo_pessoa[['Cliente', 'Tipo_Pessoa']], 
+            on='Cliente', 
+            how='left'
+        )
+        
+        # Fill any missing Tipo_Pessoa if a client in estruturadas is not in financial_data
+        df_estruturadas['Tipo_Pessoa'] = df_estruturadas['Tipo_Pessoa'].fillna('Desconhecido')
         
         return df_estruturadas
     except Exception as e:
@@ -708,7 +748,9 @@ def apply_receita_multiplier(df):
     
     # Apply multiplier (0.5 * 0.8 = 0.4)
     for col in receita_columns:
-        df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce') * 0.4
+        if col in df_copy.columns: # Check if column exists
+            # Ensure it's numeric before multiplication, then fill NaN (from coerce) with 0
+            df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce').fillna(0) * 0.4
     
     return df_copy, receita_columns
 
@@ -886,21 +928,32 @@ def calculate_new_metrics(df_filtered, estruturadas_summary):
     
     return metrics_data
 
-def get_estruturadas_summary(df_estruturadas, selected_months, selected_assessores, cross_sell_clients=None, client_type_filter="Todos"):
-    """Get estruturadas summary for selected filters, including cross-sell client filtering"""
+def get_estruturadas_summary(df_estruturadas, selected_months, selected_assessores, cross_sell_clients=None, client_type_filter="Todos", selected_tipo_pessoa=None):
+    """
+    Get estruturadas summary for selected filters, including cross-sell client filtering
+    and now also filtering by Tipo_Pessoa.
+    """
     if df_estruturadas is None or df_estruturadas.empty:
         return pd.DataFrame()
     
-    # Filter estruturadas data by month and assessor
+    # Start filtering by month and assessor
     df_estruturadas_filtered = df_estruturadas[
         (df_estruturadas['Month_Year'].isin(selected_months)) &
         (df_estruturadas['Assessor'].isin(selected_assessores))
-    ]
+    ].copy() # Use .copy() to avoid SettingWithCopyWarning
     
     if df_estruturadas_filtered.empty:
         return pd.DataFrame()
     
-    # Apply client type filter if specified
+    # Apply Tipo_Pessoa filter if specified and column exists
+    if selected_tipo_pessoa and 'Tipo_Pessoa' in df_estruturadas_filtered.columns:
+        df_estruturadas_filtered = df_estruturadas_filtered[
+            df_estruturadas_filtered['Tipo_Pessoa'].isin(selected_tipo_pessoa)
+        ]
+        if df_estruturadas_filtered.empty:
+            return pd.DataFrame()
+
+    # Apply cross-sell client filter if specified
     if client_type_filter != "Todos" and cross_sell_clients:
         # Ensure client codes are strings for comparison
         df_estruturadas_filtered['Cliente'] = df_estruturadas_filtered['Cliente'].astype(str)
@@ -927,11 +980,29 @@ def get_estruturadas_summary(df_estruturadas, selected_months, selected_assessor
     return estruturadas_summary
 
 def create_receita_by_assessor_chart(df_filtered, estruturadas_summary, chart_type="bar"):
-    """Create chart showing Receita Total by Assessor"""
+    """
+    Create chart showing Receita Total by Assessor or Receita Breakdown.
+    Added 'stacked_bar_breakdown' chart type and 'traditional_breakdown'.
+    """
     
     # Group traditional revenue by Assessor
-    receita_by_assessor = df_filtered.groupby('Assessor')['Receita_no_Mes'].sum().reset_index()
+    # Include all relevant traditional revenue columns for a potential breakdown
+    receita_by_assessor = df_filtered.groupby('Assessor').agg(
+        Receita_no_Mes=('Receita_no_Mes', 'sum'),
+        Receita_Bovespa=('Receita_Bovespa', 'sum'),
+        Receita_Futuros=('Receita_Futuros', 'sum'),
+        Receita_RF_Bancarios=('Receita_RF_Bancarios', 'sum'),
+        Receita_RF_Privados=('Receita_RF_Privados', 'sum'),
+        Receita_RF_Publicos=('Receita_RF_Publicos', 'sum'),
+        Receita_Aluguel=('Receita_Aluguel', 'sum'), # Include if you want
+        Receita_Complemento_Pacote_Corretagem=('Receita_Complemento_Pacote_Corretagem', 'sum') # Include if you want
+    ).reset_index()
     
+    # Consolidate Renda Fixa revenues
+    receita_by_assessor['Receita_Renda_Fixa_Total'] = receita_by_assessor[[
+        'Receita_RF_Bancarios', 'Receita_RF_Privados', 'Receita_RF_Publicos'
+    ]].sum(axis=1)
+
     # Merge with estruturadas summary
     if not estruturadas_summary.empty:
         receita_by_assessor = receita_by_assessor.merge(
@@ -943,17 +1014,22 @@ def create_receita_by_assessor_chart(df_filtered, estruturadas_summary, chart_ty
         receita_by_assessor['Comissao_Estruturada'] = 0
         receita_by_assessor['Operacoes_Estruturadas'] = 0
     
-    # Fill NaN values
-    receita_by_assessor['Comissao_Estruturada'] = receita_by_assessor['Comissao_Estruturada'].fillna(0)
-    receita_by_assessor['Operacoes_Estruturadas'] = receita_by_assessor['Operacoes_Estruturadas'].fillna(0)
-    
+    # Fill NaN values for all relevant columns to ensure calculations are correct
+    cols_to_fill = ['Comissao_Estruturada', 'Operacoes_Estruturadas', 'Receita_no_Mes', 
+                    'Receita_Bovespa', 'Receita_Futuros', 'Receita_Renda_Fixa_Total',
+                    'Receita_Aluguel', 'Receita_Complemento_Pacote_Corretagem']
+    for col in cols_to_fill:
+        if col in receita_by_assessor.columns:
+            # Ensure it's numeric before filling NaN, though it should be from the agg step
+            receita_by_assessor[col] = pd.to_numeric(receita_by_assessor[col], errors='coerce').fillna(0)
+
     # Calculate total revenue
     receita_by_assessor['Receita_Total'] = receita_by_assessor['Receita_no_Mes'] + receita_by_assessor['Comissao_Estruturada']
     
     # Sort by total revenue
     receita_by_assessor = receita_by_assessor.sort_values('Receita_Total', ascending=False)
     
-    # Format values for display
+    # Format values for display (used in hover templates or text labels)
     receita_by_assessor['Receita_Formatted'] = receita_by_assessor['Receita_Total'].apply(
         lambda x: f"R$ {x:,.2f}" if pd.notna(x) else "R$ 0,00"
     )
@@ -1022,12 +1098,102 @@ def create_receita_by_assessor_chart(df_filtered, estruturadas_summary, chart_ty
             showlegend=False
         )
     
-    # Format y-axis to show currency
-    fig.update_layout(
-        yaxis_tickformat=',.0f' if chart_type != "horizontal_bar" else None,
-        xaxis_tickformat=',.0f' if chart_type == "horizontal_bar" else None,
-        template='plotly_white'
-    )
+    elif chart_type == "stacked_bar_breakdown":
+        # Prepare data for stacked bar (Total Revenue breakdown)
+        df_stacked = receita_by_assessor[['Assessor', 'Receita_no_Mes', 'Comissao_Estruturada']].melt(
+            id_vars='Assessor',
+            var_name='Tipo de Receita',
+            value_name='Valor'
+        )
+        
+        # Rename types for better display
+        df_stacked['Tipo de Receita'] = df_stacked['Tipo de Receita'].map({
+            'Receita_no_Mes': 'Receita Tradicional (x0.4)',
+            'Comissao_Estruturada': 'Comissão Estruturada (x0.8)'
+        })
+        
+        # Sort by total receita for consistent ordering
+        order_list = receita_by_assessor['Assessor'].tolist()
+        df_stacked['Assessor'] = pd.Categorical(df_stacked['Assessor'], categories=order_list, ordered=True)
+        df_stacked = df_stacked.sort_values('Assessor')
+
+        fig = px.bar(
+            df_stacked,
+            x='Assessor',
+            y='Valor',
+            color='Tipo de Receita',
+            title='Composição da Receita por Assessor',
+            labels={
+                'Valor': 'Receita (R$)',
+                'Assessor': 'Assessor'
+            },
+            color_discrete_map={
+                'Receita Tradicional (x0.4)': '#1f77b4',
+                'Comissão Estruturada (x0.8)': '#ff7f0e'
+            },
+            text_auto=True # Automatically adds text labels to bars
+        )
+        
+        fig.update_layout(
+            xaxis_tickangle=-45,
+            height=600,
+            barmode='stack' # Ensures bars are stacked
+        )
+        fig.update_traces(texttemplate='R$ %{y:,.2f}', textposition='inside')
+
+    elif chart_type == "traditional_breakdown":
+        # Prepare data for stacked bar (Traditional Revenue Breakdown + Estruturadas)
+        # Select relevant columns for breakdown + Estruturadas
+        breakdown_cols = ['Assessor', 'Receita_Bovespa', 'Receita_Futuros', 
+                          'Receita_Renda_Fixa_Total', 'Comissao_Estruturada'] # Added Estruturadas here too
+        
+        df_breakdown = receita_by_assessor[breakdown_cols].melt(
+            id_vars='Assessor',
+            var_name='Fonte de Receita',
+            value_name='Valor'
+        )
+        
+        # Rename sources for better display
+        df_breakdown['Fonte de Receita'] = df_breakdown['Fonte de Receita'].map({
+            'Receita_Bovespa': 'Receita Bolsa (x0.4)',
+            'Receita_Futuros': 'Receita Futuros (x0.4)',
+            'Receita_Renda_Fixa_Total': 'Receita Renda Fixa (x0.4)',
+            'Comissao_Estruturada': 'Comissão Estruturada (x0.8)'
+        })
+        
+        # Sort by total revenue for consistent ordering (using overall receita_by_assessor's sort order)
+        order_list = receita_by_assessor['Assessor'].tolist()
+        df_breakdown['Assessor'] = pd.Categorical(df_breakdown['Assessor'], categories=order_list, ordered=True)
+        df_breakdown = df_breakdown.sort_values('Assessor')
+
+        fig = px.bar(
+            df_breakdown,
+            x='Assessor',
+            y='Valor',
+            color='Fonte de Receita',
+            title='Composição Detalhada da Receita por Assessor',
+            labels={
+                'Valor': 'Receita (R$)',
+                'Assessor': 'Assessor'
+            },
+            color_discrete_sequence=px.colors.qualitative.Plotly, # Use a good color sequence
+            text_auto=True
+        )
+        
+        fig.update_layout(
+            xaxis_tickangle=-45,
+            height=600,
+            barmode='stack'
+        )
+        fig.update_traces(texttemplate='R$ %{y:,.2f}', textposition='inside')
+
+    # Format y-axis to show currency (for applicable charts)
+    if chart_type in ["bar", "horizontal_bar", "stacked_bar_breakdown", "traditional_breakdown"]:
+        fig.update_layout(
+            yaxis_tickformat=',.0f' if chart_type != "horizontal_bar" else None,
+            xaxis_tickformat=',.0f' if chart_type == "horizontal_bar" else None,
+            template='plotly_white'
+        )
     
     return fig, receita_by_assessor
 
@@ -1075,23 +1241,22 @@ def main():
     create_estruturadas_table(conn)
     conn.close()
     
-# Create main tabs - UPDATED with upload tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
-        "📊 Dashboard", 
-        "📈 Análise de Receita",  # Translated from "Revenue Analysis"
-        "🎯 Portfólio & ROA",    # Translated from "Portfolio & ROA"
-        "🚫 Não Operaram",       # Translated from "Non-Operators"
-        "✅ Clientes Ativados",  # Translated from "Activated Clients"
-        "📤 Upload Dados Financeiros",  # Translated from "Upload Financial Data"
-        "🏗️ Upload Estruturadas",   # Translated from "Upload Estruturadas"
-        "🗄️ Gerenciador BD",      # Translated from "Database Manager" (abbreviated for tab space)
-        "ℹ️ Ajuda & Info"            # Translated from "Help & Info"
+    # Create main tabs - Adjusted to 8 tabs (removed old dashboard, added info back)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        "📈 Análise de Receita", 
+        "🎯 Portfólio & ROA",
+        "🚫 Não Operaram",
+        "✅ Clientes Ativados",
+        "📤 Upload Dados Financeiros",
+        "🏗️ Upload Estruturadas",
+        "🗄️ Gerenciador BD",
+        "ℹ️ Ajuda & Info" # Info tab back!
     ])
-    
+
     # Check if database exists and has data
     db_exists = os.path.exists(db_path)
     has_data = False
-    
+
     if db_exists:
         try:
             conn = sqlite3.connect(db_path)
@@ -1100,280 +1265,134 @@ def main():
             count = cursor.fetchone()[0]
             has_data = count > 0
             conn.close()
-        except:
+        except Exception as e:
+            st.error(f"Erro ao verificar dados no banco: {e}")
             has_data = False
-    
+
     # ============================================================================
-    # TAB 1: DASHBOARD (Main Overview)
+    # SHARED SIDEBAR FILTERS FOR ANALYSIS TABS (1, 2, 3, 4 - new indices)
     # ============================================================================
-# ============================================================================
-# TAB 1: DASHBOARD (Main Overview) - TRANSLATED
-# ============================================================================
-    with tab1:
-        st.header("📊 Visão Geral do Dashboard Financeiro")
-        
-        if not has_data:
-            st.warning("⚠️ Nenhum dado encontrado no banco de dados! Por favor, faça upload dos dados primeiro usando as abas de upload.")
-            st.info("💡 Use as abas 'Upload Dados Financeiros' ou 'Upload Estruturadas' para começar.")
-            
-            # Show quick stats about database
-            if db_exists:
-                st.info("✅ Arquivo do banco de dados existe mas está vazio")
-            else:
-                st.info("❌ Arquivo do banco de dados ainda não existe")
-            
-            return
-        
-        # Load data for dashboard
-        with st.spinner("Carregando dados para o dashboard..."):
+
+    # Initialize empty DataFrames as placeholders
+    df_prepared = pd.DataFrame() 
+    df_estruturadas = pd.DataFrame()
+    shared_selected_months = []
+    shared_selected_assessores = []
+    shared_selected_tipo_pessoa = []
+    shared_client_type_filter = "Todos"
+
+
+    # Only show shared filters if we have data
+    if has_data:
+        # Load data for filter options
+        with st.spinner("Carregando dados para filtros..."):
             df = load_data_from_db(db_path)
-            df_estruturadas = load_estruturadas_data(db_path)
+            df_estruturadas = load_estruturadas_data(db_path) 
         
-        if df is None or df.empty:
-            st.error("❌ Falha ao carregar dados do banco de dados!")
-            return
-        
-        # Apply receita multiplier
-        df_adjusted, receita_columns = apply_receita_multiplier(df)
-        
-        # Prepare data with date parsing
-        df_prepared = prepare_data_with_dates(df_adjusted)
-        
-        # Get available months
-        available_months = get_available_months(df_prepared)
-        
-        if not available_months:
-            st.error("❌ Nenhuma data válida encontrada nos dados!")
-            return
-        
-        # Quick filters for dashboard
-        st.subheader("🔍 Filtros Rápidos")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            # Month selection (simplified for dashboard)
-            month_options = {month['label']: month['month_year'] for month in available_months}
-            selected_month_label = st.selectbox(
-                "Selecionar Mês:",
-                options=list(month_options.keys()),
-                index=0,
-                key="dashboard_month"
-            )
-            selected_months = [month_options[selected_month_label]]
-        
-        with col2:
-            # Assessor filter (top 10 for dashboard)
-            available_assessores = sorted(df_prepared['Assessor'].dropna().unique())
-            # top_assessores = available_assessores[:10] if len(available_assessores) > 10 else available_assessores
-            selected_assessores = st.multiselect(
-                "Selecionar Assessores:",
-                options=available_assessores,
-                default=available_assessores,
-                key="dashboard_assessors"
-            )
-        
-        with col3:
-            # Tipo Pessoa filter
-            available_tipo_pessoa = sorted(df_prepared['Tipo_Pessoa'].dropna().unique())
-            selected_tipo_pessoa = st.multiselect(
-                "Selecionar Tipo Pessoa:",
-                options=available_tipo_pessoa,
-                default=available_tipo_pessoa,
-                key="dashboard_tipo"
-            )
-        
-        # Filter data
-        df_filtered = df_prepared[
-            (df_prepared['Month_Year'].isin(selected_months)) &
-            (df_prepared['Assessor'].isin(selected_assessores)) &
-            (df_prepared['Tipo_Pessoa'].isin(selected_tipo_pessoa)) &
-            (df_prepared['Receita_no_Mes'].notna())
-        ]
-        
-        if df_filtered.empty:
-            st.warning("⚠️ Nenhum dado encontrado para os filtros selecionados!")
-            return
-        
-        # Get estruturadas summary
-        # Get estruturadas summary
-        estruturadas_summary = get_estruturadas_summary(df_estruturadas, selected_months, selected_assessores)
-        
-        # Create summary metrics
-        summary_metrics = create_summary_metrics(df_filtered, estruturadas_summary)
-        
-        # Display key metrics
-        st.subheader("📊 Métricas Principais")
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        with col1:
-            st.metric(
-                "Receita Total",
-                f"R$ {summary_metrics['total_receita']:,.2f}"
-            )
-        
-        with col2:
-            st.metric(
-                "Total Assessores",
-                f"{summary_metrics['total_assessores']:,}"
-            )
-        
-        with col3:
-            st.metric(
-                "Total Clientes",
-                f"{summary_metrics['total_clients']:,}"
-            )
-        
-        with col4:
-            structured_percentage = (summary_metrics['total_comissao_estruturada'] / summary_metrics['total_receita'] * 100) if summary_metrics['total_receita'] > 0 else 0
-            st.metric(
-                "% Estruturadas",
-                f"{structured_percentage:.1f}%"
-            )
-        
-        with col5:
-            st.metric(
-                "Receita Média/Assessor",
-                f"R$ {summary_metrics['avg_receita_per_assessor']:,.2f}"
-            )
-        
-        # Quick charts
-        st.subheader("📈 Visão Geral Rápida da Receita")
-        
-        # Create revenue chart
-        fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "bar")
-        st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_1')
-        
-        # Show top performers table
-        st.subheader("🏆 Melhores Desempenhos")
-        top_performers = receita_data.head(10).copy()
-        
-        # Format for display
-        top_performers['Receita_Total_Display'] = top_performers['Receita_Total'].apply(
-            lambda x: f"R$ {x:,.2f}"
-        )
-        top_performers['Receita_Tradicional_Display'] = top_performers['Receita_no_Mes'].apply(
-            lambda x: f"R$ {x:,.2f}"
-        )
-        top_performers['Estruturadas_Display'] = top_performers['Comissao_Estruturada'].apply(
-            lambda x: f"R$ {x:,.2f}"
-        )
-        
-        display_top = top_performers[['Assessor', 'Receita_Total_Display', 'Receita_Tradicional_Display', 'Estruturadas_Display']].rename(columns={
-            'Assessor': 'Assessor',
-            'Receita_Total_Display': 'Receita Total',
-            'Receita_Tradicional_Display': 'Receita Tradicional',
-            'Estruturadas_Display': 'Receita Estruturada'
-        })
-        
-        st.dataframe(display_top, use_container_width=True, hide_index=True)
-        
-        # Navigation help
-        st.info("💡 **Dica**: Use as outras abas para análises detalhadas, upload de dados e gerenciamento do banco de dados.")
-
-
-        # TAB 2: REVENUE ANALYSIS (Detailed revenue analysis) - TRANSLATED
-        # ============================================================================
-        with tab2:
-            st.header("📈 Análise Detalhada de Receita")
-            
-            if not has_data:
-                st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload dos dados primeiro.")
-                return
-            
-            # Load data
-            with st.spinner("Carregando dados para análise de receita..."):
-                df = load_data_from_db(db_path)
-                df_estruturadas = load_estruturadas_data(db_path)
-            
-            if df is None or df.empty:
-                st.error("❌ Falha ao carregar dados!")
-                return
-            
+        if df is not None and not df.empty:
             # Apply receita multiplier and prepare data
             df_adjusted, receita_columns = apply_receita_multiplier(df)
-            df_prepared = prepare_data_with_dates(df_adjusted)
+            df_prepared = prepare_data_with_dates(df_adjusted) # This df_prepared is used globally
             available_months = get_available_months(df_prepared)
             
-            # Detailed filters (similar to original dashboard)
-            st.sidebar.header("🔍 Filtros de Análise de Receita")
-            
-            # Month selection
-            st.sidebar.subheader("📅 Selecionar Mês(es)")
-            month_selection_type = st.sidebar.radio(
-                "Tipo de Seleção:",
-                ["Mês Único", "Múltiplos Meses", "Todos os Meses"],
-                key="revenue_month_type"
-            )
-            
-            if month_selection_type == "Todos os Meses":
-                selected_months = [month['month_year'] for month in available_months]
-                st.sidebar.info(f"✅ Selecionado: Todos os {len(available_months)} meses")
-            elif month_selection_type == "Mês Único":
-                month_options = {month['label']: month['month_year'] for month in available_months}
-                selected_month_label = st.sidebar.selectbox(
-                    "Escolher Mês:",
-                    options=list(month_options.keys()),
-                    index=0,
-                    key="revenue_single_month"
+            if available_months:
+                # Show shared sidebar filters
+                st.sidebar.header("🔍 Filtros de Análise (Aplicado a Receita, Portfólio, Não Operaram, Ativados)")
+                
+                # Month selection
+                st.sidebar.subheader("📅 Selecionar Mês(es)")
+                month_selection_type = st.sidebar.radio(
+                    "Tipo de Seleção:",
+                    ["Mês Único", "Múltiplos Meses", "Todos os Meses"],
+                    key="shared_month_type"
                 )
-                selected_months = [month_options[selected_month_label]]
-            else:  # Multiple Months
-                month_options = {month['label']: month['month_year'] for month in available_months}
-                selected_month_labels = st.sidebar.multiselect(
-                    "Escolher Múltiplos Meses:",
-                    options=list(month_options.keys()),
-                    default=[list(month_options.keys())[0]],
-                    key="revenue_multi_months"
+                
+                if month_selection_type == "Todos os Meses":
+                    shared_selected_months = [month['month_year'] for month in available_months]
+                    st.sidebar.info(f"✅ Selecionado: Todos os {len(available_months)} meses")
+                elif month_selection_type == "Mês Único":
+                    month_options = {month['label']: month['month_year'] for month in available_months}
+                    selected_month_label = st.sidebar.selectbox(
+                        "Escolher Mês:",
+                        options=list(month_options.keys()),
+                        index=0,
+                        key="shared_single_month"
+                    )
+                    shared_selected_months = [month_options[selected_month_label]]
+                else:  # Multiple Months
+                    month_options = {month['label']: month['month_year'] for month in available_months}
+                    selected_month_labels = st.sidebar.multiselect(
+                        "Escolher Múltiplos Meses:",
+                        options=list(month_options.keys()),
+                        default=[list(month_options.keys())[0]],
+                        key="shared_multi_months"
+                    )
+                    shared_selected_months = [month_options[label] for label in selected_month_labels]
+                
+                # Assessor and Tipo Pessoa filters
+                available_assessores = sorted(df_prepared['Assessor'].dropna().unique())
+                # Use the Tipo_Pessoa from the financial data as the master list for the filter options
+                available_tipo_pessoa = sorted(df_prepared['Tipo_Pessoa'].dropna().unique())
+                
+                assessor_filter_type = st.sidebar.radio(
+                    "Filtro de Assessor:",
+                    ["Todos os Assessores", "Selecionar Específicos"],
+                    key="shared_assessor_type"
                 )
-                selected_months = [month_options[label] for label in selected_month_labels]
-            
-            # Assessor and Tipo Pessoa filters
-            available_assessores = sorted(df_prepared['Assessor'].dropna().unique())
-            available_tipo_pessoa = sorted(df_prepared['Tipo_Pessoa'].dropna().unique())
-            
-            assessor_filter_type = st.sidebar.radio(
-                "Filtro de Assessor:",
-                ["Todos os Assessores", "Selecionar Específicos"],
-                key="revenue_assessor_type"
-            )
-            
-            if assessor_filter_type == "Selecionar Específicos":
-                selected_assessores = st.sidebar.multiselect(
-                    "Escolher Assessores:",
-                    options=available_assessores,
-                    default=available_assessores[:10] if len(available_assessores) > 10 else available_assessores,
-                    key="revenue_assessors"
+                
+                if assessor_filter_type == "Selecionar Específicos":
+                    shared_selected_assessores = st.sidebar.multiselect(
+                        "Escolher Assessores:",
+                        options=available_assessores,
+                        default=available_assessores[:10] if len(available_assessores) > 10 else available_assessores,
+                        key="shared_assessors"
+                    )
+                else:
+                    shared_selected_assessores = available_assessores
+                
+                shared_selected_tipo_pessoa = st.sidebar.multiselect(
+                    "Escolher Tipo Pessoa:",
+                    options=available_tipo_pessoa,
+                    default=available_tipo_pessoa,
+                    key="shared_tipo"
                 )
-            else:
-                selected_assessores = available_assessores
-            
-            selected_tipo_pessoa = st.sidebar.multiselect(
-                "Escolher Tipo Pessoa:",
-                options=available_tipo_pessoa,
-                default=available_tipo_pessoa,
-                key="revenue_tipo"
-            )
-            
-            # Client type filter
-            st.sidebar.subheader("👥 Filtro de Cliente")
-            client_type_filter = st.sidebar.radio(
-                "Tipo de Cliente:",
-                ["Todos", "Apenas Cross-Sell", "Apenas Normais"],
-                key="revenue_client_type",
-                help="Filtra clientes com base na lista de cross-sell."
-            )
+                
+                # Client type filter
+                st.sidebar.subheader("👥 Filtro de Cliente")
+                shared_client_type_filter = st.sidebar.radio(
+                    "Tipo de Cliente:",
+                    ["Todos", "Apenas Cross-Sell", "Apenas Normais"],
+                    key="shared_client_type",
+                    help="Filtra clientes com base na lista de cross-sell."
+                )
+            else: # No available months
+                st.sidebar.warning("⚠️ Sem dados disponíveis para configurar filtros.")
+                shared_selected_months = []
+                shared_selected_assessores = []
+                shared_selected_tipo_pessoa = []
+        else: # df is None or empty
+            st.sidebar.warning("⚠️ Sem dados carregados para configurar filtros.")
+            shared_selected_months = []
+            shared_selected_assessores = []
+            shared_selected_tipo_pessoa = []
 
-            # Chart type
-            chart_type = st.sidebar.selectbox(
-                "Tipo de Gráfico:",
-                ["bar", "horizontal_bar", "pie"],
-                format_func=lambda x: {
-                    "bar": "📊 Gráfico de Barras Vertical",
-                    "horizontal_bar": "📈 Gráfico de Barras Horizontal", 
-                    "pie": "🥧 Gráfico de Pizza"
-                }[x],
-                key="revenue_chart_type"
-            )
+    # ============================================================================
+    # TAB 1: ANÁLISE DE RECEITA (NOW THE FIRST TAB)
+    # ============================================================================
+    with tab1: # This is now the first tab
+        st.header("📈 Análise Detalhada de Receita")
+        
+        if not has_data:
+            st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload dos dados primeiro usando as abas de upload.")
+            st.info("💡 Use as abas 'Upload Dados Financeiros' ou 'Upload Estruturadas' para começar.")
+        elif not shared_selected_months:
+            st.warning("⚠️ Por favor, configure os filtros na barra lateral esquerda para visualizar os dados.")
+        else:
+            # Use shared filter variables
+            selected_months = shared_selected_months
+            selected_assessores = shared_selected_assessores
+            selected_tipo_pessoa = shared_selected_tipo_pessoa
+            client_type_filter = shared_client_type_filter
             
             # Filter data
             df_filtered = df_prepared[
@@ -1409,98 +1428,130 @@ def main():
             
             if df_filtered.empty:
                 st.warning("⚠️ Nenhum dado encontrado para os filtros selecionados!")
-                return
-            
-            # Get estruturadas summary with cross-sell filtering
-            estruturadas_summary = get_estruturadas_summary(
-                df_estruturadas, 
-                selected_months, 
-                selected_assessores, 
-                cross_sell_clients, 
-                client_type_filter
-            )
-            
-            # Create summary metrics
-            summary_metrics = create_summary_metrics(df_filtered, estruturadas_summary)
-            
-            # Display metrics
-            st.subheader("📊 Resumo da Receita")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Receita Total", f"R$ {summary_metrics['total_receita']:,.2f}")
-            with col2:
-                st.metric("Receita Tradicional", f"R$ {summary_metrics['total_receita_tradicional']:,.2f}")
-            with col3:
-                st.metric("Receita Estruturada", f"R$ {summary_metrics['total_comissao_estruturada']:,.2f}")
-            with col4:
-                structured_pct = (summary_metrics['total_comissao_estruturada'] / summary_metrics['total_receita'] * 100) if summary_metrics['total_receita'] > 0 else 0
-                st.metric("% Estruturada", f"{structured_pct:.1f}%")
-            
-            # Revenue chart
-            fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, chart_type)
-            st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_2')
-            
-            # Detailed table
-            st.subheader("📋 Dados Detalhados de Receita")
-            
-            # Format data for display
-            display_data = receita_data.copy()
-            for col in ['Receita_Total', 'Receita_no_Mes', 'Comissao_Estruturada']:
-                display_data[f'{col}_Display'] = display_data[col].apply(
-                    lambda x: f"R$ {x:,.2f}" if pd.notna(x) else "R$ 0,00"
+            else:
+                # Get estruturadas summary with cross-sell filtering and Tipo_Pessoa filtering
+                estruturadas_summary = get_estruturadas_summary(
+                    df_estruturadas, 
+                    selected_months, 
+                    selected_assessores, 
+                    cross_sell_clients, 
+                    client_type_filter,
+                    selected_tipo_pessoa # Pass the Tipo_Pessoa filter here
                 )
-            
-            display_columns = {
-                'Assessor': 'Assessor',
-                'Receita_Total_Display': 'Receita Total',
-                'Receita_no_Mes_Display': 'Receita Tradicional',
-                'Comissao_Estruturada_Display': 'Receita Estruturada',
-                'Operacoes_Estruturadas': 'Operações Estruturadas'
-            }
-            
-            display_df = display_data.rename(columns=display_columns)
-            st.dataframe(display_df[list(display_columns.values())], use_container_width=True, hide_index=True)
-            
-            # Download option
-            csv_data = receita_data.to_csv(sep=';', index=False)
-            st.download_button(
-                label="📥 Baixar Dados de Receita",
-                data=csv_data,
-                file_name=f"analise_receita_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-            # ============================================================================
-    # TAB 3: PORTFOLIO & ROA ANALYSIS
+                
+                # Create summary metrics
+                summary_metrics = create_summary_metrics(df_filtered, estruturadas_summary)
+                
+                # Display metrics
+                st.subheader("📊 Resumo da Receita")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Receita Total", f"R$ {summary_metrics['total_receita']:,.2f}")
+                with col2:
+                    st.metric("Receita Tradicional", f"R$ {summary_metrics['total_receita_tradicional']:,.2f}")
+                with col3:
+                    st.metric("Receita Estruturada", f"R$ {summary_metrics['total_comissao_estruturada']:,.2f}")
+                with col4:
+                    structured_pct = (summary_metrics['total_comissao_estruturada'] / summary_metrics['total_receita'] * 100) if summary_metrics['total_receita'] > 0 else 0
+                    st.metric("% Estruturada", f"{structured_pct:.1f}%")
+                
+                # Chart Type Selector for Tab 1 (Revenue Analysis)
+                chart_option = st.radio(
+                    "Selecione o tipo de gráfico:",
+                    [
+                        "Total da Receita por Assessor", 
+                        "Composição da Receita por Assessor (Tradicional vs Estruturada)",
+                        "Detalhe da Receita (Tradicional e Estruturada)", # NEW OPTION
+                        "Distribuição da Receita Total (Pizza)"
+                    ],
+                    key="revenue_chart_type_selector"
+                )
+
+                if chart_option == "Total da Receita por Assessor":
+                    fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "horizontal_bar") # Using horizontal bar for better readability
+                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_total')
+                elif chart_option == "Composição da Receita por Assessor (Tradicional vs Estruturada)":
+                    fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "stacked_bar_breakdown")
+                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_breakdown')
+                elif chart_option == "Detalhe da Receita (Tradicional e Estruturada)": # NEW CHART DISPLAY
+                    fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "traditional_breakdown")
+                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_detailed_breakdown')
+                elif chart_option == "Distribuição da Receita Total (Pizza)":
+                    fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "pie")
+                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_pie')
+
+                # Detailed table
+                st.subheader("📋 Dados Detalhados de Receita")
+                
+                # Format data for display
+                display_data = receita_data.copy()
+                # Include all relevant columns in display_data for potential download/review
+                all_receita_cols = [col for col in display_data.columns if col.startswith('Receita') or col.startswith('Comissao')]
+                
+                for col in all_receita_cols:
+                    # Apply formatting only if the column is detected and is numeric-like (after coerce)
+                    if col in display_data.columns and pd.api.types.is_numeric_dtype(display_data[col]):
+                        display_data[f'{col}_Display'] = display_data[col].apply(
+                            lambda x: f"R$ {x:,.2f}" if pd.notna(x) else "R$ 0,00"
+                        )
+                    else: # If not numeric, keep original or convert to string safely
+                        display_data[f'{col}_Display'] = display_data[col].astype(str)
+                
+                # Dynamically create display columns based on available data
+                display_columns_dict = {
+                    'Assessor': 'Assessor',
+                    'Receita_Total_Display': 'Receita Total',
+                    'Comissao_Estruturada_Display': 'Receita Estruturada',
+                    'Receita_no_Mes_Display': 'Receita Tradicional (Total)',
+                    'Receita_Bovespa_Display': 'Receita Bovespa',
+                    'Receita_Futuros_Display': 'Receita Futuros',
+                    'Receita_Renda_Fixa_Total_Display': 'Receita Renda Fixa',
+                    'Receita_RF_Bancarios_Display': 'Receita RF Bancários', 
+                    'Receita_RF_Privados_Display': 'Receita RF Privados',
+                    'Receita_RF_Publicos_Display': 'Receita RF Públicos',
+                    'Receita_Aluguel_Display': 'Receita Aluguel',
+                    'Receita_Complemento_Pacote_Corretagem_Display': 'Receita Complemento Corretagem',
+                    'Operacoes_Estruturadas': 'Operações Estruturadas'
+                }
+                
+                # Filter display_columns to only include those actually generated/available
+                actual_display_cols = ['Assessor'] + [
+                    k for k, v in display_columns_dict.items() 
+                    if k in display_data.columns and k != 'Assessor' # Ensure col exists in DF before mapping
+                ]
+
+                # Map column names to desired display names for the final dataframe
+                final_display_df = display_data[actual_display_cols].rename(columns={
+                    col_name: display_columns_dict[col_name] for col_name in actual_display_cols if col_name in display_columns_dict
+                })
+                
+                st.dataframe(final_display_df, use_container_width=True, hide_index=True)
+                
+                # Download option
+                csv_data = receita_data.to_csv(sep=';', index=False)
+                st.download_button(
+                    label="📥 Baixar Dados de Receita",
+                    data=csv_data,
+                    file_name=f"analise_receita_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+
     # ============================================================================
-# ============================================================================
-# TAB 3: PORTFOLIO & ROA ANALYSIS - TRANSLATED
-# ============================================================================
-    with tab3:
+    # TAB 2: PORTFOLIO & ROA ANALYSIS (Now uses shared filters)
+    # ============================================================================
+    with tab2: # This is now the second tab
         st.header("🎯 Análise de Portfólio & ROA")
         
         if not has_data:
             st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload dos dados primeiro.")
-            return
-        
-        # Load and prepare data (similar to revenue analysis)
-        with st.spinner("Carregando dados para análise de portfólio..."):
-            df = load_data_from_db(db_path)
-            df_estruturadas = load_estruturadas_data(db_path)
-        
-        if df is None or df.empty:
-            st.error("❌ Falha ao carregar dados!")
-            return
-        
-        df_adjusted, _ = apply_receita_multiplier(df)
-        df_prepared = prepare_data_with_dates(df_adjusted)
-        available_months = get_available_months(df_prepared)
-        
-        # Use latest month by default for portfolio analysis
-        if available_months:
-            selected_months = [available_months[0]['month_year']]
-            selected_assessores = sorted(df_prepared['Assessor'].dropna().unique())
-            selected_tipo_pessoa = sorted(df_prepared['Tipo_Pessoa'].dropna().unique())
+        elif not shared_selected_months:
+            st.warning("⚠️ Por favor, configure os filtros na barra lateral.")
+        else:
+            # Use shared filter variables
+            selected_months = shared_selected_months
+            selected_assessores = shared_selected_assessores
+            selected_tipo_pessoa = shared_selected_tipo_pessoa
             
             # Filter data
             df_filtered = df_prepared[
@@ -1512,9 +1563,12 @@ def main():
             
             if not df_filtered.empty:
                 # Get estruturadas summary and calculate metrics
-                estruturadas_summary = get_estruturadas_summary(df_estruturadas, selected_months, selected_assessores)
-                # Get estruturadas summary
-                
+                estruturadas_summary = get_estruturadas_summary(
+                    df_estruturadas, 
+                    selected_months, 
+                    selected_assessores,
+                    selected_tipo_pessoa=selected_tipo_pessoa # Pass the filter here
+                )
                 metrics_data = calculate_new_metrics(df_filtered, estruturadas_summary)
                 
                 # ROA Explanation
@@ -1611,7 +1665,6 @@ def main():
                     title='Comparação de ROA por Assessor (%)',
                     xaxis_title='Assessor',
                     yaxis_title='ROA (%)',
-                    
                     barmode='group',
                     xaxis_tickangle=-45,
                     height=600,
@@ -1720,39 +1773,22 @@ def main():
                 
             else:
                 st.warning("⚠️ Nenhum dado disponível para análise de portfólio.")
-        else:
-            st.warning("⚠️ Nenhum mês disponível para análise.")
-    
+
     # ============================================================================
-    # TAB 4: NON-OPERATORS ANALYSIS
+    # TAB 3: NON-OPERATORS ANALYSIS (Now uses shared filters)
     # ============================================================================
-# ============================================================================
-# TAB 4: NON-OPERATORS ANALYSIS - TRANSLATED
-# ============================================================================
-    with tab4:
+    with tab3: # This is now the third tab
         st.header("🚫 Análise de Clientes que Não Operaram")
         
         if not has_data:
             st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload dos dados primeiro.")
-            return
-        
-        # Load and prepare data
-        with st.spinner("Carregando dados para análise de não operadores..."):
-            df = load_data_from_db(db_path)
-        
-        if df is None or df.empty:
-            st.error("❌ Falha ao carregar dados!")
-            return
-        
-        df_adjusted, _ = apply_receita_multiplier(df)
-        df_prepared = prepare_data_with_dates(df_adjusted)
-        available_months = get_available_months(df_prepared)
-        
-        if available_months:
-            # Use latest month by default
-            selected_months = [available_months[0]['month_year']]
-            selected_assessores = sorted(df_prepared['Assessor'].dropna().unique())
-            selected_tipo_pessoa = sorted(df_prepared['Tipo_Pessoa'].dropna().unique())
+        elif not shared_selected_months:
+            st.warning("⚠️ Por favor, configure os filtros na barra lateral.")
+        else:
+            # Use shared filter variables
+            selected_months = shared_selected_months
+            selected_assessores = shared_selected_assessores
+            selected_tipo_pessoa = shared_selected_tipo_pessoa
             
             # Filter data
             df_filtered = df_prepared[
@@ -1874,7 +1910,6 @@ def main():
                         ]].copy()
                         
                         # Sort by patrimony
-                       
                         client_display = client_display.sort_values('Net_Em_M', ascending=False)
                         
                         # Format monetary values
@@ -1911,39 +1946,23 @@ def main():
                     st.info("📊 Nenhum dado de análise de não operadores disponível.")
             else:
                 st.warning("⚠️ Nenhum dado disponível para análise.")
-        else:
-            st.warning("⚠️ Nenhum mês disponível para análise.")
-    
+
+
     # ============================================================================
-    # TAB 5: ACTIVATED CLIENTS ANALYSIS
+    # TAB 4: ACTIVATED CLIENTS ANALYSIS (Now uses shared filters)
     # ============================================================================
-# ============================================================================
-# TAB 5: ACTIVATED CLIENTS ANALYSIS - TRANSLATED
-# ============================================================================
-    with tab5:
+    with tab4: # This is now the fourth tab
         st.header("✅ Análise de Clientes Ativados")
         
         if not has_data:
             st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload dos dados primeiro.")
-            return
-        
-        # Load and prepare data
-        with st.spinner("Carregando dados para análise de clientes ativados..."):
-            df = load_data_from_db(db_path)
-        
-        if df is None or df.empty:
-            st.error("❌ Falha ao carregar dados!")
-            return
-        
-        df_adjusted, _ = apply_receita_multiplier(df)
-        df_prepared = prepare_data_with_dates(df_adjusted)
-        available_months = get_available_months(df_prepared)
-        
-        if available_months:
-            # Use latest month by default
-            selected_months = [available_months[0]['month_year']]
-            selected_assessores = sorted(df_prepared['Assessor'].dropna().unique())
-            selected_tipo_pessoa = sorted(df_prepared['Tipo_Pessoa'].dropna().unique())
+        elif not shared_selected_months:
+            st.warning("⚠️ Por favor, configure os filtros na barra lateral.")
+        else:
+            # Use shared filter variables
+            selected_months = shared_selected_months
+            selected_assessores = shared_selected_assessores
+            selected_tipo_pessoa = shared_selected_tipo_pessoa
             
             # Filter data
             df_filtered = df_prepared[
@@ -2126,16 +2145,12 @@ def main():
                     st.info("📊 Nenhum cliente ativado no período selecionado (Ativou_em_M = Sim).")
             else:
                 st.warning("⚠️ Nenhum dado disponível para análise.")
-        else:
-            st.warning("⚠️ Nenhum mês disponível para análise.")
-    
+
+
     # ============================================================================
-    # TAB 6: UPLOAD FINANCIAL DATA
+    # TAB 5: UPLOAD FINANCIAL DATA - TRANSLATED
     # ============================================================================
-# ============================================================================
-# TAB 6: UPLOAD FINANCIAL DATA - TRANSLATED
-# ============================================================================
-    with tab6:
+    with tab5: # This is now the fifth tab
         st.header("📤 Upload de Dados Financeiros")
         st.markdown("**Lógica de Data Posição Mais Recente**: Apenas a data mais recente por mês/ano é mantida")
         st.markdown("**Organização dos Dados**: Todos os dados são ordenados por Data Posição (mais novos primeiro)")
@@ -2283,22 +2298,21 @@ def main():
                                     st.success(f"📊 Resumo: Excluídos {total_deleted} registros antigos, Inseridos {total_inserted} novos registros")
                                 else:
                                     st.error("❌ Falha ao inserir novos dados")
+                            else:
+                                st.info("Nenhuma nova data mais recente para inserir após a verificação de duplicidade por Data Posição.")
                 else:
-                    st.info("ℹ️ Nenhuma atualização necessária. Todos os dados já estão atualizados.")
+                    st.info("ℹ️ Nenhuma atualização ou inserção necessária. Todos os dados já estão atualizados ou o arquivo não contém novas Data Posição mais recentes.")
                 
                 conn.close()
                 
             except Exception as e:
                 st.error(f"❌ Erro ao processar arquivo: {str(e)}")
                 st.exception(e)
-    
-    # ============================================================================
-    # TAB 7: UPLOAD ESTRUTURADAS DATA
-    # ============================================================================
+
 # ============================================================================
-# TAB 7: UPLOAD ESTRUTURADAS DATA - TRANSLATED
+# TAB 6: UPLOAD ESTRUTURADAS DATA - TRANSLATED
 # ============================================================================
-    with tab7:
+    with tab6: # This is now the sixth tab
         st.header("🏗️ Upload de Dados Estruturados")
         st.markdown("**Regras de Processamento**:")
         st.markdown("- ✂️ Remove as 3 últimas linhas da planilha")
@@ -2417,12 +2431,9 @@ def main():
 
 
     # ============================================================================
-    # TAB 8: DATABASE MANAGER
+    # TAB 7: DATABASE MANAGER - TRANSLATED
     # ============================================================================
-# ============================================================================
-# TAB 8: DATABASE MANAGER - TRANSLATED
-# ============================================================================
-    with tab8:
+    with tab7: # This is now the seventh tab
         st.header("🗄️ Gerenciador de Banco de Dados")
         st.markdown("Visualize e gerencie o conteúdo do seu banco de dados")
         
@@ -2456,6 +2467,8 @@ def main():
                 
                 # Show unique months in financial database (sorted)
                 if total_financial_records > 0:
+                    st.subheader("📅 Períodos de Dados Financeiros Disponíveis")
+                    # Ensure ordered by date descending
                     cursor.execute("""
                         SELECT DISTINCT Data_Posicao FROM financial_data 
                         ORDER BY 
@@ -2467,15 +2480,23 @@ def main():
                     """)
                     dates_in_db = cursor.fetchall()
                     if dates_in_db:
-                        st.subheader("📅 Períodos de Dados Financeiros Disponíveis")
-                        for (date_str,) in dates_in_db[:10]:  # Show last 10
+                        # Display only the first 10 for brevity unless expanded
+                        num_to_display = min(10, len(dates_in_db))
+                        for i in range(num_to_display):
+                            date_str = dates_in_db[i][0]
                             date_obj = parse_date(date_str)
                             if date_obj:
                                 month_name = calendar.month_name[date_obj.month]
                                 st.text(f"{month_name} {date_obj.year}: {date_str}")
                         
                         if len(dates_in_db) > 10:
-                            st.text(f"... e mais {len(dates_in_db) - 10} períodos")
+                            if st.checkbox(f"Mostrar todos os {len(dates_in_db)} períodos", key="show_all_periods"):
+                                for i in range(10, len(dates_in_db)):
+                                    date_str = dates_in_db[i][0]
+                                    date_obj = parse_date(date_str)
+                                    if date_obj:
+                                        month_name = calendar.month_name[date_obj.month]
+                                        st.text(f"{month_name} {date_obj.year}: {date_str}")
                 
                 conn.close()
                 
@@ -2534,7 +2555,7 @@ def main():
             if st.button("📊 Carregar Conteúdo do Banco de Dados Estruturados", type="secondary", key="load_estruturadas_db"):
                 with st.spinner("Carregando dados estruturados do banco de dados..."):
                     conn = sqlite3.connect(db_path)
-                    df_estruturadas_from_db = load_estruturadas_from_db(conn)
+                    df_estruturadas_from_db = load_estruturadas_from_db(conn) # Using the original, non-enriched function for raw display
                     conn.close()
                     
                     if not df_estruturadas_from_db.empty:
@@ -2604,217 +2625,33 @@ def main():
                         st.error(f"❌ Erro ao limpar dados estruturados: {str(e)}")
     
     # ============================================================================
-    # TAB 9: HELP & INFO
+    # TAB 8: HELP & INFO
     # ============================================================================
-# ============================================================================
-# TAB 9: HELP & INFO - TRANSLATED
-# ============================================================================
-    with tab9:
+    with tab8: # This is the new eighth tab
         st.header("ℹ️ Ajuda e Informações")
-        
-        # Application overview
-        st.subheader("📊 Visão Geral da Aplicação")
         st.markdown("""
-        Este completo Gerenciador e Dashboard de Dados Financeiros oferece:
-        
-        **🔹 Gerenciamento de Dados:**
-        - Faça upload e processe dados financeiros de arquivos Excel
-        - Faça upload e processe dados de produtos estruturados (estruturadas)
-        - Detecção automática de duplicatas e validação de dados
-        - Atualizações inteligentes de dados baseadas em data (mantém apenas o mais recente por mês)
-        
-        **🔹 Análise e Visualização:**
-        - Análise de receita com produtos tradicionais e estruturados
-        - Análise de portfólio e ROA (Retorno sobre Ativos)
-        - Análise de comportamento do cliente (não operadores, clientes ativados)
-        - Gráficos interativos e tabelas detalhadas
-        
-        **🔹 Gerenciamento de Banco de Dados:**
-        - Banco de dados SQLite para armazenamento confiável
-        - Capacidades de exportação de dados
-        - Ferramentas de manutenção do banco de dados
+        Bem-vindo ao Dashboard Positivador!
+
+        Este aplicativo Streamlit foi projetado para ajudá-lo a analisar seus dados financeiros e de operações estruturadas.
+
+        ### Abas do Dashboard:
+        -   **📈 Análise de Receita**: Visão geral rápida com as principais métricas e gráficos resumidos, além de gráficos de composição detalhados por tipo de receita.
+        -   **🎯 Portfólio & ROA**: Análise do retorno sobre ativos (ROA) e alocação de portfólio.
+        -   **🚫 Não Operaram**: Identifica clientes que não operaram na bolsa e o impacto no patrimônio.
+        -   **✅ Clientes Ativados**: Mostra clientes que ativaram no mês, com detalhes sobre seu perfil e patrimônio.
+        -   **📤 Upload Dados Financeiros**: Para fazer upload de novos arquivos de dados financeiros (`financial_data`). O sistema inteligentemente substitui apenas os registros de uma `Data Posição` mais antiga por uma mais nova para o mesmo mês/ano.
+        -   **🏗️ Upload Estruturadas**: Para fazer upload de novos arquivos de dados de operações estruturadas (`estruturadas`). Este processo inclui regras específicas para limpeza e detecção de duplicatas.
+        -   **🗄️ Gerenciador BD**: Permite visualizar o conteúdo das tabelas do banco de dados e realizar operações de manutenção, como limpeza de dados.
+        -   **ℹ️ Ajuda & Info**: Esta página com informações adicionais.
+
+        ### Como Usar:
+        1.  **Upload de Dados**: Comece fazendo upload dos seus arquivos nas abas "Upload Dados Financeiros" e "Upload Estruturadas". O dashboard só funcionará com dados carregados.
+        2.  **Filtros na Barra Lateral**: Na barra lateral esquerda (visível nas abas de análise), você pode refinar a análise selecionando meses, assessores e tipos de pessoa.
+        3.  **Explorar Abas**: Navegue pelas abas para diferentes perspectivas sobre seus dados. Na aba "Análise de Receita", use os botões de rádio para alternar entre as visões de receita total, composição por tipo principal (Tradicional vs. Estruturada) e a nova visão detalhada de todas as fontes de receita (Bolsa, Futuros, RF, Estruturadas).
+
+        ### Fale Conosco:
+        Se você tiver dúvidas, sugestões ou encontrar algum problema, entre em contato com o desenvolvedor.
         """)
-        
-        # Data processing rules
-        st.subheader("📋 Regras de Processamento de Dados")
-        
-        with st.expander("📈 Processamento de Dados Financeiros"):
-            st.markdown("""
-            **Mapeamento de Colunas:**
-            - Nomes de colunas em Português são automaticamente mapeados para o esquema do banco de dados em Inglês
-            - Exemplo: "Data Posição" → "Data_Posicao"
-            
-            **Lógica de Data:**
-            - Apenas a "Data Posição" mais recente por mês/ano é mantida
-            - Dados mais antigos para o mesmo mês são automaticamente substituídos
-            
-            **Ajustes de Receita:**
-            - Todas as colunas "Receita" são multiplicadas por 0.4 (0.5 × 0.8)
-            - Isso representa a estrutura de comissão ajustada
-            """)
-        
-        with st.expander("🏗️ Processamento de Dados Estruturados"):
-            st.markdown("""
-            **Etapas de Processamento:**
-            1. Remove as 3 últimas linhas da planilha carregada
-            2. Mantém apenas as linhas onde "Status da Operação" = "Totalmente executado"
-            3. Remove o primeiro caractere da coluna "Cod A"
-            4. Aplica o multiplicador de 0.8 aos valores de comissão
-            
-            **Detecção de Duplicatas:**
-            - Verificação abrangente de duplicatas em relação ao banco de dados existente
-            - Usa chaves compostas para correspondência precisa
-            - Opção de adicionar apenas registros únicos ou substituir todos os dados
-            """)
-        
-        # ROA calculations
-        st.subheader("🎯 Cálculos de ROA")
-        
-        with st.expander("📊 Fórmulas de ROA Explicadas"):
-            st.markdown("""
-            **ROA Total:**
-            ```
-            ROA Total = (Receita Total ÷ Patrimônio Líquido) × 100
-            ```
-            - Receita Total = Receita Tradicional (×0.4) + Comissões Estruturadas (×0.8)
-            
-            **ROA Estruturadas:**
-            ```
-            ROA Estruturadas = (Comissões Estruturadas ÷ Patrimônio Líquido) × 100
-            ```
-            
-            **ROA Renda Variável:**
-            ```
-            ROA RV = (Receita RV ÷ Patrimônio RV) × 100
-            ```
-            - Receita RV = Receita Bovespa + Receita Futuros
-            - Patrimônio RV = Renda Variável + Fundos Imobiliários
-            
-            **Alocação RV:**
-            ```
-            Alocação RV = (Patrimônio RV ÷ Patrimônio Total) × 100
-            ```
-            
-            **Variação PL:**
-            ```
-            Variação PL = Patrimônio Atual - Patrimônio Mês Anterior
-            ```
-            """)
-        
-        # Usage tips
-        st.subheader("💡 Dicas de Uso")
-        
-        with st.expander("🚀 Primeiros Passos"):
-            st.markdown("""
-            **Configuração Inicial:**
-            1. Comece pela aba "Upload Dados Financeiros"
-            2. Faça upload do seu arquivo Excel principal de dados financeiros
-            3. Revise a análise de dados e processe as atualizações
-            4. Opcionalmente, faça upload dos dados de estruturadas
-            5. Use as abas do dashboard para análise
-            
-            **Atualizações Regulares:**
-            1. Faça upload de novos arquivos de dados mensais
-            2. O sistema detectará automaticamente o que precisa ser atualizado
-            3. Apenas dados mais novos substituirão registros existentes
-            4. Use o dashboard para análise contínua
-            """)
-        
-        with st.expander("📊 Navegação no Dashboard"):
-            st.markdown("""
-            **Aba Dashboard:** Visão geral rápida com métricas chave e melhores desempenhos
-            
-            **Aba Análise de Receita:** Detalhamento da receita com filtros flexíveis
-            
-            **Aba Portfólio & ROA:** Análise avançada de portfólio e cálculos de ROA
-            
-            **Aba Não Operaram:** Análise de clientes que não negociaram ações
-            
-            **Aba Clientes Ativados:** Análise de clientes recém-ativados
-            
-            **Abas de Upload:** Gerenciamento de dados e processamento de arquivos
-            
-            **Aba Gerenciador de Banco de Dados:** Visualize, exporte e mantenha o conteúdo do banco de dados
-            """)
-        
-        with st.expander("🔍 Filtragem e Análise"):
-            st.markdown("""
-            **Seleção de Período:**
-            - Mês Único: Analisa um mês específico
-            - Múltiplos Meses: Compara vários meses
-            - Todos os Meses: Análise abrangente de todos os dados disponíveis
-            
-            **Filtragem por Assessor:**
-            - Selecione assessores específicos para análise focada
-            - Use "Todos os Assessores" para uma visão geral completa
-            
-            **Tipos de Gráfico:**
-            - Barras Verticais: Visualização padrão de comparação
-            - Barras Horizontais: Melhor para muitos assessores
-            - Gráfico de Pizza: Visualização de distribuição percentual
-            """)
-        
-        # Troubleshooting
-        st.subheader("🔧 Solução de Problemas")
-        
-        with st.expander("❌ Problemas Comuns"):
-            st.markdown("""
-            **Problemas de Upload de Arquivo:**
-            - Certifique-se de que os arquivos Excel tenham os nomes de coluna esperados
-            - Verifique se a coluna "Data Posição" existe nos dados financeiros
-            - Verifique se os arquivos de estruturadas possuem todas as colunas necessárias
-            
-            **Problemas de Processamento de Dados:**
-            - Verifique se há caracteres especiais nos dados
-            - Certifique-se de que os formatos de data sejam consistentes
-            - Verifique se as colunas numéricas não contêm texto
-            
-            **Problemas do Dashboard:**
-            - Se nenhum dado aparecer, verifique se os dados foram enviados com sucesso
-            - Tente recarregar a página se os gráficos não carregarem
-            - Verifique as seleções de filtro se os resultados parecerem vazios
-            
-            **Problemas de Desempenho:**
-            - Grandes conjuntos de dados podem levar tempo para serem processados
-            - Considere filtrar os dados para melhor desempenho
-            - Use a análise de mês único para resultados mais rápidos
-            """)
-        
-        # Technical information
-        st.subheader("🔧 Informações Técnicas")
-        
-        with st.expander("💻 Requisitos do Sistema"):
-            st.markdown("""
-            **Dependências:**
-            - Streamlit (interface web)
-            - Pandas (processamento de dados)
-            - SQLite3 (banco de dados)
-            - Plotly (gráficos interativos)
-            - OpenPyXL (leitura de arquivos Excel)
-            
-            **Banco de Dados:**
-            - Arquivo de banco de dados SQLite: `financial_data.db`
-            - Duas tabelas principais: `financial_data` e `estruturadas`
-            - Criação automática de tabelas na primeira execução
-            
-            **Formatos de Arquivo:**
-            - Suportados: .xlsx, .xls
-            - Formato de exportação: CSV com separador de ponto e vírgula
-            """)
-        
-        # Contact and support
-        st.subheader("📞 Suporte")
-        st.markdown("""
-        **Para suporte técnico ou dúvidas:**
-        - Verifique esta seção de ajuda primeiro
-        - Revise as mensagens de erro para orientação específica
-        - Certifique-se de que seus arquivos de dados correspondam ao formato esperado
-        - Tente a aba Gerenciador de Banco de Dados para verificar a integridade dos dados
-        """)
-        
-        # Version information
-        st.subheader("📋 Informações da Versão")
-        st.info("Gerenciador e Dashboard de Dados Financeiros v2.0 - Sistema Integrado de Upload e Análise")
 
 if __name__ == "__main__":
     main()
