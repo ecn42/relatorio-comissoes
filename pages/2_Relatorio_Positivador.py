@@ -1457,11 +1457,10 @@ def main():
                     st.metric("% Estruturada", f"{structured_pct:.1f}%")
                 
                 # Chart Type Selector for Tab 1 (Revenue Analysis)
-                chart_option = st.radio(
+                chart_option = st.selectbox(
                     "Selecione o tipo de gráfico:",
                     [
                         "Total da Receita por Assessor", 
-                        "Composição da Receita por Assessor (Tradicional vs Estruturada)",
                         "Detalhe da Receita (Tradicional e Estruturada)", # NEW OPTION
                         "Distribuição da Receita Total (Pizza)"
                     ],
@@ -1471,9 +1470,6 @@ def main():
                 if chart_option == "Total da Receita por Assessor":
                     fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "horizontal_bar") # Using horizontal bar for better readability
                     st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_total')
-                elif chart_option == "Composição da Receita por Assessor (Tradicional vs Estruturada)":
-                    fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "stacked_bar_breakdown")
-                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_breakdown')
                 elif chart_option == "Detalhe da Receita (Tradicional e Estruturada)": # NEW CHART DISPLAY
                     fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "traditional_breakdown")
                     st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_detailed_breakdown')

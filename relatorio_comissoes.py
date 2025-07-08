@@ -1486,141 +1486,74 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded"
     )
-    
+
     st.title("📊 Analisador de Dados de Comissão")
     st.markdown("Faça upload dos seus arquivos Excel mensais e analise os dados de comissão ao longo do tempo.")
-    
+
     # Initialize our data manager
     data_manager = CommissionDataManager()
-    
+
     # Get available months once for all tabs
     available_months = data_manager.get_available_months()
-    
+
     # Show database status in sidebar
     st.sidebar.title("📊 Dashboard de Comissões")
-    
+
     if available_months:
         st.sidebar.success(f"✅ **{len(available_months)} mês(es) disponível(is)**")
-        
+
         # Show quick stats
         conn = sqlite3.connect(data_manager.db_path)
         total_records = pd.read_sql_query("SELECT COUNT(*) as count FROM commission_data", conn).iloc[0]['count']
         total_commission = pd.read_sql_query("SELECT SUM(comissao_bruta_rs_escritorio) as total FROM commission_data", conn).iloc[0]['total']
         conn.close()
-        
+
         st.sidebar.metric("Total de Registros", format_number(total_records))
         if total_commission:
             st.sidebar.metric("Comissão Total", format_currency(total_commission))
-        
+
         # Create the centralized month selector (only once)
         selected_months = create_centralized_month_selector(available_months)
     else:
         st.sidebar.warning("⚠️ Nenhum dado disponível")
         st.sidebar.info("Faça upload de arquivos na aba 'Upload de Dados'")
         selected_months = []
-    
-    # Create tabs
+
+    # Create tabs - MODIFIED ORDER HERE
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📁 Upload de Dados", 
-        "📈 Análise de Dados", 
-        "💹 Renda Variável", 
-        "🔄 Cross-Sell", 
-        "🔍 Explorar Dados"
+        "📈 Análise de Dados",
+        "💹 Renda Variável",
+        "🔄 Cross-Sell",
+        "🔍 Explorar Dados",
+        "📁 Upload de Dados" # This tab is now last
     ])
-    
-    with tab1:
-        st.header("Upload de Arquivos Excel")
-        
-        # Add a section for database maintenance
-        with st.expander("🔧 Manutenção do Banco de Dados"):
-            st.subheader("Corrigir Tipos de Dados")
-            st.write("Se você está tendo problemas com códigos de cliente sendo armazenados como decimais (ex: '12345.0'), clique abaixo para corrigi-los:")
-            
-            if st.button("Corrigir Tipos de Dados dos Códigos de Cliente"):
-                data_manager.fix_client_codes_data_types()
-        
-        # File uploader - allows multiple files
-        uploaded_files = st.file_uploader(
-            "Escolha os arquivos Excel",
-            type=['xlsx', 'xls'],
-            accept_multiple_files=True,
-            help="Faça upload de um ou mais arquivos Excel contendo dados de comissão"
-        )
-        
-        if uploaded_files:
-            for uploaded_file in uploaded_files:
-                st.subheader(f"Processando: {uploaded_file.name}")
-                
-                # Process the file
-                df, month_year, record_count = data_manager.process_xlsx_file(uploaded_file)
-                
-                if df is not None:
-                    st.success(f"✅ Arquivo processado com sucesso!")
-                    st.info(f"📅 Mês/Ano detectado: {month_year}")
-                    st.info(f"📊 Registros encontrados: {format_number(record_count)}")
-                    # Show a preview of the data
-                    with st.expander("Visualizar dados"):
-                        st.dataframe(df.head())
-                    
-                    # Insert data into database
-                    if st.button(f"Processar dados de {uploaded_file.name}", key=f"process_{uploaded_file.name}"):
-                        inserted_count = data_manager.insert_data(df, month_year)
-                        if inserted_count > 0:
-                            st.success(f"✅ {format_number(inserted_count)} registros processados com sucesso!")
-                            # Clear the cache and rerun to refresh available months
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.info("ℹ️ Nenhum registro foi inserido.")
-        
-        # Show current database status
-        st.subheader("Status do Banco de Dados")
-        if available_months:
-            st.success(f"📅 Meses disponíveis: {', '.join(available_months)}")
-            
-            # Show record count per month
-            conn = sqlite3.connect(data_manager.db_path)
-            month_counts = pd.read_sql_query(
-                "SELECT month_year as 'Mês', COUNT(*) as 'Qtd Registros' FROM commission_data GROUP BY month_year ORDER BY month_year",
-                conn
-            )
-            conn.close()
-            
-            # Format the count column
-            month_counts['Qtd Registros Formatada'] = month_counts['Qtd Registros'].apply(format_number)
-            display_counts = month_counts[['Mês', 'Qtd Registros Formatada']].copy()
-            display_counts.columns = ['Mês', 'Quantidade de Registros']
-            
-            st.dataframe(display_counts, use_container_width=True)
-        else:
-            st.info("Ainda não há dados no banco. Faça upload de alguns arquivos!")
-    
-    with tab2:
+
+    with tab1: # This is now "Análise de Dados"
         st.header("Análise de Dados")
-        
+
         if not available_months:
             st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload de alguns arquivos primeiro!")
             return
-        
+
         if not selected_months:
             st.warning("Por favor, selecione pelo menos um mês na barra lateral.")
             return
-        
+
         # Get data for selected months
         df_analysis = data_manager.get_data_for_analysis(months=selected_months)
-        
+
         if df_analysis.empty:
             st.warning("Nenhum dado encontrado para os meses selecionados.")
             return
-        
+
         st.success(f"📊 Analisando {format_number(len(df_analysis))} registros de {len(selected_months)} mês(es)")
-        
+
         # Analysis options
         analysis_type = st.selectbox(
             "Escolha o tipo de análise:",
             ["Por Produto", "Por Nível 1", "Por Código de Cliente", "Por Código de Assessor", "Evolução Temporal"]
         )
-        
+
         # Create visualizations based on selection
         if analysis_type == "Por Produto":
             create_product_analysis(df_analysis)
@@ -1633,28 +1566,28 @@ def main():
         elif analysis_type == "Evolução Temporal":
             create_time_evolution_analysis(df_analysis)
 
-    with tab3:
+    with tab2: # This is now "Renda Variável"
         st.header("💹 Análise de Renda Variável")
-        
+
         if not available_months:
             st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload de alguns arquivos primeiro!")
             return
-        
+
         if not selected_months:
             st.warning("Por favor, selecione pelo menos um mês na barra lateral.")
             return
-        
+
         # Get data for selected months
         df_rv = data_manager.get_data_for_analysis(months=selected_months)
-        
+
         if df_rv.empty:
             st.warning("Nenhum dado encontrado para os meses selecionados.")
             return
-        
+
         # Apply Renda Variável analysis
         create_renda_variavel_analysis(df_rv)
 
-    with tab4:
+    with tab3: # This is now "Cross-Sell"
         st.header("🔄 Análise de Cross-Sell")
         st.markdown("Análise dos dados de comissão para uma lista específica de clientes de cross-sell, carregada do arquivo `cross_sell_clients.txt`.")
 
@@ -1678,28 +1611,28 @@ def main():
                 else:
                     # Get data and filter
                     df_all = data_manager.get_data_for_analysis(months=selected_months)
-                    
+
                     if not df_all.empty:
                         # Important: Ensure client codes are strings for matching
                         df_all['cod_cliente'] = df_all['cod_cliente'].astype(str).str.replace('\.0$', '', regex=True)
                         df_cross_sell = df_all[df_all['cod_cliente'].isin(cross_sell_clients)].copy()
-                        
+
                         # Call the enhanced analysis function
                         create_cross_sell_analysis(df_cross_sell)
-    
-    with tab5:
+
+    with tab4: # This is now "Explorar Dados"
         st.header("🔍 Explorador de Dados")
         st.markdown("Use esta ferramenta para explorar e filtrar os dados de forma interativa.")
-        
+
         if not available_months:
             st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload de alguns arquivos primeiro!")
             return
-        
+
         if selected_months:
             df_explorer = data_manager.get_data_for_analysis(months=selected_months)
             if not df_explorer.empty:
                 st.info(f"📊 Explorando {format_number(len(df_explorer))} registros")
-                
+
                 # Add some basic statistics before the explorer
                 with st.expander("📈 Estatísticas Rápidas"):
                     col1, col2, col3, col4 = st.columns(4)
@@ -1715,16 +1648,16 @@ def main():
                     with col4:
                         unique_products = df_explorer['produto'].nunique()
                         st.metric("Produtos Únicos", format_number(unique_products))
-                
+
                 # Use the dataframe explorer
                 filtered_df = dataframe_explorer(df_explorer, case=False)
-                
+
                 # Show filtered results summary
                 if len(filtered_df) != len(df_explorer):
                     st.info(f"🔍 Filtro aplicado: {format_number(len(filtered_df))} de {format_number(len(df_explorer))} registros mostrados")
-                
+
                 st.dataframe(filtered_df, use_container_width=True)
-                
+
                 # Add download button for filtered data
                 if not filtered_df.empty:
                     csv = filtered_df.to_csv(index=False)
@@ -1737,6 +1670,72 @@ def main():
         else:
             st.warning("Por favor, selecione pelo menos um mês na barra lateral.")
 
+    with tab5: # This is now "Upload de Dados"
+        st.header("Upload de Arquivos Excel")
+
+        # Add a section for database maintenance
+        with st.expander("🔧 Manutenção do Banco de Dados"):
+            st.subheader("Corrigir Tipos de Dados")
+            st.write("Se você está tendo problemas com códigos de cliente sendo armazenados como decimais (ex: '12345.0'), clique abaixo para corrigi-los:")
+
+            if st.button("Corrigir Tipos de Dados dos Códigos de Cliente"):
+                data_manager.fix_client_codes_data_types()
+
+        # File uploader - allows multiple files
+        uploaded_files = st.file_uploader(
+            "Escolha os arquivos Excel",
+            type=['xlsx', 'xls'],
+            accept_multiple_files=True,
+            help="Faça upload de um ou mais arquivos Excel contendo dados de comissão"
+        )
+
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                st.subheader(f"Processando: {uploaded_file.name}")
+
+                # Process the file
+                df, month_year, record_count = data_manager.process_xlsx_file(uploaded_file)
+
+                if df is not None:
+                    st.success(f"✅ Arquivo processado com sucesso!")
+                    st.info(f"📅 Mês/Ano detectado: {month_year}")
+                    st.info(f"📊 Registros encontrados: {format_number(record_count)}")
+                    # Show a preview of the data
+                    with st.expander("Visualizar dados"):
+                        st.dataframe(df.head())
+
+                    # Insert data into database
+                    if st.button(f"Processar dados de {uploaded_file.name}", key=f"process_{uploaded_file.name}"):
+                        inserted_count = data_manager.insert_data(df, month_year)
+                        if inserted_count > 0:
+                            st.success(f"✅ {format_number(inserted_count)} registros processados com sucesso!")
+                            # Clear the cache and rerun to refresh available months
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.info("ℹ️ Nenhum registro foi inserido.")
+
+        # Show current database status
+        st.subheader("Status do Banco de Dados")
+        if available_months:
+            st.success(f"📅 Meses disponíveis: {', '.join(available_months)}")
+
+            # Show record count per month
+            conn = sqlite3.connect(data_manager.db_path)
+            month_counts = pd.read_sql_query(
+                "SELECT month_year as 'Mês', COUNT(*) as 'Qtd Registros' FROM commission_data GROUP BY month_year ORDER BY month_year",
+                conn
+            )
+            conn.close()
+
+            # Format the count column
+            month_counts['Qtd Registros Formatada'] = month_counts['Qtd Registros'].apply(format_number)
+            display_counts = month_counts[['Mês', 'Qtd Registros Formatada']].copy()
+            display_counts.columns = ['Mês', 'Quantidade de Registros']
+
+            st.dataframe(display_counts, use_container_width=True)
+        else:
+            st.info("Ainda não há dados no banco. Faça upload de alguns arquivos!")
 
 def create_renda_variavel_analysis(df):
     """Create comprehensive analysis for Renda Variável data with enhanced visualizations."""
