@@ -5,8 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import calendar
+import unicodedata
 import os
-
 # ============================================================================
 # DATABASE AND UTILITY FUNCTIONS (from upload code)
 # ============================================================================
@@ -369,12 +369,27 @@ def clean_estruturadas_column_names(df):
     df_cleaned = df.rename(columns=column_mapping)
     return df_cleaned
 
+def normalize_text(text):
+    """Normalize text by removing accents and converting to standard form"""
+    if not isinstance(text, str):
+        return text
+    # Remove accents and normalize
+    normalized = unicodedata.normalize('NFD', text)
+    ascii_text = normalized.encode('ascii', 'ignore').decode('ascii')
+    return ascii_text
+
 def clean_column_names(df):
     """Clean column names to match database schema"""
+    # First, let's see what columns we actually have
+    print("Columns found in DataFrame:")
+    for col in df.columns:
+        print(f"  '{col}'")
+    
     column_mapping = {
         'Assessor': 'Assessor',
         'Cliente': 'Cliente',
         'Profissão': 'Profissao',
+        'Profissao': 'Profissao',  # normalized version
         'Sexo': 'Sexo',
         'Segmento': 'Segmento',
         'Data de Cadastro': 'Data_de_Cadastro',
@@ -387,38 +402,67 @@ def clean_column_names(df):
         'Operou Fundo?': 'Operou_Fundo',
         'Operou Renda Fixa?': 'Operou_Renda_Fixa',
         'Aplicação Financeira Declarada Ajustada': 'Aplicacao_Financeira_Declarada_Ajustada',
+        'Aplicacao Financeira Declarada Ajustada': 'Aplicacao_Financeira_Declarada_Ajustada',
         'Receita no Mês': 'Receita_no_Mes',
+        'Receita no Mes': 'Receita_no_Mes',
         'Receita Bovespa': 'Receita_Bovespa',
         'Receita Futuros': 'Receita_Futuros',
         'Receita RF Bancários': 'Receita_RF_Bancarios',
+        'Receita RF Bancarios': 'Receita_RF_Bancarios',
         'Receita RF Privados': 'Receita_RF_Privados',
         'Receita RF Públicos': 'Receita_RF_Publicos',
+        'Receita RF Publicos': 'Receita_RF_Publicos',
         'Captação Bruta em M': 'Captacao_Bruta_em_M',
+        'Captacao Bruta em M': 'Captacao_Bruta_em_M',
         'Resgate em M': 'Resgate_em_M',
         'Captação Líquida em M': 'Captacao_Liquida_em_M',
+        'Captacao Liquida em M': 'Captacao_Liquida_em_M',
         'Captação TED': 'Captacao_TED',
+        'Captacao TED': 'Captacao_TED',
         'Captação ST': 'Captacao_ST',
+        'Captacao ST': 'Captacao_ST',
         'Captação OTA': 'Captacao_OTA',
+        'Captacao OTA': 'Captacao_OTA',
         'Captação RF': 'Captacao_RF',
+        'Captacao RF': 'Captacao_RF',
         'Captação TD': 'Captacao_TD',
+        'Captacao TD': 'Captacao_TD',
         'Captação PREV': 'Captacao_PREV',
+        'Captacao PREV': 'Captacao_PREV',
         'Net em M 1': 'Net_em_M_1',
         'Net Em M': 'Net_Em_M',
         'Net Renda Fixa': 'Net_Renda_Fixa',
         'Net Fundos Imobiliários': 'Net_Fundos_Imobiliarios',
+        'Net Fundos Imobiliarios': 'Net_Fundos_Imobiliarios',
+        # Handle both accented and non-accented versions
         'Net Renda Variavel': 'Net_Renda_Variavel',
+        'Net Renda Variável': 'Net_Renda_Variavel',
         'Net Fundos': 'Net_Fundos',
         'Net Financeiro': 'Net_Financeiro',
         'Net Previdencia': 'Net_Previdencia',
+        'Net Previdência': 'Net_Previdencia',
         'Net Outros': 'Net_Outros',
         'Receita Aluguel': 'Receita_Aluguel',
         'Receita Complemento Pacote Corretagem': 'Receita_Complemento_Pacote_Corretagem',
         'Tipo Pessoa': 'Tipo_Pessoa',
         'Data Posição': 'Data_Posicao',
-        'Data Atualização': 'Data_Atualizacao'
+        'Data Posicao': 'Data_Posicao',
+        'Data Atualização': 'Data_Atualizacao',
+        'Data Atualizacao': 'Data_Atualizacao'
     }
     
-    df_cleaned = df.rename(columns=column_mapping)
+    # Create a copy to avoid modifying the original
+    df_cleaned = df.copy()
+    
+    # Apply the mapping
+    df_cleaned = df_cleaned.rename(columns=column_mapping)
+    
+    # Print what we mapped to for debugging
+    print("Column mapping applied:")
+    for old_col, new_col in column_mapping.items():
+        if old_col in df.columns:
+            print(f"  '{old_col}' -> '{new_col}'")
+    
     return df_cleaned
 
 def insert_data_to_db(conn, df):
