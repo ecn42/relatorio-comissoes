@@ -143,6 +143,7 @@ def generate_pdf_report(report_type, df, selected_months, selected_doc_types):
     # Title
     story.append(Paragraph(emoji_title, title_style))
     story.append(Paragraph(f"Período: {period_str}", subtitle_style))
+    story.append(Paragraph("Desenvolvido por Eduardo Chagas Nascimento", footer_style))
     story.append(Spacer(1, 20))
     
     # Executive Summary with more metrics
@@ -208,7 +209,7 @@ def generate_pdf_report(report_type, df, selected_months, selected_doc_types):
     
     generation_time = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
     story.append(Paragraph(f"Relatório gerado em {generation_time}", footer_style))
-    story.append(Paragraph("Desenvolido por Eduardo Chagas Nascimento", footer_style))
+    story.append(Paragraph("Desenvolvido por Eduardo Chagas Nascimento", footer_style))
     
     # Build PDF
     doc.build(story)
