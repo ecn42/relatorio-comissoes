@@ -119,6 +119,13 @@ def generate_pdf_report(report_type, df, selected_months, selected_doc_types):
         spaceAfter=12,
         alignment=TA_LEFT
     )
+    footer_style = ParagraphStyle(
+    'Footer',
+    parent=styles['Normal'],
+    fontSize=9,
+    alignment=TA_CENTER,
+    textColor=colors.grey
+)
     
     # Story to hold all elements
     story = []
@@ -199,13 +206,7 @@ def generate_pdf_report(report_type, df, selected_months, selected_doc_types):
     story.append(PageBreak())
     story.append(Spacer(1, 50))
     
-    footer_style = ParagraphStyle(
-        'Footer',
-        parent=styles['Normal'],
-        fontSize=9,
-        alignment=TA_CENTER,
-        textColor=colors.grey
-    )
+
     
     generation_time = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
     story.append(Paragraph(f"Relatório gerado em {generation_time}", footer_style))
