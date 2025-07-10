@@ -8,6 +8,29 @@ from pathlib import Path
 import os
 from streamlit_extras.dataframe_explorer import dataframe_explorer
 
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image # <-- This line!
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.graphics.shapes import Drawing, String
+from reportlab.graphics.charts.linecharts import HorizontalLineChart
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.legends import Legend
+from reportlab.graphics import renderPDF # Ensure this is also there if you're rendering Drawing objects directly.
+
+
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import seaborn as sns
+import io
+from io import BytesIO
+import base64
+
+
 # Enhanced color palette for better visualizations
 COLORS = {
     'primary': '#1f77b4',
@@ -31,6 +54,1041 @@ def format_number(value):
     if pd.isna(value) or value is None:
         return "0"
     return f"{value:,.0f}".replace(',', '.')
+
+def generate_pdf_report(report_type, df, selected_months, selected_doc_types):
+    """
+    Generate a comprehensive PDF report with graphs and detailed analysis.
+    
+    Args:
+        report_type (str): Type of report ('analise', 'renda_variavel', 'cross_sell')
+        df (DataFrame): The filtered data for the report
+        selected_months (list): List of selected months
+        selected_doc_types (list): List of selected document types
+        
+    Returns:
+        bytes: PDF file content as bytes
+    """
+    # Create a BytesIO buffer to hold the PDF
+    buffer = io.BytesIO()
+    
+    # Create the PDF document
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=50,
+        leftMargin=50,
+        topMargin=50,
+        bottomMargin=50
+    )
+    
+    # Get styles
+    styles = getSampleStyleSheet()
+    
+    # Create custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor('#1f77b4')
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'CustomSubtitle',
+        parent=styles['Heading2'],
+        fontSize=16,
+        spaceAfter=20,
+        alignment=TA_LEFT,
+        textColor=colors.HexColor('#2c3e50')
+    )
+    
+    section_style = ParagraphStyle(
+        'SectionStyle',
+        parent=styles['Heading3'],
+        fontSize=14,
+        spaceAfter=15,
+        alignment=TA_LEFT,
+        textColor=colors.HexColor('#34495e')
+    )
+    
+    normal_style = ParagraphStyle(
+        'CustomNormal',
+        parent=styles['Normal'],
+        fontSize=11,
+        spaceAfter=12,
+        alignment=TA_LEFT
+    )
+    
+    # Story to hold all elements
+    story = []
+    
+    # Determine report title and emoji based on type
+    report_titles = {
+        'analise': ('📊 Relatório Completo de Análise', 'Análise Geral de Comissões'),
+        'renda_variavel': ('💹 Relatório Completo de Renda Variável', 'Análise de Renda Variável'),
+        'cross_sell': ('🔄 Relatório Completo de Cross-Sell', 'Análise de Cross-Sell')
+    }
+    
+    emoji_title, clean_title = report_titles.get(report_type, ('📊 Relatório', 'Relatório de Comissões'))
+    
+    # Format period string
+    if len(selected_months) == 1:
+        period_str = selected_months[0]
+    elif len(selected_months) <= 3:
+        period_str = ", ".join(selected_months)
+    else:
+        period_str = f"{min(selected_months)} a {max(selected_months)} ({len(selected_months)} meses)"
+    
+    # Title
+    story.append(Paragraph(emoji_title, title_style))
+    story.append(Paragraph(f"Período: {period_str}", subtitle_style))
+    story.append(Spacer(1, 20))
+    
+    # Executive Summary with more metrics
+    story.append(Paragraph("📋 Resumo Executivo Detalhado", subtitle_style))
+    
+    # Calculate comprehensive summary metrics
+    total_records = len(df)
+    total_commission = df['comissao_bruta_rs_escritorio'].sum()
+    avg_commission = df['comissao_bruta_rs_escritorio'].mean()
+    median_commission = df['comissao_bruta_rs_escritorio'].median()
+    unique_clients = df['cod_cliente'].nunique()
+    unique_products = df['produto'].nunique()
+    unique_assessors = df['cod_assessor_direto'].nunique()
+    total_revenue = df['receita_rs'].sum() if 'receita_rs' in df.columns else 0
+    
+    # Create comprehensive summary table
+    summary_data = [
+        ['Métrica', 'Valor', 'Métrica', 'Valor'],
+        ['Total de Registros', format_number(total_records), 'Clientes Únicos', format_number(unique_clients)],
+        ['Comissão Total', format_currency(total_commission), 'Produtos Únicos', format_number(unique_products)],
+        ['Comissão Média', format_currency(avg_commission), 'Assessores Únicos', format_number(unique_assessors)],
+        ['Comissão Mediana', format_currency(median_commission), 'Receita Total', format_currency(total_revenue)],
+        ['Tipos de Documento', ', '.join([t.upper() for t in selected_doc_types]), 'Período Analisado', period_str]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[1.8*inch, 1.5*inch, 1.8*inch, 1.5*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    
+    story.append(summary_table)
+    story.append(Spacer(1, 30))
+    
+    # Add specific analysis based on report type
+    if report_type == 'analise':
+        story.extend(_add_comprehensive_general_analysis_to_pdf(df, styles, subtitle_style, section_style, normal_style))
+    elif report_type == 'renda_variavel':
+        story.extend(_add_comprehensive_renda_variavel_analysis_to_pdf(df, styles, subtitle_style, section_style, normal_style))
+    elif report_type == 'cross_sell':
+        story.extend(_add_comprehensive_cross_sell_analysis_to_pdf(df, styles, subtitle_style, section_style, normal_style))
+    
+    # Add footer with generation info
+    story.append(PageBreak())
+    story.append(Spacer(1, 50))
+    
+    footer_style = ParagraphStyle(
+        'Footer',
+        parent=styles['Normal'],
+        fontSize=9,
+        alignment=TA_CENTER,
+        textColor=colors.grey
+    )
+    
+    generation_time = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
+    story.append(Paragraph(f"Relatório gerado em {generation_time}", footer_style))
+    story.append(Paragraph("Desenvolido por Eduardo Chagas Nascimento", footer_style))
+    
+    # Build PDF
+    doc.build(story)
+    
+    # Get the PDF content
+    pdf_content = buffer.getvalue()
+    buffer.close()
+    
+    return pdf_content
+
+def create_matplotlib_chart_for_pdf(chart_type, data, title, width=6, height=4):
+    """
+    Create matplotlib charts and return as Image object for PDF inclusion.
+    
+    Args:
+        chart_type (str): Type of chart ('line', 'bar', 'pie', 'scatter')
+        data (dict): Data for the chart
+        title (str): Chart title
+        width (float): Chart width in inches (e.g., 6)
+        height (float): Chart height in inches (e.g., 4)
+        
+    Returns:
+        Image: ReportLab Image object
+    """
+    # Set style
+    plt.style.use('seaborn-v0_8') # Or 'ggplot', 'fivethirtyeight', etc.
+    
+    # Crucial: Set the figure size directly in inches.
+    # The `figsize` argument takes width and height in inches.
+    fig, ax = plt.subplots(figsize=(width, height)) 
+    
+    if chart_type == 'line':
+        ax.plot(data['x'], data['y'], marker='o', linewidth=2, markersize=6, color='#1f77b4')
+        ax.set_xlabel(data.get('xlabel', ''))
+        ax.set_ylabel(data.get('ylabel', ''))
+        ax.grid(True, alpha=0.3)
+        
+    elif chart_type == 'bar':
+        # Ensure labels are not too long for xticks
+        max_label_length = 20
+        display_labels = [label[:max_label_length] + '...' if len(label) > max_label_length else label for label in data['x']]
+        
+        bars = ax.bar(range(len(data['x'])), data['y'], color='#1f77b4', alpha=0.8)
+        ax.set_xticks(range(len(data['x'])))
+        ax.set_xticklabels(display_labels, rotation=45, ha='right', fontsize=8) # Reduced font size for labels
+        ax.set_ylabel(data.get('ylabel', ''))
+        
+        # Add value labels on bars - ensure they don't overlap too much
+        # Only add if there aren't too many bars
+        if len(data['x']) < 15: # Arbitrary limit to avoid clutter
+            for bar in bars:
+                height_val = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height_val,
+                       f'{height_val:,.0f}', ha='center', va='bottom', fontsize=7, color='black') # Smaller font for labels
+    
+    elif chart_type == 'pie':
+        # Ensure percentage labels don't get cut off if too many slices
+        wedges, texts, autotexts = ax.pie(data['values'], labels=data['labels'], autopct='%1.1f%%', 
+                                         startangle=90, colors=plt.cm.Set3.colors, pctdistance=0.85) # pctdistance moves labels in
+        ax.axis('equal') # Equal aspect ratio ensures that pie is drawn as a circle.
+        # Ensure autotexts are visible
+        plt.setp(autotexts, size=8, weight="bold", color="white")
+        plt.setp(texts, size=9) # For slice labels
+        
+    elif chart_type == 'scatter':
+        ax.scatter(data['x'], data['y'], alpha=0.6, s=data.get('sizes', 50), c='#1f77b4')
+        ax.set_xlabel(data.get('xlabel', ''))
+        ax.set_ylabel(data.get('ylabel', ''))
+        ax.grid(True, alpha=0.3)
+    
+    ax.set_title(title, fontsize=12, fontweight='bold', pad=15) # Adjusted pad for title spacing
+    plt.tight_layout() # Adjust layout to prevent labels from overlapping
+    
+    # Save to BytesIO buffer as PNG. Explicitly set DPI to a standard resolution.
+    # The default for ReportLab might be 72 DPI, so a higher DPI like 300 will make the image
+    # smaller in physical size when embedded if you don't scale it explicitly in ReportLab.
+    # However, setting ReportLab Image width/height will override this if provided.
+    # It's best to set DPI for image quality, and width/height for physical size in the PDF.
+    img_buffer = BytesIO()
+    plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight') # Increased DPI for better quality
+    img_buffer.seek(0)
+    plt.close(fig) # IMPORTANT: Close the figure to free up memory and prevent overlap in subsequent plots
+    
+    # Create ReportLab Image object.
+    # We provide explicit width and height in ReportLab units (inches).
+    # This will scale the image to fit the specified dimensions.
+    # Ensure the width and height align with your page margins.
+    img = Image(img_buffer, width=width*inch, height=height*inch) 
+    return img
+
+def _add_comprehensive_general_analysis_to_pdf(df, styles, subtitle_style, section_style, normal_style):
+    """Add comprehensive general analysis content to PDF story with graphs."""
+    story = []
+    
+    # 1. Time Evolution Analysis with Graph
+    story.append(Paragraph("📈 Análise de Evolução Temporal", subtitle_style))
+    
+    time_summary = df.groupby('month_year')['comissao_bruta_rs_escritorio'].agg(['sum', 'count', 'mean']).reset_index()
+    time_summary.columns = ['Mês', 'Comissão Total', 'Transações', 'Comissão Média']
+    time_summary = time_summary.sort_values('Mês')
+    
+    # Create time evolution chart
+    if len(time_summary) > 1:
+        chart_data = {
+            'x': time_summary['Mês'].tolist(),
+            'y': time_summary['Comissão Total'].tolist(),
+            'xlabel': 'Período',
+            'ylabel': 'Comissão (R$)'
+        }
+        time_chart = create_matplotlib_chart_for_pdf('line', chart_data, 'Evolução das Comissões ao Longo do Tempo')
+        story.append(time_chart)
+        story.append(Spacer(1, 20))
+    
+    # Detailed time table
+    story.append(Paragraph("Detalhamento Mensal:", section_style))
+    time_data = [['Mês', 'Comissão Total', 'Transações', 'Comissão Média', 'Crescimento %']]
+    
+    for i, row in time_summary.iterrows():
+        if i > 0:
+            prev_commission = time_summary.iloc[i-1]['Comissão Total']
+            growth = ((row['Comissão Total'] - prev_commission) / prev_commission * 100) if prev_commission > 0 else 0
+            growth_str = f"{growth:+.1f}%"
+        else:
+            growth_str = "N/A"
+            
+        time_data.append([
+            row['Mês'],
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(row['Comissão Média']),
+            growth_str
+        ])
+    
+    time_table = Table(time_data, colWidths=[1*inch, 1.3*inch, 1*inch, 1.3*inch, 0.8*inch])
+    time_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    story.append(time_table)
+    story.append(PageBreak())
+    
+    # 2. Product Analysis with Charts
+    story.append(Paragraph("📦 Análise Detalhada de Produtos", subtitle_style))
+    
+    product_summary = df.groupby('produto').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean'],
+        'receita_rs': 'sum',
+        'cod_cliente': 'nunique'
+    }).round(2)
+    
+    product_summary.columns = ['Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
+    product_summary = product_summary.reset_index().sort_values('Comissão Total', ascending=False)
+    
+    # Top 10 Products Bar Chart
+    top_10_products = product_summary.head(10)
+    if len(top_10_products) > 0:
+        chart_data = {
+            'x': [p[:15] + '...' if len(p) > 15 else p for p in top_10_products['produto'].tolist()],
+            'y': top_10_products['Comissão Total'].tolist(),
+            'ylabel': 'Comissão (R$)'
+        }
+        product_chart = create_matplotlib_chart_for_pdf('bar', chart_data, 'Top 10 Produtos por Comissão Total')
+        story.append(product_chart)
+        story.append(Spacer(1, 20))
+    
+    # Comprehensive product table (Top 20)
+    story.append(Paragraph("Top 20 Produtos - Análise Completa:", section_style))
+    product_data = [['Produto', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes']]
+    
+    for _, row in product_summary.head(20).iterrows():
+        product_name = row['produto'][:25] + '...' if len(row['produto']) > 25 else row['produto']
+        product_data.append([
+            product_name,
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(row['Comissão Média']),
+            format_currency(row['Receita Total']),
+            format_number(row['Clientes Únicos'])
+        ])
+    
+    product_table = Table(product_data, colWidths=[1.8*inch, 1.1*inch, 0.8*inch, 1.1*inch, 1.1*inch, 0.7*inch])
+    product_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+    ]))
+    
+    story.append(product_table)
+    story.append(PageBreak())
+    
+    # 3. Assessor Analysis with Scatter Plot
+    story.append(Paragraph("🎯 Análise Detalhada de Assessores", subtitle_style))
+    
+    assessor_summary = df.groupby('cod_assessor_direto').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean'],
+        'receita_rs': 'sum',
+        'cod_cliente': 'nunique'
+    }).round(2)
+    
+    assessor_summary.columns = ['Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
+    assessor_summary = assessor_summary.reset_index().sort_values('Comissão Total', ascending=False)
+    
+    # Assessor Performance Scatter Plot
+    top_30_assessors = assessor_summary.head(30)
+    if len(top_30_assessors) > 0:
+        chart_data = {
+            'x': top_30_assessors['Transações'].tolist(),
+            'y': top_30_assessors['Comissão Total'].tolist(),
+            'sizes': [max(20, min(200, x/10)) for x in top_30_assessors['Comissão Média'].tolist()],
+            'xlabel': 'Número de Transações',
+            'ylabel': 'Comissão Total (R$)'
+        }
+        assessor_chart = create_matplotlib_chart_for_pdf('scatter', chart_data, 'Performance dos Assessores: Volume vs Comissão (Top 30)')
+        story.append(assessor_chart)
+        story.append(Spacer(1, 20))
+    
+    # Comprehensive assessor table (Top 20)
+    story.append(Paragraph("Top 20 Assessores - Análise Completa:", section_style))
+    assessor_data = [['Código Assessor', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes']]
+    
+    for _, row in assessor_summary.head(20).iterrows():
+        assessor_data.append([
+            str(row['cod_assessor_direto']),
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(row['Comissão Média']),
+            format_currency(row['Receita Total']),
+            format_number(row['Clientes Únicos'])
+        ])
+    
+    assessor_table = Table(assessor_data, colWidths=[1.2*inch, 1.2*inch, 0.9*inch, 1.2*inch, 1.2*inch, 0.8*inch])
+    assessor_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    story.append(assessor_table)
+    story.append(PageBreak())
+    
+    # 4. Client Analysis
+    story.append(Paragraph("👥 Análise Detalhada de Clientes", subtitle_style))
+    
+    client_summary = df.groupby('cod_cliente').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean'],
+        'receita_rs': 'sum'
+    }).round(2)
+    
+    client_summary.columns = ['Comissão Total', 'Transações', 'Comissão Média', 'Receita Total']
+    client_summary = client_summary.reset_index().sort_values('Comissão Total', ascending=False)
+    
+    # Client distribution pie chart (Top 10 + Others)
+# Client distribution pie chart (Top 10 + Others)
+    top_10_clients = client_summary.head(10).copy() # Use .copy() to avoid SettingWithCopyWarning
+    
+    # Ensure values for the pie chart are non-negative
+    top_10_clients['Comissão Total'] = top_10_clients['Comissão Total'].apply(lambda x: max(0, x))
+    others_commission = max(0, client_summary.iloc[10:]['Comissão Total'].sum()) if len(client_summary) > 10 else 0
+    
+    # Only try to plot if there's at least some positive commission
+    if (top_10_clients['Comissão Total'].sum() + others_commission) > 0:
+        pie_labels = [f"Cliente {c}" for c in top_10_clients['cod_cliente'].tolist()]
+        pie_values = top_10_clients['Comissão Total'].tolist()
+        
+        if others_commission > 0:
+            pie_labels.append('Outros')
+            pie_values.append(others_commission)
+        
+        # Filter out any slices that became 0 after making values non-negative
+        filtered_data = [(lbl, val) for lbl, val in zip(pie_labels, pie_values) if val > 0]
+        
+        if filtered_data: # Ensure there's data after filtering zeros
+            final_pie_labels, final_pie_values = zip(*filtered_data)
+            
+            chart_data = {
+                'labels': list(final_pie_labels),
+                'values': list(final_pie_values)
+            }
+            client_chart = create_matplotlib_chart_for_pdf('pie', chart_data, 'Distribuição de Comissões por Cliente (Top 10 + Outros)')
+            story.append(client_chart)
+            story.append(Spacer(1, 20))
+        else:
+            story.append(Paragraph("Nenhuma comissão positiva para exibir no gráfico de pizza de Clientes.", normal_style))
+    else:
+        story.append(Paragraph("Nenhuma comissão positiva para exibir no gráfico de pizza de Clientes.", normal_style))
+    
+    # Top 30 clients table
+    story.append(Paragraph("Top 30 Clientes - Análise Completa:", section_style))
+    client_data = [['Código Cliente', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total']]
+    
+    for _, row in client_summary.head(30).iterrows():
+        client_data.append([
+            str(row['cod_cliente']),
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(row['Comissão Média']),
+            format_currency(row['Receita Total'])
+        ])
+    
+    client_table = Table(client_data, colWidths=[1.3*inch, 1.4*inch, 1*inch, 1.4*inch, 1.4*inch])
+    client_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    story.append(client_table)
+    
+    return story
+
+def _add_comprehensive_renda_variavel_analysis_to_pdf(df, styles, subtitle_style, section_style, normal_style):
+    """Add comprehensive Renda Variável analysis to PDF story with graphs."""
+    story = []
+    
+    # Load cross-sell clients for filtering
+    cross_sell_clients_to_exclude = load_cross_sell_clients()
+    
+    # Apply Renda Variável filters
+    base_filter = (
+        (df['categoria'].isin(['Renda Variável', 'Fundos Imobiliários', 'Produtos Financeiros']) & ~df['produto'].isin(['COE'])) |
+        (df['produto'] == 'BTC')
+    )
+    
+    # Filter for normal clients (exclude cross-sell clients)
+    df_normal = df[
+        (~df['cod_cliente'].astype(str).str.replace('\.0$', '', regex=True).isin(cross_sell_clients_to_exclude)) & base_filter
+    ].copy()
+    
+    # Filter for cross-sell clients only
+    df_cross_sell = df[
+        (df['cod_cliente'].astype(str).str.replace('\.0$', '', regex=True).isin(cross_sell_clients_to_exclude)) & base_filter
+    ].copy()
+    
+    # Combined dataset
+    df_rv_combined = pd.concat([df_normal, df_cross_sell], ignore_index=True)
+    
+    if df_rv_combined.empty:
+        story.append(Paragraph("⚠️ Nenhum dado de Renda Variável encontrado no período selecionado.", normal_style))
+        return story
+    
+    story.append(Paragraph("💰 Análise Completa de Mesa RV", subtitle_style))
+    
+    # 1. Mesa RV Summary with detailed breakdown
+    comparison_data = [['Tipo de Cliente', 'Registros', 'Comissão Total', 'Mesa RV (%)', 'Mesa RV (R$)', 'Clientes', 'Ticket Médio']]
+    
+    total_normal_commission = 0
+    total_cross_sell_commission = 0
+    total_normal_mesa_rv = 0
+    total_cross_sell_mesa_rv = 0
+    
+    if not df_normal.empty:
+        normal_commission = df_normal['comissao_bruta_rs_escritorio'].sum()
+        normal_mesa_rv = normal_commission * 0.10
+        normal_clients = df_normal['cod_cliente'].nunique()
+        normal_records = len(df_normal)
+        normal_avg_ticket = normal_commission / normal_records if normal_records > 0 else 0
+        
+        total_normal_commission = normal_commission
+        total_normal_mesa_rv = normal_mesa_rv
+        
+        comparison_data.append([
+            'Clientes Normais',
+            format_number(normal_records),
+            format_currency(normal_commission),
+            '10%',
+            format_currency(normal_mesa_rv),
+            format_number(normal_clients),
+            format_currency(normal_avg_ticket)
+        ])
+    
+    if not df_cross_sell.empty:
+        cross_sell_commission = df_cross_sell['comissao_bruta_rs_escritorio'].sum()
+        cross_sell_mesa_rv = cross_sell_commission * 0.01
+        cross_sell_clients = df_cross_sell['cod_cliente'].nunique()
+        cross_sell_records = len(df_cross_sell)
+        cross_sell_avg_ticket = cross_sell_commission / cross_sell_records if cross_sell_records > 0 else 0
+        
+        total_cross_sell_commission = cross_sell_commission
+        total_cross_sell_mesa_rv = cross_sell_mesa_rv
+        
+        comparison_data.append([
+            'Clientes Cross-sell',
+            format_number(cross_sell_records),
+            format_currency(cross_sell_commission),
+            '1%',
+            format_currency(cross_sell_mesa_rv),
+            format_number(cross_sell_clients),
+            format_currency(cross_sell_avg_ticket)
+        ])
+    
+    # Add combined totals
+    total_commission = total_normal_commission + total_cross_sell_commission
+    total_mesa_rv = total_normal_mesa_rv + total_cross_sell_mesa_rv
+    total_clients = len(set(df_normal['cod_cliente'].tolist() + df_cross_sell['cod_cliente'].tolist()))
+    total_records = len(df_rv_combined)
+    total_avg_ticket = total_commission / total_records if total_records > 0 else 0
+    
+    comparison_data.append([
+        'TOTAL COMBINADO',
+        format_number(total_records),
+        format_currency(total_commission),
+        'Misto',
+        format_currency(total_mesa_rv),
+        format_number(total_clients),
+        format_currency(total_avg_ticket)
+    ])
+    
+    comparison_table = Table(comparison_data, colWidths=[1.2*inch, 0.8*inch, 1.1*inch, 0.7*inch, 1.1*inch, 0.7*inch, 1*inch])
+    comparison_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -2), colors.white),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#f8f9fa')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -2), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+    ]))
+    
+    story.append(comparison_table)
+    story.append(Spacer(1, 20))
+    
+    # 2. Monthly evolution chart for RV
+    story.append(Paragraph("📈 Evolução Mensal - Renda Variável", section_style))
+    
+    monthly_rv = df_rv_combined.groupby('month_year')['comissao_bruta_rs_escritorio'].agg(['sum', 'count']).reset_index()
+    monthly_rv.columns = ['Mês', 'Comissão Total', 'Transações']
+    monthly_rv = monthly_rv.sort_values('Mês')
+    
+    if len(monthly_rv) > 1:
+        chart_data = {
+            'x': monthly_rv['Mês'].tolist(),
+            'y': monthly_rv['Comissão Total'].tolist(),
+            'xlabel': 'Período',
+            'ylabel': 'Comissão RV (R$)'
+        }
+        rv_chart = create_matplotlib_chart_for_pdf('line', chart_data, 'Evolução das Comissões de Renda Variável')
+        story.append(rv_chart)
+        story.append(Spacer(1, 20))
+    
+    # Monthly detailed table
+    monthly_data = [['Mês', 'Comissão RV Total', 'Transações', 'Mesa RV Normal (10%)', 'Mesa RV Cross-sell (1%)', 'Mesa RV Total']]
+    
+    for _, row in monthly_rv.iterrows():
+        month = row['Mês']
+        
+        # Calculate month-specific breakdown
+        month_normal = df_normal[df_normal['month_year'] == month]['comissao_bruta_rs_escritorio'].sum()
+        month_cross_sell = df_cross_sell[df_cross_sell['month_year'] == month]['comissao_bruta_rs_escritorio'].sum()
+        
+        mesa_rv_normal = month_normal * 0.10
+        mesa_rv_cross_sell = month_cross_sell * 0.01
+        mesa_rv_total = mesa_rv_normal + mesa_rv_cross_sell
+        
+        monthly_data.append([
+            month,
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(mesa_rv_normal),
+            format_currency(mesa_rv_cross_sell),
+            format_currency(mesa_rv_total)
+        ])
+    
+    monthly_table = Table(monthly_data, colWidths=[1*inch, 1.2*inch, 0.8*inch, 1.1*inch, 1.1*inch, 1.1*inch])
+    monthly_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+    ]))
+    
+    story.append(monthly_table)
+    story.append(PageBreak())
+    
+    # 3. Category breakdown with pie chart
+    story.append(Paragraph("📊 Análise por Categoria - Renda Variável", section_style))
+    
+    category_summary = df_rv_combined.groupby('categoria').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count'],
+        'cod_cliente': 'nunique'
+    }).round(2)
+    
+    category_summary.columns = ['Comissão Total', 'Transações', 'Clientes Únicos']
+    category_summary = category_summary.reset_index()
+    
+    if len(category_summary) > 0:
+        chart_data = {
+            'labels': category_summary['categoria'].tolist(),
+            'values': category_summary['Comissão Total'].tolist()
+        }
+        category_chart = create_matplotlib_chart_for_pdf('pie', chart_data, 'Distribuição de Comissões por Categoria RV')
+        story.append(category_chart)
+        story.append(Spacer(1, 20))
+    
+    # Category table
+    category_data = [['Categoria', 'Comissão Total', 'Transações', 'Clientes Únicos', '% do Total']]
+    total_cat_commission = category_summary['Comissão Total'].sum()
+    
+    for _, row in category_summary.iterrows():
+        percentage = (row['Comissão Total'] / total_cat_commission * 100) if total_cat_commission > 0 else 0
+        category_data.append([
+            row['categoria'],
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_number(row['Clientes Únicos']),
+            f"{percentage:.1f}%"
+        ])
+    
+    category_table = Table(category_data, colWidths=[1.8*inch, 1.3*inch, 1*inch, 1.1*inch, 0.8*inch])
+    category_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    story.append(category_table)
+    story.append(Spacer(1, 20))
+    
+    # 4. Top products in RV
+    story.append(Paragraph("🏷️ Top Produtos - Renda Variável", section_style))
+    
+    product_rv = df_rv_combined.groupby('produto').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count'],
+        'cod_cliente': 'nunique'
+    }).round(2)
+    
+    product_rv.columns = ['Comissão Total', 'Transações', 'Clientes Únicos']
+    product_rv = product_rv.reset_index().sort_values('Comissão Total', ascending=False)
+    
+    # Top 15 products bar chart
+    top_15_products_rv = product_rv.head(15)
+    if len(top_15_products_rv) > 0:
+        chart_data = {
+            'x': [p[:12] + '...' if len(p) > 12 else p for p in top_15_products_rv['produto'].tolist()],
+            'y': top_15_products_rv['Comissão Total'].tolist(),
+            'ylabel': 'Comissão (R$)'
+        }
+        product_rv_chart = create_matplotlib_chart_for_pdf('bar', chart_data, 'Top 15 Produtos RV por Comissão')
+        story.append(product_rv_chart)
+        story.append(Spacer(1, 20))
+    
+    # Top 20 products table
+    product_rv_data = [['Produto', 'Comissão Total', 'Transações', 'Clientes Únicos', 'Comissão Média']]
+    
+    for _, row in product_rv.head(20).iterrows():
+        avg_commission = row['Comissão Total'] / row['Transações'] if row['Transações'] > 0 else 0
+        product_name = row['produto'][:20] + '...' if len(row['produto']) > 20 else row['produto']
+        
+        product_rv_data.append([
+            product_name,
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_number(row['Clientes Únicos']),
+            format_currency(avg_commission)
+        ])
+    
+    product_rv_table = Table(product_rv_data, colWidths=[1.6*inch, 1.2*inch, 0.9*inch, 1*inch, 1.2*inch])
+    product_rv_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    story.append(product_rv_table)
+    
+    return story
+
+def _add_comprehensive_cross_sell_analysis_to_pdf(df, styles, subtitle_style, section_style, normal_style):
+    """Add comprehensive Cross-Sell analysis to PDF story with graphs."""
+    story = []
+    
+    # Load cross-sell clients
+    cross_sell_clients = load_cross_sell_clients()
+    
+    # Filter for cross-sell clients only
+    df_filtered = df[df['cod_cliente'].astype(str).str.replace('\.0$', '', regex=True).isin(cross_sell_clients)].copy()
+    
+    if df_filtered.empty:
+        story.append(Paragraph("⚠️ Nenhum dado encontrado para clientes cross-sell no período selecionado.", normal_style))
+        return story
+    
+    story.append(Paragraph(f"📊 Análise Completa de {len(cross_sell_clients)} Clientes Cross-Sell Monitorados", subtitle_style))
+    
+    # 1. Monthly evolution with chart
+    story.append(Paragraph("📈 Evolução Mensal - Cross-Sell", section_style))
+    
+    monthly_cross_sell = df_filtered.groupby('month_year').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean'],
+        'cod_cliente': 'nunique'
+    }).round(2)
+    
+    monthly_cross_sell.columns = ['Comissão Total', 'Transações', 'Comissão Média', 'Clientes Ativos']
+    monthly_cross_sell = monthly_cross_sell.reset_index().sort_values('month_year')
+    
+    if len(monthly_cross_sell) > 1:
+        chart_data = {
+            'x': monthly_cross_sell['month_year'].tolist(),
+            'y': monthly_cross_sell['Comissão Total'].tolist(),
+            'xlabel': 'Período',
+            'ylabel': 'Comissão Cross-Sell (R$)'
+        }
+        cross_sell_chart = create_matplotlib_chart_for_pdf('line', chart_data, 'Evolução das Comissões - Clientes Cross-Sell')
+        story.append(cross_sell_chart)
+        story.append(Spacer(1, 20))
+    
+    # Monthly detailed table
+    monthly_data = [['Mês', 'Comissão Total', 'Transações', 'Comissão Média', 'Clientes Ativos', 'Ticket Médio']]
+    
+    for _, row in monthly_cross_sell.iterrows():
+        ticket_medio = row['Comissão Total'] / row['Clientes Ativos'] if row['Clientes Ativos'] > 0 else 0
+        monthly_data.append([
+            row['month_year'],
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(row['Comissão Média']),
+            format_number(row['Clientes Ativos']),
+            format_currency(ticket_medio)
+        ])
+    
+    monthly_table = Table(monthly_data, colWidths=[1*inch, 1.2*inch, 0.9*inch, 1.1*inch, 1*inch, 1.1*inch])
+    monthly_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+    ]))
+    
+    story.append(monthly_table)
+    story.append(PageBreak())
+    
+    # 2. Product analysis with pie chart
+    story.append(Paragraph("📦 Análise de Produtos - Cross-Sell", section_style))
+    
+    product_cross_sell = df_filtered.groupby('produto').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count'],
+        'cod_cliente': 'nunique'
+    }).round(2)
+    
+    product_cross_sell.columns = ['Comissão Total', 'Transações', 'Clientes Únicos']
+    product_cross_sell = product_cross_sell.reset_index().sort_values('Comissão Total', ascending=False)
+    
+    # Top 10 products pie chart
+    top_10_products_cs = product_cross_sell.head(10)
+    others_commission_cs = product_cross_sell.iloc[10:]['Comissão Total'].sum() if len(product_cross_sell) > 10 else 0
+    
+# Top 10 products pie chart
+    top_10_products_cs = product_cross_sell.head(10).copy() # Use .copy()
+    
+    # Ensure values for the pie chart are non-negative
+    top_10_products_cs['Comissão Total'] = top_10_products_cs['Comissão Total'].apply(lambda x: max(0, x))
+    others_commission_cs = max(0, product_cross_sell.iloc[10:]['Comissão Total'].sum()) if len(product_cross_sell) > 10 else 0
+    
+    # Only try to plot if there's at least some positive commission
+    if (top_10_products_cs['Comissão Total'].sum() + others_commission_cs) > 0:
+        pie_labels = [p[:15] + '...' if len(p) > 15 else p for p in top_10_products_cs['produto'].tolist()]
+        pie_values = top_10_products_cs['Comissão Total'].tolist()
+        
+        if others_commission_cs > 0:
+            pie_labels.append('Outros')
+            pie_values.append(others_commission_cs)
+        
+        # Filter out any slices that became 0 after making values non-negative
+        filtered_data = [(lbl, val) for lbl, val in zip(pie_labels, pie_values) if val > 0]
+        
+        if filtered_data: # Ensure there's data after filtering zeros
+            final_pie_labels, final_pie_values = zip(*filtered_data)
+            
+            chart_data = {
+                'labels': list(final_pie_labels),
+                'values': list(final_pie_values)
+            }
+            product_cs_chart = create_matplotlib_chart_for_pdf('pie', chart_data, 'Distribuição de Comissões por Produto - Cross-Sell')
+            story.append(product_cs_chart)
+            story.append(Spacer(1, 20))
+        else:
+            story.append(Paragraph("Nenhuma comissão positiva para exibir no gráfico de pizza de Produtos Cross-Sell.", normal_style))
+    else:
+        story.append(Paragraph("Nenhuma comissão positiva para exibir no gráfico de pizza de Produtos Cross-Sell.", normal_style))
+    
+    # Top 20 products table
+    story.append(Paragraph("Top 20 Produtos - Cross-Sell:", section_style))
+    product_data = [['Produto', 'Comissão Total', 'Transações', 'Clientes Únicos', 'Comissão Média', '% do Total']]
+    
+    total_product_commission = product_cross_sell['Comissão Total'].sum()
+    
+    for _, row in product_cross_sell.head(20).iterrows():
+        avg_commission = row['Comissão Total'] / row['Transações'] if row['Transações'] > 0 else 0
+        percentage = (row['Comissão Total'] / total_product_commission * 100) if total_product_commission > 0 else 0
+        product_name = row['produto'][:18] + '...' if len(row['produto']) > 18 else row['produto']
+        
+        product_data.append([
+            product_name,
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_number(row['Clientes Únicos']),
+            format_currency(avg_commission),
+            f"{percentage:.1f}%"
+        ])
+    
+    product_table = Table(product_data, colWidths=[1.4*inch, 1*inch, 0.8*inch, 0.9*inch, 1*inch, 0.6*inch])
+    product_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+    ]))
+    
+    story.append(product_table)
+    story.append(PageBreak())
+    
+    # 3. Client performance analysis
+    story.append(Paragraph("👥 Performance Individual dos Clientes Cross-Sell", section_style))
+    
+    client_cross_sell = df_filtered.groupby('cod_cliente').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean'],
+        'receita_rs': 'sum'
+    }).round(2)
+    
+    client_cross_sell.columns = ['Comissão Total', 'Transações', 'Comissão Média', 'Receita Total']
+    client_cross_sell = client_cross_sell.reset_index().sort_values('Comissão Total', ascending=False)
+    
+    # Top 20 clients bar chart
+    top_20_clients_cs = client_cross_sell.head(20)
+    if len(top_20_clients_cs) > 0:
+        chart_data = {
+            'x': [f"Cliente {c}" for c in top_20_clients_cs['cod_cliente'].tolist()],
+            'y': top_20_clients_cs['Comissão Total'].tolist(),
+            'ylabel': 'Comissão (R$)'
+        }
+        client_cs_chart = create_matplotlib_chart_for_pdf('bar', chart_data, 'Top 20 Clientes Cross-Sell por Comissão')
+        story.append(client_cs_chart)
+        story.append(Spacer(1, 20))
+    
+    # Top 30 clients table
+    story.append(Paragraph("Top 30 Clientes Cross-Sell - Performance Detalhada:", section_style))
+    client_data = [['Código Cliente', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'ROI %']]
+    
+    for _, row in client_cross_sell.head(30).iterrows():
+        roi = (row['Comissão Total'] / row['Receita Total'] * 100) if row['Receita Total'] > 0 else 0
+        client_data.append([
+            str(row['cod_cliente']),
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(row['Comissão Média']),
+            format_currency(row['Receita Total']),
+            f"{roi:.2f}%"
+        ])
+    
+    client_table = Table(client_data, colWidths=[1.1*inch, 1.1*inch, 0.8*inch, 1.1*inch, 1.1*inch, 0.7*inch])
+    client_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+    ]))
+    
+    story.append(client_table)
+    story.append(Spacer(1, 20))
+    
+    # 4. Assessor performance for cross-sell clients
+    story.append(Paragraph("🎯 Performance dos Assessores - Clientes Cross-Sell", section_style))
+    
+    assessor_cross_sell = df_filtered.groupby('cod_assessor_direto').agg({
+        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean'],
+        'cod_cliente': 'nunique'
+    }).round(2)
+    
+    assessor_cross_sell.columns = ['Comissão Total', 'Transações', 'Comissão Média', 'Clientes Cross-Sell']
+    assessor_cross_sell = assessor_cross_sell.reset_index().sort_values('Comissão Total', ascending=False)
+    
+    # Top 20 assessors table
+    assessor_data = [['Código Assessor', 'Comissão Total', 'Transações', 'Comissão Média', 'Clientes CS', 'Eficiência']]
+    
+    for _, row in assessor_cross_sell.head(20).iterrows():
+        efficiency = row['Comissão Total'] / row['Clientes Cross-Sell'] if row['Clientes Cross-Sell'] > 0 else 0
+        assessor_data.append([
+            str(row['cod_assessor_direto']),
+            format_currency(row['Comissão Total']),
+            format_number(row['Transações']),
+            format_currency(row['Comissão Média']),
+            format_number(row['Clientes Cross-Sell']),
+            format_currency(efficiency)
+        ])
+    
+    assessor_table = Table(assessor_data, colWidths=[1.1*inch, 1.1*inch, 0.9*inch, 1.1*inch, 0.8*inch, 1*inch])
+    assessor_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    story.append(assessor_table)
+    
+    return story
 
 class CommissionDataManager:
     """
@@ -2217,12 +3275,13 @@ def main():
         selected_doc_types = ["original"]
 
     # Create tabs - MODIFIED ORDER HERE
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Análise de Dados",
-        "💹 Renda Variável",
+        "💹 Renda Variável", 
         "🔄 Cross-Sell",
         "🔍 Explorar Dados",
-        "📁 Upload de Dados" # This tab is now last
+        "📁 Upload de Dados",
+        "📄 Relatórios PDF"  # New tab
     ])
 
     with tab1: # This is now "Análise de Dados"
@@ -2496,6 +3555,156 @@ def main():
             st.dataframe(display_counts, use_container_width=True)
         else:
             st.info("Ainda não há dados no banco. Faça upload de alguns arquivos!")
+    
+    ####################################
+    ###TAB 6 - GENERATING PDF REPORTS###
+    ####################################
+
+
+    with tab6:  # PDF Reports tab
+        st.header("📄 Gerador de Relatórios PDF")
+        st.markdown("Gere relatórios profissionais em PDF baseados nas análises disponíveis.")
+        
+        if not available_months:
+            st.warning("⚠️ Nenhum dado disponível. Por favor, faça upload de alguns arquivos primeiro!")
+            return
+        
+        if not selected_months:
+            st.warning("Por favor, selecione pelo menos um mês na barra lateral.")
+            return
+        
+        # Get data for selected months and document types
+        df_reports = data_manager.get_data_for_analysis(
+            months=selected_months, 
+            document_types=selected_doc_types
+        )
+        
+        if df_reports.empty:
+            st.warning("Nenhum dado encontrado para os meses e tipos de documento selecionados.")
+            return
+        
+        st.success(f"📊 Dados disponíveis: {format_number(len(df_reports))} registros de {len(selected_months)} mês(es)")
+        
+        # Report type selection
+        st.subheader("🎯 Selecione o Tipo de Relatório")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📊 Relatório de Análise Geral", 
+                        help="Relatório completo com análise temporal, produtos e assessores",
+                        use_container_width=True):
+                with st.spinner("Gerando relatório de Análise Geral..."):
+                    try:
+                        pdf_content = generate_pdf_report('analise', df_reports, selected_months, selected_doc_types)
+                        
+                        # Create filename
+                        period_str = f"{min(selected_months)}_{max(selected_months)}" if len(selected_months) > 1 else selected_months[0]
+                        filename = f"relatorio_analise_geral_{period_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                        
+                        st.download_button(
+                            label="📥 Baixar Relatório de Análise Geral",
+                            data=pdf_content,
+                            file_name=filename,
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.success("✅ Relatório de Análise Geral gerado com sucesso!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Erro ao gerar relatório: {str(e)}")
+        
+        with col2:
+            if st.button("💹 Relatório de Renda Variável", 
+                        help="Relatório específico para análise de Renda Variável com cálculo de Mesa RV",
+                        use_container_width=True):
+                with st.spinner("Gerando relatório de Renda Variável..."):
+                    try:
+                        pdf_content = generate_pdf_report('renda_variavel', df_reports, selected_months, selected_doc_types)
+                        
+                        period_str = f"{min(selected_months)}_{max(selected_months)}" if len(selected_months) > 1 else selected_months[0]
+                        filename = f"relatorio_renda_variavel_{period_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                        
+                        st.download_button(
+                            label="📥 Baixar Relatório de Renda Variável",
+                            data=pdf_content,
+                            file_name=filename,
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.success("✅ Relatório de Renda Variável gerado com sucesso!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Erro ao gerar relatório: {str(e)}")
+        
+        with col3:
+            if st.button("🔄 Relatório de Cross-Sell", 
+                        help="Relatório específico para análise de clientes Cross-Sell",
+                        use_container_width=True):
+                with st.spinner("Gerando relatório de Cross-Sell..."):
+                    try:
+                        pdf_content = generate_pdf_report('cross_sell', df_reports, selected_months, selected_doc_types)
+                        
+                        period_str = f"{min(selected_months)}_{max(selected_months)}" if len(selected_months) > 1 else selected_months[0]
+                        filename = f"relatorio_cross_sell_{period_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                        
+                        st.download_button(
+                            label="📥 Baixar Relatório de Cross-Sell",
+                            data=pdf_content,
+                            file_name=filename,
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.success("✅ Relatório de Cross-Sell gerado com sucesso!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Erro ao gerar relatório: {str(e)}")
+        
+        # Additional information
+        st.markdown("---")
+        st.subheader("ℹ️ Informações sobre os Relatórios")
+        
+        with st.expander("📋 Detalhes dos Relatórios"):
+            st.markdown("""
+            **📊 Relatório de Análise Geral:**
+            - Resumo executivo com métricas principais
+            - Evolução temporal das comissões
+            - Top 10 produtos por comissão
+            - Top 10 assessores por performance
+            
+            **💹 Relatório de Renda Variável:**
+            - Análise específica de produtos de Renda Variável
+            - Cálculo de comissão Mesa RV (10% para clientes normais, 1% para cross-sell)
+            - Comparativo entre clientes normais e cross-sell
+            - Evolução mensal das comissões RV
+            
+            **🔄 Relatório de Cross-Sell:**
+            - Análise focada nos clientes da lista de cross-sell
+            - Performance mensal dos clientes monitorados
+            - Top produtos para clientes cross-sell
+            - Métricas específicas do grupo cross-sell
+            """)
+        
+        # Show current selection summary
+        with st.expander("📊 Resumo da Seleção Atual"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Período Selecionado:**")
+                if len(selected_months) <= 5:
+                    for month in sorted(selected_months):
+                        st.write(f"• {month}")
+                else:
+                    st.write(f"• {len(selected_months)} meses selecionados")
+                    st.write(f"• De {min(selected_months)} até {max(selected_months)}")
+            
+            with col2:
+                st.write("**Tipos de Documento:**")
+                for doc_type in selected_doc_types:
+                    st.write(f"• {doc_type.upper()}")
+                
+                st.write("**Estatísticas:**")
+                st.write(f"• {format_number(len(df_reports))} registros")
+                st.write(f"• {format_currency(df_reports['comissao_bruta_rs_escritorio'].sum())} em comissões")
 
 if __name__ == "__main__":
     main()
