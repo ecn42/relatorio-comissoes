@@ -1137,36 +1137,51 @@ def create_client_analysis(df):
     client_summary.columns = ['Código Cliente', 'Comissão Total', 'Qtd Transações']
     client_summary = client_summary.sort_values('Comissão Total', ascending=False)
     
-    # Show top clients
-    fig = px.bar(
-        client_summary.head(20),
-        x='Código Cliente',
-        y='Comissão Total',
-        title='Top 20 Clientes por Comissão Total',
-        labels={'Comissão Total': 'Comissão (R$)', 'Código Cliente': 'Código do Cliente'},
-        color='Comissão Total',
-        color_continuous_scale='Viridis',
-        text='Comissão Total'
+    # Prepare data for pie chart (Top 20 + Others)
+    if len(client_summary) > 20:
+        top_20 = client_summary.head(20).copy()
+        others_commission = client_summary.iloc[20:]['Comissão Total'].sum()
+        others_transactions = client_summary.iloc[20:]['Qtd Transações'].sum()
+        
+        # Create 'Outros' row
+        others_row = pd.DataFrame({
+            'Código Cliente': ['Outros'],
+            'Comissão Total': [others_commission],
+            'Qtd Transações': [others_transactions]
+        })
+        
+        pie_data = pd.concat([top_20, others_row], ignore_index=True)
+    else:
+        pie_data = client_summary.copy()
+
+    # Create pie chart
+    fig = px.pie(
+        pie_data,
+        names='Código Cliente',
+        values='Comissão Total',
+        title='Distribuição de Comissões por Cliente (Top 20 + Outros)',
+        hole=0.4, # Donut chart
+        color_discrete_sequence=px.colors.qualitative.Plotly
     )
     
     fig.update_traces(
-        texttemplate='%{text:,.0f}',
-        textposition='outside',
-        hovertemplate='<b>Cliente: %{x}</b><br>Comissão: R$ %{y:,.2f}<br>Transações: %{customdata}<extra></extra>',
-        customdata=client_summary.head(20)['Qtd Transações']
+        textposition='inside',
+        textinfo='percent+label',
+        hovertemplate='<b>Cliente: %{label}</b><br>Comissão: R$ %{value:,.2f}<br>Percentual: %{percent}<extra></extra>',
+        pull=[0.05 if name != 'Outros' else 0 for name in pie_data['Código Cliente']] # Explode slices slightly
     )
     
     fig.update_layout(
-        xaxis_tickangle=45,
-        showlegend=False,
-        height=500,
+        showlegend=False, # Labels are on the chart
+        height=600,
         font=dict(size=12),
         title_font_size=16
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Format and display table
+    # Format and display table (still useful to see top 50)
+    st.markdown("**Top 50 Clientes por Comissão**")
     client_summary['Comissão Total Formatada'] = client_summary['Comissão Total'].apply(format_currency)
     display_df = client_summary.head(50)[['Código Cliente', 'Comissão Total Formatada', 'Qtd Transações']].copy()
     display_df.columns = ['Código Cliente', 'Comissão Total', 'Transações']
@@ -2237,24 +2252,17 @@ def main():
         if 'document_type' in df_analysis.columns:
             doc_breakdown = df_analysis['document_type'].value_counts()
             st.info(f"📄 **Breakdown por tipo:** " + " | ".join([f"{k.upper()}: {format_number(v)}" for k, v in doc_breakdown.items()]))
-
-        # Analysis options
-        analysis_type = st.selectbox(
-            "Escolha o tipo de análise:",
-            ["Por Produto", "Por Nível 1", "Por Código de Cliente", "Por Código de Assessor", "Evolução Temporal"]
-        )
-
-        # Create visualizations based on selection
-        if analysis_type == "Por Produto":
-            create_product_analysis(df_analysis)
-        elif analysis_type == "Por Nível 1":
-            create_level1_analysis(df_analysis)
-        elif analysis_type == "Por Código de Cliente":
-            create_client_analysis(df_analysis)
-        elif analysis_type == "Por Código de Assessor":
-            create_assessor_analysis(df_analysis)
-        elif analysis_type == "Evolução Temporal":
-            create_time_evolution_analysis(df_analysis)
+        
+        # Create visualizations for all analysis types, separated by a line
+        create_time_evolution_analysis(df_analysis)
+        st.markdown("---")
+        # create_level1_analysis(df_analysis)
+        # st.markdown("---")
+        create_product_analysis(df_analysis)
+        st.markdown("---")
+        create_assessor_analysis(df_analysis)
+        st.markdown("---")
+        create_client_analysis(df_analysis)
 
     with tab2: # This is now "Renda Variável"
         st.header("💹 Análise de Renda Variável")
