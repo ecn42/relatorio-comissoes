@@ -3241,9 +3241,6 @@ def main():
                 count = row['count']
                 st.sidebar.write(f"- {doc_type.upper()}: {format_number(count)}")
 
-        # Create the centralized month selector (only once)
-        selected_months = create_centralized_month_selector(available_months)
-        
         # Add document type selector
         st.sidebar.markdown("---")
         st.sidebar.subheader("📄 Tipo de Documento")
@@ -3268,6 +3265,9 @@ def main():
             )
         else:
             selected_doc_types = ["original"]
+
+         # Create the centralized month selector (only once)
+        selected_months = create_centralized_month_selector(available_months)
     else:
         st.sidebar.warning("⚠️ Nenhum dado disponível")
         st.sidebar.info("Faça upload de arquivos na aba 'Upload de Dados'")
