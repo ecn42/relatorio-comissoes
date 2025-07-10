@@ -1280,11 +1280,17 @@ def create_renda_variavel_analysis(df):
     # Convert client codes to string for consistent comparison
     df['cod_cliente'] = df['cod_cliente'].astype(str).str.replace('\.0$', '', regex=True)
     
+    # Load cross-sell clients to exclude them
+    cross_sell_clients_to_exclude = load_cross_sell_clients()
+    
     # Apply filters
     df_filtered = df[
-        (~df['cod_cliente'].isin(['2733563', '5901578'])) &
-        (df['categoria'].isin(['Renda Variável', 'Fundos Imobiliários', 'Produtos Financeiros'])) &
-        (~df['produto'].isin(['OPERAÇÕES ESTRUTURADAS - FICC', 'COE']))
+        (~df['cod_cliente'].isin(cross_sell_clients_to_exclude)) &
+        (
+            (df['categoria'].isin(['Renda Variável', 'Fundos Imobiliários', 'Produtos Financeiros']) & ~df['produto'].isin(['COE'])) |
+            (df['produto'] == 'BTC') |
+            (df['nivel_1'] == 'Exceção RV')
+        )
     ].copy()
 
     
