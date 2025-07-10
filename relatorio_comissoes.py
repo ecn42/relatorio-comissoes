@@ -1283,23 +1283,47 @@ def create_renda_variavel_analysis(df):
     # Load cross-sell clients to exclude them
     cross_sell_clients_to_exclude = load_cross_sell_clients()
     
-    # Apply filters
-    df_filtered = df[
-        (~df['cod_cliente'].isin(cross_sell_clients_to_exclude)) &
-        (
-            (df['categoria'].isin(['Renda Variável', 'Fundos Imobiliários', 'Produtos Financeiros']) & ~df['produto'].isin(['COE'])) |
-            (df['produto'] == 'BTC') |
-            (df['nivel_1'] == 'Exceção RV')
-        )
-    ].copy()
-
+    # ADD TOGGLE AT THE BEGINNING
+    st.subheader("🔄 Seleção de Tipo de Cliente")
+    
+    # Create toggle for client type selection
+    client_type = st.radio(
+        "Selecione o tipo de cliente para análise:",
+        options=["Clientes Normais", "Clientes Cross-sell"],
+        index=0,  # Default to normal clients
+        horizontal=True,
+        help="Escolha entre analisar apenas clientes normais ou apenas clientes cross-sell"
+    )
+    
+    # Apply filters based on toggle selection
+    base_filter = (
+        (df['categoria'].isin(['Renda Variável', 'Fundos Imobiliários', 'Produtos Financeiros']) & ~df['produto'].isin(['COE'])) |
+        (df['produto'] == 'BTC')
+    )
+    
+    if client_type == "Clientes Normais":
+        # Filter for normal clients (exclude cross-sell clients)
+        df_filtered = df[
+            (~df['cod_cliente'].isin(cross_sell_clients_to_exclude)) & base_filter
+        ].copy()
+        client_type_label = "Clientes Normais"
+        client_type_emoji = "👥"
+        commission_percentage = 0.10  # 10% for normal clients
+    else:
+        # Filter for cross-sell clients only
+        df_filtered = df[
+            (df['cod_cliente'].isin(cross_sell_clients_to_exclude)) & base_filter
+        ].copy()
+        client_type_label = "Clientes Cross-sell"
+        client_type_emoji = "🔄"
+        commission_percentage = 0.01  # 1% for cross-sell clients
     
     if df_filtered.empty:
-        st.warning("⚠️ Nenhum dado encontrado após aplicar os filtros de Renda Variável.")
+        st.warning(f"⚠️ Nenhum dado encontrado para {client_type_label} após aplicar os filtros de Renda Variável.")
         return
     
-    # Show filtering summary with enhanced metrics
-    st.info(f"📊 **Resumo da Análise de Renda Variável:**")
+    # Show filtering summary with enhanced metrics (updated to show client type)
+    st.info(f"📊 **Resumo da Análise de Renda Variável - {client_type_emoji} {client_type_label}:**")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total de Registros", format_number(len(df_filtered)))
@@ -1316,6 +1340,9 @@ def create_renda_variavel_analysis(df):
     # Create analysis sections
     st.markdown("---")
     
+    # Update chart titles to reflect client type
+    chart_title_suffix = f" - {client_type_label}"
+    
     # 1. Enhanced Time Evolution Analysis
     st.subheader("📈 Evolução das Comissões ao Longo do Tempo")
     
@@ -1328,17 +1355,21 @@ def create_renda_variavel_analysis(df):
         time_total,
         x='Mês',
         y='Comissão Total',
-        title='Evolução Total das Comissões - Renda Variável',
+        title=f'Evolução Total das Comissões - Renda Variável{chart_title_suffix}',
         markers=True,
         labels={'Comissão Total': 'Comissão (R$)', 'Mês': 'Período'},
         line_shape='spline'
     )
     
+    # Set different colors based on client type
+    line_color = 'rgba(31, 119, 180, 1)' if client_type == "Clientes Normais" else 'rgba(255, 127, 14, 1)'
+    fill_color = 'rgba(31, 119, 180, 0.2)' if client_type == "Clientes Normais" else 'rgba(255, 127, 14, 0.2)'
+    
     fig_total.update_traces(
         fill='tonexty',
-        fillcolor='rgba(31, 119, 180, 0.2)',
-        line=dict(color='rgba(31, 119, 180, 1)', width=3),
-        marker=dict(size=10, color='rgba(31, 119, 180, 1)'),
+        fillcolor=fill_color,
+        line=dict(color=line_color, width=3),
+        marker=dict(size=10, color=line_color),
         hovertemplate='<b>%{x}</b><br>Comissão: R$ %{y:,.2f}<extra></extra>'
     )
     
@@ -1361,7 +1392,7 @@ def create_renda_variavel_analysis(df):
         x='Mês',
         y='Comissão',
         color='Categoria',
-        title='Evolução das Comissões por Categoria',
+        title=f'Evolução das Comissões por Categoria{chart_title_suffix}',
         markers=True,
         labels={'Comissão': 'Comissão (R$)', 'Mês': 'Período'},
         color_discrete_sequence=px.colors.qualitative.Set2
@@ -1396,7 +1427,7 @@ def create_renda_variavel_analysis(df):
         x='Mês',
         y='Comissão',
         color='Produto',
-        title='Evolução das Comissões - Top 10 Produtos',
+        title=f'Evolução das Comissões - Top 10 Produtos{chart_title_suffix}',
         markers=True,
         labels={'Comissão': 'Comissão (R$)', 'Mês': 'Período'},
         color_discrete_sequence=px.colors.qualitative.Plotly
@@ -1416,45 +1447,7 @@ def create_renda_variavel_analysis(df):
     )
     st.plotly_chart(fig_prod, use_container_width=True)
     
-    # 2. Enhanced Monthly Analysis
-    st.markdown("---")
-    st.subheader("📅 Análise Mensal Detalhada")
-    
-    # Monthly summary table with better formatting
-    monthly_summary = df_filtered.groupby('month_year').agg({
-        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean', 'std'],
-        'receita_rs': 'sum',
-        'cod_cliente': 'nunique'
-    }).round(2)
-    
-    # Flatten column names
-    monthly_summary.columns = [
-        'Comissão Total', 'Qtd Transações', 'Comissão Média', 'Desvio Padrão',
-        'Receita Total', 'Clientes Únicos'
-    ]
-    monthly_summary = monthly_summary.reset_index()
-    monthly_summary.columns = [
-        'Mês', 'Comissão Total', 'Transações', 'Comissão Média', 
-        'Desvio Padrão', 'Receita Total', 'Clientes Únicos'
-    ]
-    
-    # Calculate growth rates
-    monthly_summary['Crescimento Comissão (%)'] = monthly_summary['Comissão Total'].pct_change() * 100
-    monthly_summary['Crescimento Comissão (%)'] = monthly_summary['Crescimento Comissão (%)'].round(2)
-    
-    # Format currency columns
-    for col in ['Comissão Total', 'Comissão Média', 'Desvio Padrão', 'Receita Total']:
-        monthly_summary[f'{col} Formatado'] = monthly_summary[col].apply(format_currency)
-    
-    # Display formatted table
-    display_cols = ['Mês', 'Comissão Total Formatado', 'Transações', 'Comissão Média Formatado', 
-                   'Receita Total Formatado', 'Clientes Únicos', 'Crescimento Comissão (%)']
-    display_monthly = monthly_summary[display_cols].copy()
-    display_monthly.columns = ['Mês', 'Comissão Total', 'Transações', 'Comissão Média', 
-                              'Receita Total', 'Clientes Únicos', 'Crescimento (%)']
-    
-    st.dataframe(display_monthly, use_container_width=True)
-    
+
     # 3. Enhanced Category Deep Dive
     st.markdown("---")
     st.subheader("🎯 Análise Detalhada por Categoria")
@@ -1474,7 +1467,7 @@ def create_renda_variavel_analysis(df):
         category_summary,
         values='Comissão Total',
         names='categoria',
-        title='Distribuição de Comissões por Categoria',
+        title=f'Distribuição de Comissões por Categoria{chart_title_suffix}',
         color_discrete_sequence=px.colors.qualitative.Set3
     )
     
@@ -1499,6 +1492,229 @@ def create_renda_variavel_analysis(df):
                                    'Comissão Média Formatado', 'Receita Total Formatado', 'Clientes Únicos']].copy()
     display_cat.columns = ['Categoria', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
     st.dataframe(display_cat, use_container_width=True)
+    
+    # 4. Mesa RV Commission Calculation - Individual Analysis
+    st.markdown("---")
+    st.subheader("💰 Comissão Aproximada Mesa RV - Análise Individual")
+    
+    # Calculate Mesa RV commission based on current client type
+    percentage_text = "10%" if client_type == "Clientes Normais" else "1%"
+    
+    st.info(f"📋 **Análise Individual:** {percentage_text} da comissão total para {client_type_label}")
+    
+    # Create monthly Mesa RV commission table for current selection
+    mesa_rv_summary = df_filtered.groupby('month_year')['comissao_bruta_rs_escritorio'].sum().reset_index()
+    mesa_rv_summary.columns = ['Mês', 'Comissão Total']
+    mesa_rv_summary = mesa_rv_summary.sort_values('Mês')
+    
+    # Calculate Mesa RV commission for current selection
+    mesa_rv_summary['Comissão Mesa RV'] = mesa_rv_summary['Comissão Total'] * commission_percentage
+    
+    # Calculate cumulative values for current selection
+    mesa_rv_summary['Comissão Total Acumulada'] = mesa_rv_summary['Comissão Total'].cumsum()
+    mesa_rv_summary['Comissão Mesa RV Acumulada'] = mesa_rv_summary['Comissão Mesa RV'].cumsum()
+    
+    # Format currency columns for display
+    mesa_rv_summary['Comissão Total Formatada'] = mesa_rv_summary['Comissão Total'].apply(format_currency)
+    mesa_rv_summary['Comissão Mesa RV Formatada'] = mesa_rv_summary['Comissão Mesa RV'].apply(format_currency)
+    mesa_rv_summary['Comissão Total Acumulada Formatada'] = mesa_rv_summary['Comissão Total Acumulada'].apply(format_currency)
+    mesa_rv_summary['Comissão Mesa RV Acumulada Formatada'] = mesa_rv_summary['Comissão Mesa RV Acumulada'].apply(format_currency)
+    
+    # Display the individual table
+    display_mesa_rv = mesa_rv_summary[[
+        'Mês', 
+        'Comissão Total Formatada', 
+        'Comissão Mesa RV Formatada',
+        'Comissão Total Acumulada Formatada',
+        'Comissão Mesa RV Acumulada Formatada'
+    ]].copy()
+    
+    display_mesa_rv.columns = [
+        'Mês', 
+        'Comissão Total', 
+        f'Mesa RV ({percentage_text})',
+        'Total Acumulado',
+        'Mesa RV Acumulada'
+    ]
+    
+    st.dataframe(display_mesa_rv, use_container_width=True)
+    
+    # Summary metrics for current selection
+    total_mesa_rv = mesa_rv_summary['Comissão Mesa RV'].sum()
+    avg_mesa_rv = mesa_rv_summary['Comissão Mesa RV'].mean()
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            f"Total Mesa RV ({percentage_text})", 
+            format_currency(total_mesa_rv)
+        )
+    with col2:
+        st.metric(
+            f"Média Mensal Mesa RV", 
+            format_currency(avg_mesa_rv)
+        )
+    with col3:
+        total_original = mesa_rv_summary['Comissão Total'].sum()
+        st.metric(
+            "Comissão Total Original", 
+            format_currency(total_original)
+        )
+    
+    # Optional: Add a chart showing Mesa RV evolution for current selection
+    st.subheader("📊 Evolução da Comissão Mesa RV")
+    
+    fig_mesa_rv = px.bar(
+        mesa_rv_summary,
+        x='Mês',
+        y='Comissão Mesa RV',
+        title=f'Evolução Mensal da Comissão Mesa RV ({percentage_text}) - {client_type_label}',
+        labels={'Comissão Mesa RV': 'Comissão Mesa RV (R$)', 'Mês': 'Período'},
+        color_discrete_sequence=[line_color]  # Use same color as the line chart
+    )
+    
+    fig_mesa_rv.update_traces(
+        hovertemplate='<b>%{x}</b><br>Mesa RV: R$ %{y:,.2f}<extra></extra>'
+    )
+    
+    fig_mesa_rv.update_layout(
+        height=400,
+        font=dict(size=12),
+        title_font_size=16
+    )
+    
+    st.plotly_chart(fig_mesa_rv, use_container_width=True)
+    
+    # 5. COMPREHENSIVE COMPARISON TABLE
+    st.markdown("---")
+    st.subheader("📊 Tabela de Comissões (Normal e Cross Sell)")
+    
+    st.info("📋 **Análise Completa:** Análise lado a lado de ambos os tipos de cliente")
+    
+    # Calculate data for NORMAL CLIENTS
+    df_normal = df[
+        (~df['cod_cliente'].isin(cross_sell_clients_to_exclude)) & base_filter
+    ].copy()
+    
+    # Calculate data for CROSS-SELL CLIENTS  
+    df_cross_sell = df[
+        (df['cod_cliente'].isin(cross_sell_clients_to_exclude)) & base_filter
+    ].copy()
+    
+    # Get all unique months from both datasets
+    all_months = sorted(set(df_normal['month_year'].unique()) | set(df_cross_sell['month_year'].unique()))
+    
+    # Create comparison dataframe
+    comparison_data = []
+    
+    for month in all_months:
+        # Normal clients data
+        normal_month_data = df_normal[df_normal['month_year'] == month]
+        normal_total = normal_month_data['comissao_bruta_rs_escritorio'].sum()
+        normal_mesa_rv = normal_total * 0.10  # 10% for normal clients
+        
+        # Cross-sell clients data
+        cross_sell_month_data = df_cross_sell[df_cross_sell['month_year'] == month]
+        cross_sell_total = cross_sell_month_data['comissao_bruta_rs_escritorio'].sum()
+        cross_sell_mesa_rv = cross_sell_total * 0.01  # 1% for cross-sell clients
+        
+        # Combined totals
+        combined_total = normal_total + cross_sell_total
+        combined_mesa_rv = normal_mesa_rv + cross_sell_mesa_rv
+        
+        comparison_data.append({
+            'Mês': month,
+            'Normal_Total': normal_total,
+            'Normal_Mesa_RV': normal_mesa_rv,
+            'CrossSell_Total': cross_sell_total,
+            'CrossSell_Mesa_RV': cross_sell_mesa_rv,
+            'Combined_Total': combined_total,
+            'Combined_Mesa_RV': combined_mesa_rv
+        })
+    
+    # Create DataFrame
+    comparison_df = pd.DataFrame(comparison_data)
+    
+    # Calculate cumulative values
+    comparison_df['Normal_Total_Acum'] = comparison_df['Normal_Total'].cumsum()
+    comparison_df['Normal_Mesa_RV_Acum'] = comparison_df['Normal_Mesa_RV'].cumsum()
+    comparison_df['CrossSell_Total_Acum'] = comparison_df['CrossSell_Total'].cumsum()
+    comparison_df['CrossSell_Mesa_RV_Acum'] = comparison_df['CrossSell_Mesa_RV'].cumsum()
+    comparison_df['Combined_Total_Acum'] = comparison_df['Combined_Total'].cumsum()
+    comparison_df['Combined_Mesa_RV_Acum'] = comparison_df['Combined_Mesa_RV'].cumsum()
+    
+    # Format all currency columns
+    currency_columns = [
+        'Normal_Total', 'Normal_Mesa_RV', 'CrossSell_Total', 'CrossSell_Mesa_RV',
+        'Combined_Total', 'Combined_Mesa_RV', 'Normal_Total_Acum', 'Normal_Mesa_RV_Acum',
+        'CrossSell_Total_Acum', 'CrossSell_Mesa_RV_Acum', 'Combined_Total_Acum', 'Combined_Mesa_RV_Acum'
+    ]
+    
+    for col in currency_columns:
+        comparison_df[f'{col}_Formatted'] = comparison_df[col].apply(format_currency)
+    
+    # Create display table
+    display_comparison = comparison_df[[
+        'Mês',
+        'Normal_Total_Formatted',
+        'Normal_Mesa_RV_Formatted', 
+        'CrossSell_Total_Formatted',
+        'CrossSell_Mesa_RV_Formatted',
+        'Combined_Total_Formatted',
+        'Combined_Mesa_RV_Formatted'
+    ]].copy()
+    
+    display_comparison.columns = [
+        'Mês',
+        'Normal - Total',
+        'Normal - Mesa RV (10%)',
+        'Cross-sell - Total', 
+        'Cross-sell - Mesa RV (1%)',
+        'Combinado - Total',
+        'Combinado - Mesa RV'
+    ]
+    
+    st.dataframe(display_comparison, use_container_width=True)
+    
+    # Summary metrics comparison
+    st.subheader("📈 Resumo")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown("**👥 Clientes Normais**")
+        normal_total_commission = comparison_df['Normal_Total'].sum()
+        normal_total_mesa_rv = comparison_df['Normal_Mesa_RV'].sum()
+        st.metric("Total Comissão", format_currency(normal_total_commission))
+        st.metric("Total Mesa RV (10%)", format_currency(normal_total_mesa_rv))
+        
+    with col2:
+        st.markdown("**🔄 Clientes Cross-sell**")
+        cross_sell_total_commission = comparison_df['CrossSell_Total'].sum()
+        cross_sell_total_mesa_rv = comparison_df['CrossSell_Mesa_RV'].sum()
+        st.metric("Total Comissão", format_currency(cross_sell_total_commission))
+        st.metric("Total Mesa RV (1%)", format_currency(cross_sell_total_mesa_rv))
+        
+    with col3:
+        st.markdown("**🔗 Combinado**")
+        combined_total_commission = comparison_df['Combined_Total'].sum()
+        combined_total_mesa_rv = comparison_df['Combined_Mesa_RV'].sum()
+        st.metric("Total Comissão", format_currency(combined_total_commission))
+        st.metric("Total Mesa RV", format_currency(combined_total_mesa_rv))
+        
+    with col4:
+        st.markdown("**📊 Proporções**")
+        if combined_total_commission > 0:
+            normal_percentage = (normal_total_commission / combined_total_commission) * 100
+            cross_sell_percentage = (cross_sell_total_commission / combined_total_commission) * 100
+            st.metric("% Normal", f"{normal_percentage:.1f}%")
+            st.metric("% Cross-sell", f"{cross_sell_percentage:.1f}%")
+        else:
+            st.metric("% Normal", "0%")
+            st.metric("% Cross-sell", "0%")
+    
+
+    
 
 def create_cross_sell_analysis(df_filtered):
     """Create comprehensive analysis for the specified list of Cross-Sell clients with enhanced visualizations."""
@@ -1568,26 +1784,6 @@ def create_cross_sell_analysis(df_filtered):
     fig_cat.update_layout(hovermode='x unified', height=500, font=dict(size=12), title_font_size=16)
     st.plotly_chart(fig_cat, use_container_width=True)
     
-    # 2. Enhanced Monthly Analysis
-    st.markdown("---")
-    st.subheader("📅 Análise Mensal Detalhada")
-    monthly_summary = df_filtered.groupby('month_year').agg({
-        'comissao_bruta_rs_escritorio': ['sum', 'count', 'mean'],
-        'receita_rs': 'sum', 'cod_cliente': 'nunique'
-    }).round(2)
-    monthly_summary.columns = ['Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
-    monthly_summary = monthly_summary.reset_index()
-    monthly_summary.columns = ['Mês', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
-    monthly_summary['Crescimento Comissão (%)'] = (monthly_summary['Comissão Total'].pct_change() * 100).round(2)
-    
-    # Format currency columns
-    for col in ['Comissão Total', 'Comissão Média', 'Receita Total']:
-        monthly_summary[f'{col} Formatado'] = monthly_summary[col].apply(format_currency)
-    
-    display_monthly = monthly_summary[['Mês', 'Comissão Total Formatado', 'Transações', 'Comissão Média Formatado', 
-                                     'Receita Total Formatado', 'Clientes Únicos', 'Crescimento Comissão (%)']].copy()
-    display_monthly.columns = ['Mês', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos', 'Crescimento (%)']
-    st.dataframe(display_monthly, use_container_width=True)
     
     # 3. Enhanced Category Deep Dive
     st.markdown("---")
