@@ -125,7 +125,8 @@ def generate_pdf_report(report_type, df, selected_months, selected_doc_types):
     fontSize=9,
     alignment=TA_CENTER,
     textColor=colors.grey
-)
+    )
+
     
     # Story to hold all elements
     story = []
