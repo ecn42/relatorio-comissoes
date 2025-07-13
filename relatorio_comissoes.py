@@ -2751,6 +2751,7 @@ def create_renda_variavel_analysis(df):
     ]
     
     st.dataframe(display_comparison, use_container_width=True)
+    st.dataframe(comparison_df, use_container_width=True)
     
     # Summary metrics comparison
     st.subheader("📈 Resumo")
