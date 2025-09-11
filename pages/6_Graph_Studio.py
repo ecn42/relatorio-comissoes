@@ -314,9 +314,20 @@ def build_figure(
     paper_bg: str,
     plot_bg: str,
     font_color: str,
-    show_grid: bool,
-    grid_color: str,
-    grid_width: float,
+    # Per-axis grid controls
+    show_x_grid: bool,
+    x_grid_color: str,
+    x_grid_width: float,
+    show_y_grid: bool,
+    y_grid_color: str,
+    y_grid_width: float,
+    # Per-axis line controls
+    show_x_line: bool,
+    x_line_color: str,
+    x_line_width: float,
+    show_y_line: bool,
+    y_line_color: str,
+    y_line_width: float,
     show_legend: bool,
     legend_orientation: str,
     legend_x: float,
@@ -331,12 +342,25 @@ def build_figure(
     x_title: str,
     x_title_standoff: int,
     x_tickformat: Optional[str],
+    x_tickprefix: str,
+    x_ticksuffix: str,
+    x_tickangle: int,
     y_title: str,
     y_title_standoff: int,
+    # New Y-axis tick label controls
+    y_tickformat: Optional[str],
+    y_tickprefix: str,
+    y_ticksuffix: str,
+    y_tickangle: int,
     y_log: bool,
     y2_series: List[str],
     y2_title: str,
     y2_title_standoff: int,
+    # New Y2 tick label controls
+    y2_tickformat: Optional[str],
+    y2_tickprefix: str,
+    y2_ticksuffix: str,
+    y2_tickangle: int,
     y2_log: bool,
     line_width: float,
     line_dash: str,
@@ -413,6 +437,16 @@ def build_figure(
             ),
             type="date",
             tickformat=x_tickformat if x_tickformat else None,
+            tickprefix=x_tickprefix or None,
+            ticksuffix=x_ticksuffix or None,
+            tickangle=int(x_tickangle),
+            showgrid=show_x_grid,
+            gridcolor=x_grid_color,
+            gridwidth=x_grid_width,
+            tickfont=dict(color=font_color),
+            showline=show_x_line,
+            linecolor=x_line_color,
+            linewidth=x_line_width,
         )
         fig.update_layout(
             yaxis=dict(
@@ -422,6 +456,17 @@ def build_figure(
                     standoff=y_title_standoff,
                 ),
                 type="log" if y_log else "linear",
+                tickformat=y_tickformat if y_tickformat else None,
+                tickprefix=y_tickprefix or None,
+                ticksuffix=y_ticksuffix or None,
+                tickangle=int(y_tickangle),
+                showgrid=show_y_grid,
+                gridcolor=y_grid_color,
+                gridwidth=y_grid_width,
+                tickfont=dict(color=font_color),
+                showline=show_y_line,
+                linecolor=y_line_color,
+                linewidth=y_line_width,
             )
         )
     else:
@@ -655,11 +700,18 @@ def build_figure(
                 standoff=x_title_standoff,
             )
         )
-        # Only apply date parsing to X when not swapped
-        if parse_dates and not swap_axes:
-            xaxis_kwargs.update(type="date")
+        # Apply types and formats when not swapped (X is on xaxis)
+        if not swap_axes:
+            if parse_dates:
+                xaxis_kwargs.update(type="date")
             if x_tickformat:
                 xaxis_kwargs["tickformat"] = x_tickformat
+            if x_tickprefix:
+                xaxis_kwargs["tickprefix"] = x_tickprefix
+            if x_ticksuffix:
+                xaxis_kwargs["ticksuffix"] = x_ticksuffix
+            xaxis_kwargs["tickangle"] = int(x_tickangle)
+
         fig.update_xaxes(**xaxis_kwargs)
 
     # Layout configuration
@@ -697,21 +749,27 @@ def build_figure(
         colorway=colorway or px.colors.qualitative.Set2,
     )
 
-    # Grid and axis styling
+    # Grid and axis styling (primary updates for both axes)
     fig.update_xaxes(
-        showgrid=show_grid,
-        gridcolor=grid_color,
-        gridwidth=grid_width,
+        showgrid=show_x_grid,
+        gridcolor=x_grid_color,
+        gridwidth=x_grid_width,
         tickfont=dict(color=font_color),
+        showline=show_x_line,
+        linecolor=x_line_color,
+        linewidth=x_line_width,
     )
     fig.update_yaxes(
-        showgrid=show_grid,
-        gridcolor=grid_color,
-        gridwidth=grid_width,
+        showgrid=show_y_grid,
+        gridcolor=y_grid_color,
+        gridwidth=y_grid_width,
         tickfont=dict(color=font_color),
+        showline=show_y_line,
+        linecolor=y_line_color,
+        linewidth=y_line_width,
     )
 
-    # Finalize primary/secondary axis configuration (titles and scales)
+    # Finalize primary/secondary axis configuration (titles, scales, tick labels)
     if chart_type != "Candlestick":
         if not swap_axes:
             if y2_set:
@@ -723,6 +781,17 @@ def build_figure(
                             standoff=y_title_standoff,
                         ),
                         type="log" if y_log else "linear",
+                        tickformat=y_tickformat if y_tickformat else None,
+                        tickprefix=y_tickprefix or None,
+                        ticksuffix=y_ticksuffix or None,
+                        tickangle=int(y_tickangle),
+                        showgrid=show_y_grid,
+                        gridcolor=y_grid_color,
+                        gridwidth=y_grid_width,
+                        tickfont=dict(color=font_color),
+                        showline=show_y_line,
+                        linecolor=y_line_color,
+                        linewidth=y_line_width,
                     ),
                     yaxis2=dict(
                         title=dict(
@@ -733,10 +802,17 @@ def build_figure(
                         overlaying="y",
                         side="right",
                         type="log" if y2_log else "linear",
-                        showgrid=show_grid,
-                        gridcolor=grid_color,
-                        gridwidth=grid_width,
+                        tickformat=y2_tickformat if y2_tickformat else None,
+                        tickprefix=y2_tickprefix or None,
+                        ticksuffix=y2_ticksuffix or None,
+                        tickangle=int(y2_tickangle),
+                        showgrid=show_y_grid,
+                        gridcolor=y_grid_color,
+                        gridwidth=y_grid_width,
                         tickfont=dict(color=font_color),
+                        showline=show_y_line,
+                        linecolor=y_line_color,
+                        linewidth=y_line_width,
                     ),
                 )
             else:
@@ -748,11 +824,22 @@ def build_figure(
                             standoff=y_title_standoff,
                         ),
                         type="log" if y_log else "linear",
+                        tickformat=y_tickformat if y_tickformat else None,
+                        tickprefix=y_tickprefix or None,
+                        ticksuffix=y_ticksuffix or None,
+                        tickangle=int(y_tickangle),
+                        showgrid=show_y_grid,
+                        gridcolor=y_grid_color,
+                        gridwidth=y_grid_width,
+                        tickfont=dict(color=font_color),
+                        showline=show_y_line,
+                        linecolor=y_line_color,
+                        linewidth=y_line_width,
                     )
                 )
         else:
             # Swapped: Y shows original X; X shows original Y
-            # Apply date parsing to Y when original X was date
+            # yaxis already got X tick formatting via x_* fields where set above
             yaxis_type = "date" if parse_dates else "linear"
             fig.update_layout(
                 yaxis=dict(
@@ -762,6 +849,17 @@ def build_figure(
                         standoff=y_title_standoff,
                     ),
                     type=yaxis_type,
+                    showgrid=show_y_grid,
+                    gridcolor=y_grid_color,
+                    gridwidth=y_grid_width,
+                    tickfont=dict(color=font_color),
+                    showline=show_y_line,
+                    linecolor=y_line_color,
+                    linewidth=y_line_width,
+                    tickformat=x_tickformat if x_tickformat else None,
+                    tickprefix=x_tickprefix or None,
+                    ticksuffix=x_ticksuffix or None,
+                    tickangle=int(x_tickangle),
                 ),
                 xaxis=dict(
                     title=dict(
@@ -770,10 +868,19 @@ def build_figure(
                         standoff=x_title_standoff,
                     ),
                     type="log" if y_log else "linear",
+                    showgrid=show_x_grid,
+                    gridcolor=x_grid_color,
+                    gridwidth=x_grid_width,
+                    tickfont=dict(color=font_color),
+                    showline=show_x_line,
+                    linecolor=x_line_color,
+                    linewidth=x_line_width,
+                    tickformat=y_tickformat if y_tickformat else None,
+                    tickprefix=y_tickprefix or None,
+                    ticksuffix=y_ticksuffix or None,
+                    tickangle=int(y_tickangle),
                 ),
             )
-            if parse_dates and x_tickformat:
-                fig.update_yaxes(tickformat=x_tickformat)
             if y2_set:
                 fig.update_layout(
                     xaxis2=dict(
@@ -785,14 +892,20 @@ def build_figure(
                         overlaying="x",
                         side="top",
                         type="log" if y2_log else "linear",
-                        showgrid=show_grid,
-                        gridcolor=grid_color,
-                        gridwidth=grid_width,
+                        showgrid=show_x_grid,
+                        gridcolor=x_grid_color,
+                        gridwidth=x_grid_width,
                         tickfont=dict(color=font_color),
+                        showline=show_x_line,
+                        linecolor=x_line_color,
+                        linewidth=x_line_width,
+                        tickformat=y2_tickformat if y2_tickformat else None,
+                        tickprefix=y2_tickprefix or None,
+                        ticksuffix=y2_ticksuffix or None,
+                        tickangle=int(y2_tickangle),
                     )
                 )
 
-    # Background colors
     # Background colors
     if bg_transparent:
         fig.update_layout(
@@ -900,8 +1013,8 @@ def export_image(
             m = fig2.layout.margin or go.layout.Margin()
             m_l = m.l if m.l is not None else 60
             m_r = m.r if m.r is not None else 40
-            m_t = m.t if m.t is not None else 60
-            m_b = m.b if m.b is not None else 60
+            m_t = m_t if (m_t := m.t) is not None else 60
+            m_b = m_b if (m_b := m.b) is not None else 60
             fig2.update_layout(
                 margin=dict(
                     l=m_l + int(extra_l_margin),
@@ -918,12 +1031,12 @@ def export_image(
                 x=0,
                 y=0,
                 xanchor="left",
-                yanchor="top",  # keep 'top' and push into bottom margin
+                yanchor="top",
                 text=safe_text,
                 showarrow=False,
                 align="left",
                 font=dict(size=cap_font_size, color=font_color or "#2c3e50"),
-                xshift=max(6, int(cap_font_size * 0.4)),  # small padding
+                xshift=max(6, int(cap_font_size * 0.4)),
                 yshift=int(caption_yshift),
             )
 
@@ -1083,7 +1196,7 @@ else:
         st.warning("Select at least one Y column.")
         st.stop()
 
-# Style and Layout (updated with new defaults and features)
+# Style and Layout
 st.subheader("Style and Layout")
 c1, c2, c3, c4 = st.columns([1.3, 1.3, 1.2, 1.2])
 
@@ -1343,7 +1456,11 @@ with c2:
     cap_c1, cap_c2 = st.columns([1, 1])
     with cap_c1:
         extra_l_margin = st.number_input(
-            "Caption extra left margin (px)", min_value=0, max_value=200, value=10, step=1
+            "Caption extra left margin (px)",
+            min_value=0,
+            max_value=200,
+            value=10,
+            step=1,
         )
     with cap_c2:
         caption_yshift = st.number_input(
@@ -1376,22 +1493,39 @@ with c3:
     )
 
 with c4:
-    # Grid settings
-    show_grid = st.toggle("Show grid", value=False)
+    # Grid settings (independent X/Y)
+    st.markdown("Grid lines")
+    show_x_grid = st.toggle("Vertical grid (X grid)", value=False)
+    show_y_grid = st.toggle("Horizontal grid (Y grid)", value=False)
+
     # Derive default picker color and opacity from palette (convert rgba to hex+alpha)
     default_grid_hex, default_grid_alpha = rgba_to_hex_and_alpha(
         palette_theme.get("grid_color", "#e1e5ea")
     )
-    if show_grid:
-        grid_color_hex = st.color_picker("Grid color", default_grid_hex)
-        grid_opacity = st.slider(
-            "Grid opacity", 0.0, 1.0, float(default_grid_alpha), 0.05
+
+    # X grid style
+    if show_x_grid:
+        x_grid_color_hex = st.color_picker("X grid color", default_grid_hex)
+        x_grid_opacity = st.slider(
+            "X grid opacity", 0.0, 1.0, float(default_grid_alpha), 0.05
         )
-        grid_width = st.number_input("Grid width", 0.0, 5.0, 1.0, 0.1)
+        x_grid_width = st.number_input("X grid width", 0.0, 5.0, 1.0, 0.1)
     else:
-        grid_color_hex = default_grid_hex
-        grid_opacity = float(default_grid_alpha)
-        grid_width = 1.0
+        x_grid_color_hex = default_grid_hex
+        x_grid_opacity = float(default_grid_alpha)
+        x_grid_width = 1.0
+
+    # Y grid style
+    if show_y_grid:
+        y_grid_color_hex = st.color_picker("Y grid color", default_grid_hex)
+        y_grid_opacity = st.slider(
+            "Y grid opacity", 0.0, 1.0, float(default_grid_alpha), 0.05
+        )
+        y_grid_width = st.number_input("Y grid width", 0.0, 5.0, 1.0, 0.1)
+    else:
+        y_grid_color_hex = default_grid_hex
+        y_grid_opacity = float(default_grid_alpha)
+        y_grid_width = 1.0
 
 # Axis titles positioning
 st.subheader("Axis Settings")
@@ -1402,17 +1536,38 @@ with ax1:
         value=date_like if "date" in date_like.lower() else "Date",
     )
     x_title_standoff = st.slider("X title distance from axis", 0, 100, 20, 5)
+    # Axis line (X) controls
+    show_x_line = st.toggle("Show X axis line", value=False)
+    if show_x_line:
+        x_line_color = st.color_picker("X axis line color", value=font_color)
+        x_line_width = st.number_input(
+            "X axis line width", min_value=0.5, max_value=8.0, value=1.5, step=0.5
+        )
+    else:
+        x_line_color = font_color
+        x_line_width = 1.0
 with ax2:
     y_title = st.text_input("Y axis title", value="Value")
     y_title_standoff = st.slider("Y title distance from axis", 0, 100, 20, 5)
+    # Axis line (Y) controls
+    show_y_line = st.toggle("Show Y axis line", value=False)
+    if show_y_line:
+        y_line_color = st.color_picker("Y axis line color", value=font_color)
+        y_line_width = st.number_input(
+            "Y axis line width", min_value=0.5, max_value=8.0, value=1.5, step=0.5
+        )
+    else:
+        y_line_color = font_color
+        y_line_width = 1.0
 
-# X-axis date tick format controls (only when parsing dates)
+# X-axis tick formatting (date or numeric)
+st.subheader("X axis tick labels")
 if "parse_dates" in locals() and parse_dates:
-    st.caption("X axis date tick format (also used on export)")
+    st.caption("D3 time-format string (applies to datetime X).")
     f1, f2 = st.columns([1, 1])
     with f1:
         x_tickformat_preset = st.selectbox(
-            "Preset",
+            "Date format preset",
             [
                 "%Y-%m-%d",
                 "%d/%m/%Y",
@@ -1426,18 +1581,107 @@ if "parse_dates" in locals() and parse_dates:
                 "%Y-%m-%d %H:%M",
             ],
             index=0,
-            help="D3 time-format string (Plotly uses D3 tokens).",
         )
     with f2:
         x_tickformat_custom = st.text_input(
-            "Custom (optional)",
+            "Custom date format (optional)",
             value="",
             placeholder="e.g. %d/%m/%Y %H:%M",
-            help="Leave empty to use the preset",
         )
     x_tickformat = x_tickformat_custom or x_tickformat_preset
+
+    p1, p2 = st.columns([1, 1])
+    with p1:
+        x_tickprefix = st.text_input("X tick prefix", value="", placeholder="e.g. ")
+    with p2:
+        x_ticksuffix = st.text_input("X tick suffix", value="", placeholder="e.g. UTC")
+    x_tickangle = st.slider("X tick label angle", -90, 90, 0, 5)
 else:
-    x_tickformat = None
+    st.caption("D3 number-format string (applies to numeric X).")
+    n1, n2 = st.columns([1, 1])
+    with n1:
+        x_tickformat_preset_label = st.selectbox(
+            "Numeric format preset",
+            [
+                "Auto (default)",
+                "1,234",
+                "1,234.56",
+                "1.23%",
+                "1.23e+3",
+                "1.23k (SI)",
+                "1.23M (SI)",
+            ],
+            index=0,
+        )
+    with n2:
+        x_tickformat_custom = st.text_input(
+            "Custom numeric format (optional)",
+            value="",
+            placeholder="e.g. ,.2f, .2%, .3e, ~s",
+        )
+
+    preset_map = {
+        "Auto (default)": "",
+        "1,234": ",.0f",
+        "1,234.56": ",.2f",
+        "1.23%": ".2%",
+        "1.23e+3": ".2e",
+        "1.23k (SI)": "~s",
+        "1.23M (SI)": "~s",
+    }
+    x_tickformat = x_tickformat_custom or preset_map.get(x_tickformat_preset_label, "")
+
+    p1, p2 = st.columns([1, 1])
+    with p1:
+        x_tickprefix = st.text_input("X tick prefix", value="", placeholder="e.g. $")
+    with p2:
+        x_ticksuffix = st.text_input("X tick suffix", value="", placeholder="e.g. %")
+    x_tickangle = st.slider("X tick label angle", -90, 90, 0, 5)
+
+# Y-axis tick formatting (numeric)
+st.subheader("Y axis tick labels")
+st.caption("D3 number-format string (applies to Y and works with log scale).")
+y1, y2 = st.columns([1, 1])
+with y1:
+    y_tickformat_preset_label = st.selectbox(
+        "Y numeric format preset",
+        [
+            "Auto (default)",
+            "1,234",
+            "1,234.56",
+            "1.23%",
+            "1.23e+3",
+            "1.23k (SI)",
+            "1.23M (SI)",
+        ],
+        index=0,
+    )
+with y2:
+    y_tickformat_custom = st.text_input(
+        "Custom Y numeric format (optional)",
+        value="",
+        placeholder="e.g. ,.2f, .2%, .3e, ~s",
+    )
+
+numeric_preset_map = {
+    "Auto (default)": "",
+    "1,234": ",.0f",
+    "1,234.56": ",.2f",
+    "1.23%": ".2%",
+    "1.23e+3": ".2e",
+    "1.23k (SI)": "~s",
+    "1.23M (SI)": "~s",
+}
+y_tickformat = y_tickformat_custom or numeric_preset_map.get(
+    y_tickformat_preset_label, ""
+)
+
+yp1, yp2 = st.columns([1, 1])
+with yp1:
+    y_tickprefix = st.text_input("Y tick prefix", value="", placeholder="e.g. $")
+with yp2:
+    y_ticksuffix = st.text_input("Y tick suffix", value="", placeholder="e.g. %")
+y_tickangle = st.slider("Y tick label angle", -90, 90, 0, 5)
 
 # Legend settings
 st.subheader("Legend Settings")
@@ -1572,6 +1816,11 @@ if chart_type not in ["Candlestick"]:
         y2_title = "Secondary"
         y2_title_standoff = 20
         y2_log = False
+        # Defaults for Y2 tick labels (unused)
+        y2_tickformat = ""
+        y2_tickprefix = ""
+        y2_ticksuffix = ""
+        y2_tickangle = 0
     else:
         sy1, sy2, sy3 = st.columns([1, 1, 1])
         with sy1:
@@ -1581,6 +1830,39 @@ if chart_type not in ["Candlestick"]:
         with sy3:
             y2_log = st.toggle("Log scale (Y2)", value=False)
 
+        st.caption("Y2 tick labels (numeric formatting)")
+        z1, z2 = st.columns([1, 1])
+        with z1:
+            y2_preset_label = st.selectbox(
+                "Y2 numeric format preset",
+                [
+                    "Auto (default)",
+                    "1,234",
+                    "1,234.56",
+                    "1.23%",
+                    "1.23e+3",
+                    "1.23k (SI)",
+                    "1.23M (SI)",
+                ],
+                index=0,
+            )
+        with z2:
+            y2_tickformat_custom = st.text_input(
+                "Custom Y2 numeric format (optional)",
+                value="",
+                placeholder="e.g. ,.2f, .2%, .3e, ~s",
+            )
+        y2_tickformat = y2_tickformat_custom or numeric_preset_map.get(
+            y2_preset_label, ""
+        )
+
+        z3, z4 = st.columns([1, 1])
+        with z3:
+            y2_tickprefix = st.text_input("Y2 tick prefix", value="", placeholder="$")
+        with z4:
+            y2_ticksuffix = st.text_input("Y2 tick suffix", value="", placeholder="%")
+        y2_tickangle = st.slider("Y2 tick label angle", -90, 90, 0, 5)
+
 else:
     # Defaults for candlestick workflow
     y_col_names = {}
@@ -1588,6 +1870,11 @@ else:
     y2_title = "Secondary"
     y2_title_standoff = 20
     y2_log = False
+    # Defaults for Y2 tick labels (unused)
+    y2_tickformat = ""
+    y2_tickprefix = ""
+    y2_ticksuffix = ""
+    y2_tickangle = 0
 
 # Chart-specific options
 st.subheader("Chart Options")
@@ -1614,8 +1901,9 @@ with cc3:
     export_fmt = st.selectbox("Export format", ["png", "svg", "pdf"], index=0)
     export_scale = st.slider("Export scale (resolution)", 1.0, 5.0, 2.0, 0.5)
 
-# Compose final grid color for Plotly (rgba from hex + opacity)
-grid_color_final = hex_to_rgba(grid_color_hex, grid_opacity)
+# Compose final grid colors for Plotly (rgba from hex + opacity)
+x_grid_color_final = hex_to_rgba(x_grid_color_hex, x_grid_opacity)
+y_grid_color_final = hex_to_rgba(y_grid_color_hex, y_grid_opacity)
 
 # Optional transform before preview/export
 st.subheader("Transform")
@@ -1625,7 +1913,7 @@ swap_axes = st.toggle(
     help="Transpose the plot without losing settings. Candlestick swap is not supported.",
 )
 
-# Build figure with all new parameters
+# Build figure with all parameters
 fig = build_figure(
     chart_type=chart_type,
     df=df,
@@ -1645,9 +1933,20 @@ fig = build_figure(
     paper_bg=paper_bg,
     plot_bg=plot_bg,
     font_color=font_color,
-    show_grid=show_grid,
-    grid_color=grid_color_final,
-    grid_width=float(grid_width),
+    # Per-axis grid configs
+    show_x_grid=bool(show_x_grid),
+    x_grid_color=x_grid_color_final,
+    x_grid_width=float(x_grid_width),
+    show_y_grid=bool(show_y_grid),
+    y_grid_color=y_grid_color_final,
+    y_grid_width=float(y_grid_width),
+    # Per-axis line configs
+    show_x_line=bool(show_x_line),
+    x_line_color=x_line_color,
+    x_line_width=float(x_line_width),
+    show_y_line=bool(show_y_line),
+    y_line_color=y_line_color,
+    y_line_width=float(y_line_width),
     show_legend=show_legend,
     legend_orientation=legend_orientation,
     legend_x=float(legend_x),
@@ -1661,13 +1960,24 @@ fig = build_figure(
     title_y=float(title_y),
     x_title=x_title,
     x_title_standoff=int(x_title_standoff),
-    x_tickformat=x_tickformat,
+    x_tickformat=x_tickformat or None,
+    x_tickprefix=x_tickprefix,
+    x_ticksuffix=x_ticksuffix,
+    x_tickangle=int(x_tickangle),
     y_title=y_title,
     y_title_standoff=int(y_title_standoff),
+    y_tickformat=y_tickformat or None,
+    y_tickprefix=y_tickprefix,
+    y_ticksuffix=y_ticksuffix,
+    y_tickangle=int(y_tickangle),
     y_log=y_log,
     y2_series=list(y2_series_set),
     y2_title=y2_title,
     y2_title_standoff=int(y2_title_standoff),
+    y2_tickformat=y2_tickformat or None,
+    y2_tickprefix=y2_tickprefix,
+    y2_ticksuffix=y2_ticksuffix,
+    y2_tickangle=int(y2_tickangle),
     y2_log=bool(y2_log),
     line_width=float(line_width),
     line_dash=line_dash,
@@ -1729,7 +2039,6 @@ st.plotly_chart(
 if caption_text.strip():
     st.caption(caption_text)
 
-# Export section
 # Export section
 st.subheader("Export")
 

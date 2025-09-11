@@ -96,3 +96,4 @@ reportlab>=4.4.2
 matplotlib>=3.10.3
 seaborn>=0.13.2
 kaleido==1.0.0
+yfinance
