@@ -2676,6 +2676,7 @@ def create_renda_variavel_analysis(df):
     df_cross_sell = df[
         (df['cod_cliente'].isin(cross_sell_clients_to_exclude)) & base_filter
     ].copy()
+
     
     # Get all unique months from both datasets
     all_months = sorted(set(df_normal['month_year'].unique()) | set(df_cross_sell['month_year'].unique()))

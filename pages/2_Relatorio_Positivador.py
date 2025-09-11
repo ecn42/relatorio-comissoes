@@ -1010,6 +1010,9 @@ def get_estruturadas_summary(df_estruturadas, selected_months, selected_assessor
             df_estruturadas_filtered = df_estruturadas_filtered[
                 ~df_estruturadas_filtered['Cliente'].isin(cross_sell_clients)
             ]
+        elif client_type_filter == "Sem Esteio":
+            df_estruturadas_filtered = df_estruturadas_filtered[df_estruturadas_filtered['Cliente'].isin(cross_sell_clients)]
+            df_estruturadas_filtered = df_estruturadas_filtered[df_estruturadas_filtered['Cliente'] != '2733563']
     
     if df_estruturadas_filtered.empty:
         return pd.DataFrame()
@@ -1405,7 +1408,7 @@ def main():
                 st.sidebar.subheader("👥 Filtro de Cliente")
                 shared_client_type_filter = st.sidebar.radio(
                     "Tipo de Cliente:",
-                    ["Todos", "Apenas Cross-Sell", "Apenas Normais"],
+                    ["Todos", "Apenas Cross-Sell", "Apenas Normais", "Sem Esteio"],
                     key="shared_client_type",
                     help="Filtra clientes com base na lista de cross-sell."
                 )
@@ -1459,6 +1462,9 @@ def main():
                         df_filtered = df_filtered[df_filtered['Cliente'].isin(cross_sell_clients)]
                     elif client_type_filter == "Apenas Normais":
                         df_filtered = df_filtered[~df_filtered['Cliente'].isin(cross_sell_clients)]
+                    elif client_type_filter == "Sem Esteio":
+                        df_filtered = df_filtered[df_filtered['Cliente'].isin(cross_sell_clients)]
+                        df_filtered = df_filtered[df_filtered['Cliente'] != '2733563']
 
             # Show filter status
             if client_type_filter != "Todos":
