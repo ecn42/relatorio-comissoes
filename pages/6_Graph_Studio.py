@@ -47,7 +47,7 @@ pio.defaults.chromium_args = [
 # ----------------------------- Helpers ------------------------------------- #
 
 
-def load_data(upload) -> pd.DataFrame:
+def load_data(upload, excel_sheet: Optional[str] = None) -> pd.DataFrame:
     if upload is None:
         return pd.DataFrame()
     name = upload.name.lower()
@@ -55,7 +55,8 @@ def load_data(upload) -> pd.DataFrame:
         if name.endswith(".csv") or name.endswith(".txt"):
             return pd.read_csv(upload)
         if name.endswith(".xlsx") or name.endswith(".xls"):
-            return pd.read_excel(upload)
+            # Respect selected sheet if provided
+            return pd.read_excel(upload, sheet_name=excel_sheet)
         if name.endswith(".parquet"):
             return pd.read_parquet(upload)
         if name.endswith(".json"):
@@ -65,6 +66,16 @@ def load_data(upload) -> pd.DataFrame:
     except Exception as e:
         st.error(f"Could not read file: {e}")
         return pd.DataFrame()
+
+
+def get_excel_sheets(upload) -> List[str]:
+    try:
+        raw = upload.getvalue()
+        with pd.ExcelFile(io.BytesIO(raw)) as xls:
+            return xls.sheet_names
+    except Exception as e:
+        st.error(f"Could not inspect Excel sheets: {e}")
+        return []
 
 
 def make_sample_data(kind: str) -> pd.DataFrame:
@@ -383,6 +394,23 @@ def build_figure(
     logo_x: float,
     logo_y: float,
     swap_axes: bool,
+    # Pie-specific options (ignored for non-Pie)
+    pie_labels_col: Optional[str] = None,
+    pie_values_col: Optional[str] = None,
+    pie_hole: float = 0.0,
+    pie_text_template: Optional[str] = None,
+    pie_text_position: str = "inside",
+    pie_sort: bool = True,
+    pie_direction: str = "counterclockwise",
+    pie_start_angle: int = 0,
+    # Pie/Bar small-category grouping
+    pie_group_small: bool = False,
+    pie_group_threshold: float = 0.0,
+    pie_group_others_label: str = "Others",
+    bar_group_small: bool = False,
+    bar_group_threshold: float = 0.0,
+    bar_group_by: str = "x",  # "x" or "color"
+    bar_group_others_label: str = "Others",
 ) -> go.Figure:
     data = df.copy()
     y2_set = set(y2_series or [])
@@ -469,6 +497,71 @@ def build_figure(
                 linewidth=y_line_width,
             )
         )
+    elif chart_type == "Pie":
+        # Determine label/value columns
+        if not pie_labels_col or not pie_values_col:
+            num_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+            cat_cols = [c for c in data.columns if c not in num_cols]
+            pie_labels_col = pie_labels_col or (
+                cat_cols[0] if cat_cols else data.columns[0]
+            )
+            pie_values_col = pie_values_col or (
+                num_cols[0] if num_cols else data.columns[-1]
+            )
+
+        df_pie = data[[pie_labels_col, pie_values_col]].copy()
+
+        # Group small categories into "Others"
+        if pie_group_small and pie_group_threshold > 0:
+            totals = (
+                df_pie.groupby(pie_labels_col, dropna=False)[pie_values_col]
+                .sum()
+                .sort_values(ascending=False)
+            )
+            small = set(totals[totals < float(pie_group_threshold)].index)
+            if small:
+                df_pie["_labels"] = df_pie[pie_labels_col].apply(
+                    lambda v: pie_group_others_label if v in small else v
+                )
+                df_pie = (
+                    df_pie.groupby("_labels", dropna=False)[pie_values_col]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={"_labels": pie_labels_col})
+                )
+
+        fig = px.pie(
+            df_pie,
+            names=pie_labels_col,
+            values=pie_values_col,
+            color_discrete_sequence=colorway,
+            hole=pie_hole,
+        )
+
+        # Text content and placement
+        if pie_text_template and pie_text_template.strip():
+            fig.update_traces(
+                texttemplate=pie_text_template,
+                textinfo="none",
+                textposition=pie_text_position,
+                sort=pie_sort,
+                direction=pie_direction,
+                rotation=int(pie_start_angle),
+                textfont=dict(color=font_color),
+                insidetextfont=dict(color=font_color),
+                outsidetextfont=dict(color=font_color),
+            )
+        else:
+            fig.update_traces(
+                textinfo="percent",
+                textposition=pie_text_position,
+                sort=pie_sort,
+                direction=pie_direction,
+                rotation=int(pie_start_angle),
+                textfont=dict(color=font_color),
+                insidetextfont=dict(color=font_color),
+                outsidetextfont=dict(color=font_color),
+            )
     else:
         # Create long format with custom names
         long = to_long_df(data, x_col, y_cols, color_col)
@@ -481,9 +574,7 @@ def build_figure(
         else:
             long["SeriesDisplay"] = long["Series"]
 
-        long = apply_rolling(long, x_col, "ColorGroup", rolling_window)
-
-        # Create the main chart
+        # Decide color column used by Plotly
         color_col_to_use = None
         if color_col and len(y_cols) > 1:
             color_col_to_use = "ColorGroup"
@@ -492,6 +583,27 @@ def build_figure(
         elif len(y_cols) > 1:
             color_col_to_use = "SeriesDisplay"
 
+        # Bar-specific: group small categories before rolling/plotting
+        if chart_type == "Bar" and bar_group_small and bar_group_threshold > 0:
+            if bar_group_by == "x":
+                totals = long.groupby(x_col, dropna=False)["Value"].sum()
+                small = set(totals[totals < float(bar_group_threshold)].index)
+                if small:
+                    long[x_col] = long[x_col].apply(
+                        lambda v: bar_group_others_label if v in small else v
+                    )
+            elif bar_group_by == "color" and color_col_to_use is not None:
+                totals = long.groupby(color_col_to_use, dropna=False)["Value"].sum()
+                small = set(totals[totals < float(bar_group_threshold)].index)
+                if small:
+                    long[color_col_to_use] = long[color_col_to_use].apply(
+                        lambda v: bar_group_others_label if v in small else v
+                    )
+
+        # Apply smoothing after grouping
+        long = apply_rolling(long, x_col, "ColorGroup", rolling_window)
+
+        # Create the main chart
         if chart_type == "Line":
             if not swap_axes:
                 fig = px.line(
@@ -749,28 +861,29 @@ def build_figure(
         colorway=colorway or px.colors.qualitative.Set2,
     )
 
-    # Grid and axis styling (primary updates for both axes)
-    fig.update_xaxes(
-        showgrid=show_x_grid,
-        gridcolor=x_grid_color,
-        gridwidth=x_grid_width,
-        tickfont=dict(color=font_color),
-        showline=show_x_line,
-        linecolor=x_line_color,
-        linewidth=x_line_width,
-    )
-    fig.update_yaxes(
-        showgrid=show_y_grid,
-        gridcolor=y_grid_color,
-        gridwidth=y_grid_width,
-        tickfont=dict(color=font_color),
-        showline=show_y_line,
-        linecolor=y_line_color,
-        linewidth=y_line_width,
-    )
+    # Grid and axis styling – not applicable to Pie
+    if chart_type not in ["Pie", "Candlestick"]:
+        fig.update_xaxes(
+            showgrid=show_x_grid,
+            gridcolor=x_grid_color,
+            gridwidth=x_grid_width,
+            tickfont=dict(color=font_color),
+            showline=show_x_line,
+            linecolor=x_line_color,
+            linewidth=x_line_width,
+        )
+        fig.update_yaxes(
+            showgrid=show_y_grid,
+            gridcolor=y_grid_color,
+            gridwidth=y_grid_width,
+            tickfont=dict(color=font_color),
+            showline=show_y_line,
+            linecolor=y_line_color,
+            linewidth=y_line_width,
+        )
 
     # Finalize primary/secondary axis configuration (titles, scales, tick labels)
-    if chart_type != "Candlestick":
+    if chart_type not in ["Candlestick", "Pie"]:
         if not swap_axes:
             if y2_set:
                 fig.update_layout(
@@ -839,7 +952,6 @@ def build_figure(
                 )
         else:
             # Swapped: Y shows original X; X shows original Y
-            # yaxis already got X tick formatting via x_* fields where set above
             yaxis_type = "date" if parse_dates else "linear"
             fig.update_layout(
                 yaxis=dict(
@@ -902,7 +1014,7 @@ def build_figure(
                         tickformat=y2_tickformat if y2_tickformat else None,
                         tickprefix=y2_tickprefix or None,
                         ticksuffix=y2_ticksuffix or None,
-                        tickangle=int(y2_tickangle),
+                        tickangle=int(y2_tickangle),  # <-- fixed here
                     )
                 )
 
@@ -1091,11 +1203,18 @@ st.caption(
 with st.sidebar:
     st.header("1) Data")
     upload = st.file_uploader("Upload data (CSV / Excel / Parquet / JSON)", type=None)
+    excel_sheet = None
+    # If Excel, allow worksheet selection
+    if upload is not None and upload.name.lower().endswith((".xlsx", ".xls")):
+        sheets = get_excel_sheets(upload)
+        if sheets:
+            excel_sheet = st.selectbox("Worksheet", sheets, index=0)
+
     sample_choice = st.selectbox(
         "Or pick a sample", ["—", "Stocks timeseries (synthetic)", "Iris"], index=0
     )
 
-    df = load_data(upload)
+    df = load_data(upload, excel_sheet=excel_sheet)
     if df.empty and sample_choice != "—":
         df = make_sample_data(sample_choice)
 
@@ -1106,7 +1225,7 @@ with st.sidebar:
 
     st.header("2) Chart")
     chart_type = st.selectbox(
-        "Chart type", ["Line", "Area", "Bar", "Scatter", "Candlestick"]
+        "Chart type", ["Line", "Area", "Bar", "Scatter", "Pie", "Candlestick"]
     )
 
     st.header("3) Images")
@@ -1168,6 +1287,30 @@ if chart_type == "Candlestick":
     series_glow_settings = {}
     avg_line_color = rolling_line_color = "#000000"
     y_col_names = {}
+elif chart_type == "Pie":
+    left, right = st.columns([1, 1])
+    with left:
+        pie_labels_col = st.selectbox("Labels (categories)", cols, index=0)
+        value_candidates = [c for c in cols if c != pie_labels_col]
+        value_candidates = value_candidates or cols
+        pie_values_col = st.selectbox("Values (numeric)", value_candidates, index=0)
+        parse_dates = False
+        sort_x = False
+        y_log = False
+    with right:
+        st.caption("Tip: Fine-tune label content/position in Chart Options below.")
+
+    # Placeholders for unused variables in Pie flow
+    x_col = cols[0]
+    y_cols = []
+    color_col = None
+    rolling_window = 1
+    candlestick_cols = {}
+    series_avg_settings = {}
+    series_rolling_settings = {}
+    series_glow_settings = {}
+    avg_line_color = rolling_line_color = "#000000"
+    y_col_names = {}
 else:
     left, right = st.columns([1, 1])
     with left:
@@ -1202,6 +1345,21 @@ c1, c2, c3, c4 = st.columns([1.3, 1.3, 1.2, 1.2])
 
 with c1:
     ENHANCED_PALETTES = {
+        "Ceres Wealth": {
+            "colors": [
+                "#013220",
+                "#8c6239",
+                "#57575a",
+                "#b08568",
+                "#09202e",
+                "#582308",
+                "#7a6200",
+            ],
+            "paper_bg": "#333652",
+            "plot_bg": "#818183",
+            "font_color": "#ffffff",
+            "grid_color": "rgba(0,0,0,0.8)",
+        },
         "Custom Light": {
             "colors": px.colors.qualitative.Set2,
             "paper_bg": "#ffffff",
@@ -1701,7 +1859,7 @@ with leg2:
     legend_y = st.slider("Legend Y position", -0.2, 1.2, 1.02, 0.01)
 
 # Series-specific average, rolling, glow, and Y2 assignment
-if chart_type not in ["Candlestick"]:
+if chart_type not in ["Candlestick", "Pie"]:
 
     st.subheader("Series Analysis")
     series_avg_settings = {}
@@ -1864,7 +2022,7 @@ if chart_type not in ["Candlestick"]:
         y2_tickangle = st.slider("Y2 tick label angle", -90, 90, 0, 5)
 
 else:
-    # Defaults for candlestick workflow
+    # Defaults for candlestick workflow or Pie (no series analysis)
     y_col_names = {}
     y2_series_set = set()
     y2_title = "Secondary"
@@ -1880,26 +2038,125 @@ else:
 st.subheader("Chart Options")
 cc1, cc2, cc3 = st.columns([1.1, 1.1, 1.1])
 
-with cc1:
-    # Markers OFF by default
-    markers = st.toggle("Markers (line/scatter)", value=False)
-    marker_size = st.slider("Marker size", 1, 24, 6, 1)
-    line_width = st.slider("Line width", 1, 12, 3, 1)
-    line_dash = st.selectbox(
-        "Line dash",
-        ["solid", "dot", "dash", "longdash", "dashdot", "longdashdot"],
-        index=0,
-    )
-
-with cc2:
-    if chart_type == "Bar":
-        barmode = st.selectbox("Bar mode", ["group", "stack"], index=0)
-    else:
-        barmode = "group"
+if chart_type == "Pie":
+    with cc1:
+        pie_hole = st.slider("Donut hole size", 0.0, 0.7, 0.3, 0.05)
+        pie_text_position = st.selectbox(
+            "Slice label position", ["inside", "outside"], index=0
+        )
+        pie_sort = st.toggle("Sort slices", value=True)
+        pie_direction = st.selectbox(
+            "Direction", ["counterclockwise", "clockwise"], index=0
+        )
+    with cc2:
+        pie_text_mode = st.selectbox(
+            "Slice label content",
+            [
+                "%",
+                "Value",
+                "% + Value",
+                "Label",
+                "Label + %",
+                "Label + Value",
+                "Label + % + Value",
+            ],
+            index=0,
+        )
+        pie_start_angle = st.slider("Start angle (degrees)", 0, 360, 0, 5)
+        _mode_map = {
+            "%": "%{percent:.0%}",
+            "Value": "%{value}",
+            "% + Value": "%{percent:.0%}<br>%{value}",
+            "Label": "%{label}",
+            "Label + %": "%{label}<br>%{percent:.0%}",
+            "Label + Value": "%{label}<br>%{value}",
+            "Label + % + Value": "%{label}<br>%{percent:.0%}<br>%{value}",
+        }
+        pie_text_template = _mode_map.get(pie_text_mode, "%{percent:.0%}")
+    # Defaults for non-applicable options
+    markers = False
+    marker_size = 6
+    line_width = 3
+    line_dash = "solid"
+    barmode = "group"
+else:
+    with cc1:
+        # Markers OFF by default
+        markers = st.toggle("Markers (line/scatter)", value=False)
+        marker_size = st.slider("Marker size", 1, 24, 6, 1)
+        line_width = st.slider("Line width", 1, 12, 3, 1)
+        line_dash = st.selectbox(
+            "Line dash",
+            ["solid", "dot", "dash", "longdash", "dashdot", "longdashdot"],
+            index=0,
+        )
+    with cc2:
+        if chart_type == "Bar":
+            barmode = st.selectbox("Bar mode", ["group", "stack"], index=0)
+        else:
+            barmode = "group"
 
 with cc3:
     export_fmt = st.selectbox("Export format", ["png", "svg", "pdf"], index=0)
     export_scale = st.slider("Export scale (resolution)", 1.0, 5.0, 2.0, 0.5)
+
+# Category grouping (Pie and Bar)
+if chart_type in ["Pie", "Bar"]:
+    st.subheader('Category Grouping ("Others")')
+
+    if chart_type == "Pie":
+        pie_group_small = st.toggle(
+            'Group small categories into "Others"', value=False
+        )
+        col_pg1, col_pg2 = st.columns([1, 1])
+        with col_pg1:
+            pie_group_threshold = st.number_input(
+                "Min value to keep category",
+                min_value=0.0,
+                value=0.0,
+                step=0.1,
+            )
+        with col_pg2:
+            pie_group_others_label = st.text_input("Others label", value="Others")
+        # Bar defaults
+        bar_group_small = False
+        bar_group_threshold = 0.0
+        bar_group_by = "x"
+        bar_group_others_label = "Others"
+
+    elif chart_type == "Bar":
+        # Detect if color dimension exists
+        bar_has_color_dimension = (color_col is not None) or (len(y_cols) > 1)
+        bar_group_small = st.toggle(
+            'Group small categories into "Others"', value=False
+        )
+        col_bg1, col_bg2, col_bg3 = st.columns([1, 1, 1])
+        with col_bg1:
+            grp_opts = ["X axis"] + (["Color groups"] if bar_has_color_dimension else [])
+            grp_choice = st.selectbox("Group by", grp_opts, index=0)
+            bar_group_by = "color" if grp_choice == "Color groups" else "x"
+        with col_bg2:
+            bar_group_threshold = st.number_input(
+                "Min value to keep category",
+                min_value=0.0,
+                value=0.0,
+                step=0.1,
+            )
+        with col_bg3:
+            bar_group_others_label = st.text_input("Others label", value="Others")
+        # Pie defaults
+        pie_group_small = False
+        pie_group_threshold = 0.0
+        pie_group_others_label = "Others"
+else:
+    # Defaults when not applicable
+    pie_group_small = False
+    pie_group_threshold = 0.0
+    pie_group_others_label = "Others"
+    bar_group_small = False
+    bar_group_threshold = 0.0
+    bar_group_by = "x"
+    bar_group_others_label = "Others"
 
 # Compose final grid colors for Plotly (rgba from hex + opacity)
 x_grid_color_final = hex_to_rgba(x_grid_color_hex, x_grid_opacity)
@@ -1971,7 +2228,7 @@ fig = build_figure(
     y_ticksuffix=y_ticksuffix,
     y_tickangle=int(y_tickangle),
     y_log=y_log,
-    y2_series=list(y2_series_set),
+    y2_series=list(y2_series_set) if "y2_series_set" in locals() else [],
     y2_title=y2_title,
     y2_title_standoff=int(y2_title_standoff),
     y2_tickformat=y2_tickformat or None,
@@ -2000,6 +2257,23 @@ fig = build_figure(
     logo_x=float(logo_x),
     logo_y=float(logo_y),
     swap_axes=bool(swap_axes),
+    # Pie params (ignored for non-Pie)
+    pie_labels_col=pie_labels_col if chart_type == "Pie" else None,
+    pie_values_col=pie_values_col if chart_type == "Pie" else None,
+    pie_hole=float(pie_hole) if chart_type == "Pie" else 0.0,
+    pie_text_template=pie_text_template if chart_type == "Pie" else None,
+    pie_text_position=pie_text_position if chart_type == "Pie" else "inside",
+    pie_sort=bool(pie_sort) if chart_type == "Pie" else True,
+    pie_direction=pie_direction if chart_type == "Pie" else "counterclockwise",
+    pie_start_angle=int(pie_start_angle) if chart_type == "Pie" else 0,
+    # Others grouping
+    pie_group_small=bool(pie_group_small),
+    pie_group_threshold=float(pie_group_threshold),
+    pie_group_others_label=pie_group_others_label,
+    bar_group_small=bool(bar_group_small),
+    bar_group_threshold=float(bar_group_threshold),
+    bar_group_by=bar_group_by,
+    bar_group_others_label=bar_group_others_label,
 )
 
 # Optionally apply imported layout profile (if any)
@@ -2095,8 +2369,72 @@ with exp_c2:
             )
 
 with exp_c3:
-    if chart_type != "Candlestick":
+    if chart_type == "Pie":
+        out = io.StringIO()
+        # Export the aggregated/grouped data used for the pie
+        df_pie = df[[pie_labels_col, pie_values_col]].copy()
+        if pie_group_small and pie_group_threshold > 0:
+            totals = (
+                df_pie.groupby(pie_labels_col, dropna=False)[pie_values_col]
+                .sum()
+                .sort_values(ascending=False)
+            )
+            small = set(totals[totals < float(pie_group_threshold)].index)
+            if small:
+                df_pie["_labels"] = df_pie[pie_labels_col].apply(
+                    lambda v: pie_group_others_label if v in small else v
+                )
+                df_pie = (
+                    df_pie.groupby("_labels", dropna=False)[pie_values_col]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={"_labels": pie_labels_col})
+                )
+        df_pie.to_csv(out, index=False)
+        st.download_button(
+            "Download plotted data (CSV)",
+            data=out.getvalue(),
+            file_name="plotted_data.csv",
+            mime="text/csv",
+        )
+    elif chart_type != "Candlestick":
+        # Export long data in the same shape as plotted, including grouping
         long_df = to_long_df(df, x_col=x_col, y_cols=y_cols, color_col=color_col)
+        if y_col_names:
+            long_df["SeriesDisplay"] = long_df["Series"].map(y_col_names).fillna(
+                long_df["Series"]
+            )
+        # Determine color column used (for grouping, if any)
+        color_col_to_use_export = None
+        if color_col and len(y_cols) > 1:
+            color_col_to_use_export = "ColorGroup"
+        elif color_col and len(y_cols) == 1:
+            color_col_to_use_export = color_col
+        elif len(y_cols) > 1:
+            color_col_to_use_export = "SeriesDisplay"
+
+        # Apply Bar grouping to export data before rolling
+        if chart_type == "Bar" and bar_group_small and bar_group_threshold > 0:
+            if bar_group_by == "x":
+                totals = long_df.groupby(x_col, dropna=False)["Value"].sum()
+                small = set(totals[totals < float(bar_group_threshold)].index)
+                if small:
+                    long_df[x_col] = long_df[x_col].apply(
+                        lambda v: bar_group_others_label if v in small else v
+                    )
+            elif (
+                bar_group_by == "color" and color_col_to_use_export is not None
+            ):
+                totals = long_df.groupby(color_col_to_use_export, dropna=False)[
+                    "Value"
+                ].sum()
+                small = set(totals[totals < float(bar_group_threshold)].index)
+                if small:
+                    long_df[color_col_to_use_export] = long_df[
+                        color_col_to_use_export
+                    ].apply(lambda v: bar_group_others_label if v in small else v)
+
+        # Rolling after grouping
         long_df = apply_rolling(long_df, x_col, "ColorGroup", int(rolling_window))
         out = io.StringIO()
         long_df.to_csv(out, index=False)

@@ -24,7 +24,7 @@ venv/
 
 P1/
 P2/
-cross_sell_clients.txt
+cross_sell_clients.txts
 
 # Jupyter/IPython Notebook
 .ipynb_checkpoints/
@@ -34,3 +34,4 @@ cross_sell_clients.txt
 .idea/
 .DS_Store
 Thumbs.db
+patchfunds.patch
