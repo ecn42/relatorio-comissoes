@@ -97,3 +97,8 @@ matplotlib>=3.10.3
 seaborn>=0.13.2
 kaleido==1.0.0
 yfinance
+bs4
+selenium
+webdriver-manager
+lxml
+streamlit-extras
