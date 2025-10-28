@@ -25,7 +25,9 @@ venv/
 P1/
 P2/
 cross_sell_clients.txts
-
+cda_data/
+data/
+data_cda_fi/
 # Jupyter/IPython Notebook
 .ipynb_checkpoints/
 
