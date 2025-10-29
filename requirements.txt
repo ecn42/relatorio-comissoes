@@ -102,3 +102,4 @@ selenium
 webdriver-manager
 lxml
 streamlit-extras
+great_tables

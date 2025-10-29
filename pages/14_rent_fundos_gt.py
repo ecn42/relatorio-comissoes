@@ -1,18 +1,15 @@
 # streamlit_app.py
 # CVM FI (INF_DIARIO) + comparação com CDI/IBOV a partir de SQLite
-# - Carrega/atualiza DB de fundos (data_fundos.db)
-# - Compara com benchmarks (data_cdi_ibov.db: tabelas cdi/ibov)
-# - Visualização consistente (meses alinhados e acumulado composto)
-# - Tabelas incluem: Fund % de CDI e Fund - IBOV (p.p.), quando ativados
-# - Cores: aplica a paleta CERES_COLORS em gráficos e tabelas
-# - Fundos: cada gráfico/tabela em sua própria linha com controles de
-#   altura/largura
-# - Fundos: todos os gráficos com use_container_width=False
-# - Fundos: removed cell background coloring (green/red), keep transparent
-# - Novo: Tabela horizontal com Performance 12m, Performance 6m, Performance
-#   1m e Volatilidade 12m
-# - Novo: Campo para alterar o tamanho da fonte nas tabelas e opção para
-#   colorir cabeçalhos das tabelas com texto em negrito
+# - Tabelas: great_tables (GT) renderizadas inline com
+#   streamlit_extras.great_tables.great_tables
+# - Export: SVG (vetor, transparente) e PNG (via conversão client-side)
+# - Gráficos: Plotly (barras/linhas) mantidos
+# - Novidades:
+#   1) Controles para largura de TODAS as tabelas (sidebar). Altura automática.
+#   2) Cabeçalho com cor sólida = 1ª cor da paleta CERES (sem “white on white”).
+#   3) Somente linhas horizontais (sem barras verticais).
+#   4) Visual mais “clean” (hover, leve zebra, sem cara de Excel).
+#   5) Downloads PNG/SVG em alta definição com ALTURA EXATA da tabela renderizada.
 
 import os
 import re
@@ -20,12 +17,26 @@ import sqlite3
 import zipfile
 from typing import Dict, Iterable, List, Optional, Tuple
 
+import base64
+import math
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from plotly.subplots import make_subplots
+
+# great_tables
+from great_tables import GT, style, loc
+
+# streamlit-extras for Great Tables inline rendering
+# Official API: great_tables(table: GT, width='stretch'|'content'|int)
+try:
+    from streamlit_extras.great_tables import great_tables as stx_great_tables
+except Exception:
+    stx_great_tables = None  # fallback HTML
 
 BASE_URL = "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS"
 FILE_PREFIX = "inf_diario_fi"
@@ -36,7 +47,7 @@ DEFAULT_BENCH_DB_PATH = "./data/data_cdi_ibov.db"
 # ---------------------- Color Theme (CERES) -------------------------
 
 CERES_COLORS = [
-    "#8c6239",
+    "#8c6239",  # bronze (1ª cor da paleta)
     "#dedede",
     "#dedede",
     "#8c6239",
@@ -217,10 +228,6 @@ def get_conn(db_path: str) -> sqlite3.Connection:
 
 
 def get_conn_readonly(db_path: str) -> sqlite3.Connection:
-    """
-    Abre DB em modo somente leitura (não cria arquivo).
-    Lança erro claro se o arquivo não existir.
-    """
     if not os.path.exists(db_path):
         raise FileNotFoundError(
             f"Arquivo de benchmarks não encontrado: {db_path}"
@@ -253,7 +260,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_nav_cnpj_dt ON nav_daily(cnpj, dt);")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nav_cnpj_dt ON nav_daily(cnpj, dt);"
+    )
 
 
 def db_mtime(db_path: str) -> float:
@@ -449,7 +458,7 @@ def update_db_for_existing_cnpjs(
 @st.cache_data(show_spinner=False)
 def load_history_from_db_cached(
     db_path: str, cnpj_digits: str, cache_buster: float
-    ) -> pd.DataFrame:
+) -> pd.DataFrame:
     conn = get_conn(db_path)
     try:
         df = pd.read_sql_query(
@@ -501,12 +510,6 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> List[str]:
 def load_benchmark_daily_returns(
     db_path: str, table_hint: str, cache_buster: float
 ) -> pd.DataFrame:
-    """
-    Retorna DataFrame: ['date','daily_return'] (decimal).
-    Aceita:
-      - 'cdi': daily_return ou daily_rate_pct (%)
-      - 'ibov': daily_return ou close (pct_change)
-    """
     conn = get_conn_readonly(db_path)
     try:
         table = _resolve_table_name(conn, table_hint)
@@ -514,7 +517,9 @@ def load_benchmark_daily_returns(
         if "daily_return" in cols:
             q = f"SELECT date, daily_return FROM {table} ORDER BY date"
             df = pd.read_sql_query(q, conn, parse_dates=["date"])
-            df["daily_return"] = pd.to_numeric(df["daily_return"], errors="coerce")
+            df["daily_return"] = pd.to_numeric(
+                df["daily_return"], errors="coerce"
+            )
         elif table.lower() == "cdi" and "daily_rate_pct" in cols:
             q = f"SELECT date, daily_rate_pct FROM {table} ORDER BY date"
             df = pd.read_sql_query(q, conn, parse_dates=["date"])
@@ -623,7 +628,9 @@ def make_monthly_plotly_chart_multi(
         )
 
     all_months = sorted(
-        set().union(*[set(pd.to_datetime(s.index)) for s in series_map.values()])
+        set().union(
+            *[set(pd.to_datetime(s.index)) for s in series_map.values()]
+        )
     )
 
     fig = make_subplots(specs=[[{"secondary_y": False}]])
@@ -721,31 +728,633 @@ def make_nav_line_chart_multi(
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(showgrid=False)
     fig.update_layout(
-    legend=dict(
-        orientation="h",      # horizontal
-        yanchor="top",
-        y=-0.1,               # below the x-axis (tweak as needed)
-        xanchor="center",
-        x=0.5,                # centered
-        title=None,           # optional: hide legend title
-        bgcolor="rgba(0,0,0,0)"  # transparent background
-    ),
-    margin=dict(b=80)
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.1,
+            xanchor="center",
+            x=0.5,
+            title=None,
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(b=80),
     )
     return fig
 
 
-# ---------- Helpers for table styling ----------
+# ---------- Great Tables: theme, render inline, export helpers ----------
 
 
-def _bold_labels(labels: List[object]) -> List[str]:
-    return [f"<b>{str(x)}</b>" for x in labels]
+def render_gt_inline(
+    gt_obj: GT,
+    *,
+    width_px: Optional[int] = None,
+    width_mode: str = "stretch",  # 'stretch' | 'content'
+    fallback_height: int = 400,
+) -> None:
+    """
+    Renderiza uma GT inline (via streamlit-extras) ou via HTML de fallback.
+    """
+    if stx_great_tables is not None:
+        try:
+            if isinstance(width_px, int) and width_px > 0:
+                stx_great_tables(gt_obj, width=width_px)
+            else:
+                stx_great_tables(gt_obj, width=width_mode)  # type: ignore
+            return
+        except Exception as e:
+            st.warning(
+                f"Falha ao usar streamlit-extras.great_tables: {e}. "
+                "Tentando fallback por HTML bruto."
+            )
+
+    # Fallback: tenta obter HTML do objeto GT
+    html_str = None
+    if hasattr(gt_obj, "as_raw_html"):
+        try:
+            html_str = gt_obj.as_raw_html()
+        except Exception:
+            html_str = None
+    if not html_str and hasattr(gt_obj, "render"):
+        try:
+            out = gt_obj.render()
+            if isinstance(out, dict):
+                html_str = out.get("html", None)
+        except Exception:
+            html_str = None
+    if not html_str:
+        for meth in ("as_html", "to_html"):
+            if hasattr(gt_obj, meth):
+                try:
+                    html_str = getattr(gt_obj, meth)()
+                    break
+                except Exception:
+                    pass
+    if not html_str and hasattr(gt_obj, "show"):
+        try:
+            res = gt_obj.show()
+            if isinstance(res, str) and res.strip():
+                html_str = res
+            elif hasattr(res, "_repr_html_"):
+                h = res._repr_html_()
+                if isinstance(h, str) and h.strip():
+                    html_str = h
+        except Exception:
+            pass
+
+    if not html_str:
+        st.error(
+            "Não foi possível renderizar a tabela GT inline. "
+            "Instale/atualize: pip install -U streamlit-extras great-tables"
+        )
+        return
+
+    components.html(html_str, height=fallback_height, scrolling=True)
 
 
-# -------- Table: Performance (single series) ---------
+def ceres_gt_css(
+    pal: List[str],
+    font_px: int,
+) -> str:
+    header_bg = pal[0] if pal else "#8c6239"
+    body_text = "#f1f1f1"
+    border_col = "rgba(222,222,222,0.18)"
+    zebra = "rgba(255,255,255,0.02)"
+    hover_bg = "rgba(255,255,255,0.05)"
+    line_height = max(1.15, min(1.6, font_px / 11.5))
+    font_stack = (
+        "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, "
+        "Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif"
+    )
+    return f"""
+    :root {{
+      --gt-font-size: {font_px}px;
+      --gt-border: {border_col};
+      --gt-header: {header_bg};
+    }}
+    * {{ box-sizing: border-box; }}
+    html, body {{
+      margin: 0; padding: 0;
+      background: transparent !important;
+      font-family: {font_stack};
+      color: {body_text};
+      font-size: var(--gt-font-size);
+    }}
+    .ceres-wrap {{
+      width: 100% !important;
+      height: 100% !important;
+      background: transparent !important;
+      display: block;
+      color: {body_text};
+      font-family: {font_stack} !important;
+      font-size: var(--gt-font-size) !important;
+      line-height: {line_height} !important;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }}
+    .ceres-wrap table.gt_table,
+    .ceres-wrap table.gt_table * {{
+      font-family: inherit !important;
+      font-size: inherit !important;
+    }}
+    table.gt_table {{
+      width: 100% !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      border-collapse: separate !important;
+      border-spacing: 0 !important;
+      background: transparent !important;
+      border-top: 1px solid var(--gt-border) !important;
+      border-bottom: 1px solid var(--gt-border) !important;
+      border-left: none !important;
+      border-right: none !important;
+      border-radius: 0 !important;
+      overflow: hidden !important;
+    }}
+    table.gt_table th,
+    table.gt_table td {{
+      font-variant-numeric: tabular-nums lining-nums;
+    }}
+    table.gt_table .gt_left {{ text-align: left !important; }}
+    table.gt_table .gt_center {{ text-align: center !important; }}
+    table.gt_table .gt_right {{ text-align: right !important; }}
+    table.gt_table .gt_top {{ vertical-align: top !important; }}
+    table.gt_table .gt_middle {{ vertical-align: middle !important; }}
+    table.gt_table .gt_bottom {{ vertical-align: bottom !important; }}
+    table.gt_table thead,
+    table.gt_table thead tr,
+    table.gt_table thead tr th,
+    table.gt_table thead tr td,
+    thead.gt_col_headings,
+    thead.gt_col_headings tr,
+    thead.gt_col_headings tr th.gt_col_heading,
+    .gt_column_spanner_outer,
+    .gt_column_spanner {{
+      background: var(--gt-header) !important;
+      color: #ffffff !important;
+      text-transform: uppercase !important;
+      letter-spacing: .03em !important;
+      font-weight: 800 !important;
+      border-right: none !important;
+      border-bottom: 1px solid var(--gt-border) !important;
+      padding: 12px 14px !important;
+      text-align: center !important;
+    }}
+    tbody.gt_table_body tr td {{
+      background: transparent !important;
+      color: {body_text} !important;
+      padding: 11px 14px !important;
+      border-top: 1px solid var(--gt-border) !important;
+      border-right: none !important;
+      font-weight: 600 !important;
+      vertical-align: middle !important;
+    }}
+    tbody.gt_table_body tr:nth-child(even) td {{
+      background: {zebra} !important;
+    }}
+    tbody.gt_table_body tr:hover td {{
+      background: {hover_bg} !important;
+    }}
+    tbody.gt_table_body tr {{
+      line-height: {line_height} !important;
+    }}
+    .gt_table .gt_table_body, .gt_table .gt_col_headings {{
+      background: transparent !important;
+    }}
+    """
+
+def inject_gt_runtime_css(font_px: int, pal: List[str]) -> None:
+    """
+    CSS global para as tabelas inline (fundo transparente, cabeçalho bronze,
+    sem barras verticais).
+    """
+    css = ceres_gt_css(pal=pal, font_px=font_px)
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
-def build_performance_table_fig(
+def estimate_gt_render_height(
+    *, font_px: int, n_rows: int, n_header_rows: int = 1, title_rows: int = 0
+) -> int:
+    """
+    Estima altura necessária para caber a tabela (quase sem sobra).
+    """
+    header_h = math.ceil(font_px * 2.2)
+    row_h = math.ceil(font_px * 2.0)
+    title_h = math.ceil(font_px * 2.4)
+    pad = math.ceil(font_px * 0.6)
+    height_px = (
+        title_rows * title_h + n_header_rows * header_h + n_rows * row_h + pad
+    )
+    return int(height_px)
+
+
+def gt_to_html_str(gt_obj: GT) -> str:
+    """
+    Obtém HTML do GT em diferentes versões.
+    """
+    if hasattr(gt_obj, "as_raw_html"):
+        try:
+            html_str = gt_obj.as_raw_html()
+            if isinstance(html_str, str) and html_str.strip():
+                return html_str
+        except Exception:
+            pass
+
+    if hasattr(gt_obj, "render"):
+        try:
+            out = gt_obj.render()
+            if isinstance(out, dict) and isinstance(out.get("html"), str):
+                html_str = out["html"]
+                if html_str.strip():
+                    return html_str
+        except Exception:
+            pass
+
+    for meth in ("as_html", "to_html"):
+        if hasattr(gt_obj, meth):
+            try:
+                html_str = getattr(gt_obj, meth)()
+                if isinstance(html_str, str) and html_str.strip():
+                    return html_str
+            except Exception:
+                pass
+
+    if hasattr(gt_obj, "show"):
+        try:
+            res = gt_obj.show()
+            if isinstance(res, str) and res.strip():
+                return res
+            if hasattr(res, "_repr_html_"):
+                h = res._repr_html_()
+                if isinstance(h, str) and h.strip():
+                    return h
+        except Exception:
+            pass
+
+    raise RuntimeError("great_tables: não consegui obter HTML para exportar.")
+
+
+def gt_to_svg_bytes(
+    *,
+    gt_obj: GT,
+    pal: List[str],
+    width_px: int,
+    height_px: int,
+    font_px: int,
+) -> bytes:
+    """
+    Envolve o HTML do GT em SVG com foreignObject.
+    Força largura/altura para preencher o canvas por completo.
+    """
+    html_inner = gt_to_html_str(gt_obj)
+    css = ceres_gt_css(pal=pal, font_px=font_px)
+    svg = f"""<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="{width_px}" height="{height_px}"
+     viewBox="0 0 {width_px} {height_px}" preserveAspectRatio="none">
+  <foreignObject x="0" y="0" width="{width_px}" height="{height_px}">
+    <div xmlns="http://www.w3.org/1999/xhtml"
+         class="ceres-wrap" style="width:{width_px}px;height:{height_px}px;">
+      <style>{css}</style>
+      {html_inner}
+    </div>
+  </foreignObject>
+</svg>
+"""
+    return svg.encode("utf-8")
+
+
+def render_gt_inline_with_runtime_export(
+    *,
+    gt_obj: GT,
+    filename_base: str,
+    width_px: int,
+    n_rows: int,
+    font_px: int,
+    key_suffix: str,
+    n_header_rows: int = 1,
+    title_rows: int = 0,
+) -> None:
+    """
+    Renderiza a GT inline e adiciona botões de export (SVG/PNG) usando
+    a altura EXATA medida do elemento da tabela no browser.
+    - Largura: controlada pelo parâmetro width_px (slider mantém).
+    - Altura: medida via getBoundingClientRect().height no momento do clique.
+    """
+    pal = get_palette()
+    css = ceres_gt_css(pal=pal, font_px=font_px)
+    css_js = css.replace("\\", "\\\\").replace("`", "\\`")
+    table_html = gt_to_html_str(gt_obj)
+    # Altura do iframe para exibir sem barra de rolagem (estimativa só para UI)
+    est_h = estimate_gt_render_height(
+        font_px=font_px,
+        n_rows=n_rows,
+        n_header_rows=n_header_rows,
+        title_rows=title_rows,
+    )
+    # Espaço extra para a barra de botões
+    frame_height = int(est_h + 60)
+
+    html = f"""
+    <div id="wrap_{key_suffix}" style="width:{width_px}px;margin:0;padding:0;background:transparent;">
+      <style>{css}</style>
+      {table_html}
+      <div style="margin-top:8px;display:flex;gap:8px;">
+        <button id="btn_svg_{key_suffix}" style="padding:6px 10px;cursor:pointer;">
+          Download SVG
+        </button>
+        <button id="btn_png_{key_suffix}" style="padding:6px 10px;cursor:pointer;">
+          Download PNG (HD)
+        </button>
+      </div>
+    </div>
+    <script>
+      (function() {{
+        const wrap = document.getElementById("wrap_{key_suffix}");
+        const table = wrap.querySelector("table.gt_table");
+        if (table) {{
+          table.style.width = "{width_px}px";
+          table.style.maxWidth = "{width_px}px";
+        }}
+        function makeSVG() {{
+          const w = {width_px};
+          const h = Math.ceil(table.getBoundingClientRect().height);
+          const css = `{css_js}`;
+          const svg = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>` +
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${{w}}" height="${{h}}" viewBox="0 0 ${{w}} ${{h}}" preserveAspectRatio="none">` +
+            `<foreignObject x="0" y="0" width="${{w}}" height="${{h}}">` +
+            `<div xmlns="http://www.w3.org/1999/xhtml" class="ceres-wrap" style="width:${{w}}px;height:${{h}}px;">` +
+            `<style>` + css + `</style>` +
+            table.outerHTML +
+            `</div></foreignObject></svg>`;
+          return {{ svg, w, h }};
+        }}
+        function dlBlob(blob, name) {{
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          URL.revokeObjectURL(a.href);
+          a.remove();
+        }}
+        document.getElementById("btn_svg_{key_suffix}").onclick = function() {{
+          const {{ svg }} = makeSVG();
+          const blob = new Blob([svg], {{ type: "image/svg+xml" }});
+          dlBlob(blob, "{filename_base}.svg");
+        }};
+        document.getElementById("btn_png_{key_suffix}").onclick = function() {{
+          const {{ svg, w, h }} = makeSVG();
+          const img = new Image();
+          img.onload = function() {{
+            const scale = 3;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
+            const ctx = canvas.getContext("2d");
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.scale(scale, scale);
+            ctx.clearRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            canvas.toBlob(function(blob) {{
+              dlBlob(blob, "{filename_base}.png");
+            }}, "image/png");
+          }};
+          img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        }};
+      }})();
+    </script>
+    """
+    components.html(html, height=frame_height, scrolling=True)
+
+
+# ---------- great_tables: styling helpers ----------
+
+
+def _gt_apply_header_theme(
+    tbl: GT, header_colored: bool, pal: List[str], table_font_px: int
+) -> GT:
+    # Texto do cabeçalho (cor vem do CSS global)
+    tbl = tbl.tab_style(
+        style=[
+            style.text(
+                color="#ffffff",
+                weight="bold",
+                size=f"{table_font_px}px",
+                transform="uppercase",
+            )
+        ],
+        locations=loc.column_labels(),
+    )
+    return tbl
+
+
+def _gt_apply_body_theme(tbl: GT, pal: List[str], table_font_px: int) -> GT:
+    tbl = tbl.tab_style(
+        style=[style.text(color="#f1f1f1", size=f"{table_font_px}px")],
+        locations=loc.body(),
+    )
+    if hasattr(tbl, "opt_vertical_padding"):
+        tbl = tbl.opt_vertical_padding(scale=0.8)
+    return tbl
+
+
+# -------- great_tables builders ---------
+
+
+def build_performance_comparison_table_gt(
+    rows: List[Dict[str, object]],
+    years_cols: Optional[List[int]] = None,
+    height: Optional[int] = None,
+    width: Optional[int] = None,
+    table_font_size: Optional[int] = None,
+    header_colored: bool = False,
+) -> Tuple[GT, int, Optional[int]]:
+    if not rows:
+        df = pd.DataFrame(columns=["Série", "Ccy", "As of", "YTD", "3Y"])
+        gt_tbl = GT(df)
+        return gt_tbl, int(height or 400), width
+
+    all_years = set()
+    for r in rows:
+        yrs = getattr(r["yr_returns"], "index", [])
+        all_years |= set(int(y) for y in yrs)
+
+    curr_years = [pd.Timestamp(r["as_of"]).year for r in rows]
+    max_curr = max(curr_years) if curr_years else None
+    if max_curr is not None:
+        all_years = {y for y in all_years if y != max_curr}
+    years_cols = (
+        sorted(all_years, reverse=True)[:5] if years_cols is None else years_cols
+    )
+
+    def fmt_val(fmt: str, v: float) -> str:
+        if pd.isna(v):
+            return "-"
+        if fmt == "pp":
+            return f"{v*100:.2f} p.p."
+        return f"{v*100:.2f}%"
+
+    recs: List[Dict[str, str]] = []
+    for r in rows:
+        fmt = str(r.get("fmt", "pct"))
+        as_of_str = pd.Timestamp(r["as_of"]).strftime("%d.%m.%Y")
+        row_dict: Dict[str, str] = {
+            "Série": str(r["name"]),
+            "Ccy": str(r.get("ccy", "")),
+            "As of": as_of_str,
+            "YTD": fmt_val(fmt, r.get("ytd", np.nan)),
+            "3Y": fmt_val(fmt, r.get("r3y", np.nan)),
+        }
+        yr: pd.Series = r["yr_returns"]
+        for y in years_cols:
+            v = float(yr.get(y, np.nan)) if isinstance(yr, pd.Series) else np.nan
+            row_dict[str(y)] = fmt_val(fmt, v)
+        recs.append(row_dict)
+
+    df = pd.DataFrame.from_records(recs)
+
+    pal = get_palette()
+    fsize = int(table_font_size or 14)
+
+    gt_tbl = GT(df).cols_align(columns=list(df.columns), align="center")
+    gt_tbl = _gt_apply_header_theme(gt_tbl, header_colored, pal, fsize)
+    gt_tbl = _gt_apply_body_theme(gt_tbl, pal, fsize)
+
+    return gt_tbl, int(height or 400), width
+
+
+def build_last_12m_returns_table_gt(
+    series_map: Dict[str, pd.Series],
+    row_formats: Optional[Dict[str, str]] = None,
+    row_color_modes: Optional[Dict[str, str]] = None,
+    height: Optional[int] = None,
+    width: Optional[int] = None,
+    table_font_size: Optional[int] = None,
+    header_colored: bool = False,
+) -> Tuple[GT, int, Optional[int]]:
+    row_formats = row_formats or {}
+
+    if not series_map or all(s.empty for s in series_map.values()):
+        df = pd.DataFrame(columns=["Série"])
+        gt_tbl = GT(df)
+        return gt_tbl, int(height or 400), width
+
+    all_months = sorted(
+        set().union(
+            *[set(pd.to_datetime(s.index)) for s in series_map.values()]
+        )
+    )
+    last12 = all_months[-12:]
+    month_labels = [pd.Timestamp(d).strftime("%b %Y") for d in last12]
+
+    def fmt_val(name: str, v: float) -> str:
+        fmt = row_formats.get(name, "pct")
+        if pd.isna(v):
+            return "-"
+        return f"{v*100:.2f}%" if fmt == "pct" else f"{v*100:.2f} p.p."
+
+    records: List[Dict[str, str]] = []
+    for name, s in series_map.items():
+        row: Dict[str, str] = {"Série": name}
+        for date, lbl in zip(last12, month_labels):
+            val = float(s.get(date, np.nan)) if not s.empty else np.nan
+            row[lbl] = fmt_val(name, val)
+        records.append(row)
+
+    df = pd.DataFrame.from_records(records)
+
+    pal = get_palette()
+    fsize = int(table_font_size or 12)
+
+    gt_tbl = GT(df)
+    gt_tbl = gt_tbl.cols_align(columns=list(df.columns), align="center")
+    gt_tbl = _gt_apply_header_theme(gt_tbl, header_colored, pal, fsize)
+    gt_tbl = _gt_apply_body_theme(gt_tbl, pal, fsize)
+
+    return gt_tbl, int(height or 400), width
+
+
+def build_window_perf_table_gt(
+    series_m_map: Dict[str, pd.Series],
+    series_d_map: Dict[str, pd.Series],
+    order: Optional[List[str]] = None,
+    height: Optional[int] = None,
+    width: Optional[int] = None,
+    table_font_size: Optional[int] = None,
+    header_colored: bool = False,
+) -> Tuple[GT, int, Optional[int]]:
+    def compound_last_n(ret_m: pd.Series, n: int) -> float:
+        if ret_m is None or ret_m.empty:
+            return float("nan")
+        s = ret_m.dropna()
+        if len(s) < n:
+            return float("nan")
+        return float(np.prod(1.0 + s.tail(n).values) - 1.0)
+
+    def last_1m(ret_m: pd.Series) -> float:
+        if ret_m is None or ret_m.empty:
+            return float("nan")
+        s = ret_m.dropna()
+        if s.empty:
+            return float("nan")
+        return float(s.iloc[-1])
+
+    def ann_vol_12m(daily: pd.Series) -> float:
+        if daily is None or daily.empty:
+            return float("nan")
+        s = daily.dropna()
+        if s.empty:
+            return float("nan")
+        end = pd.to_datetime(s.index.max())
+        start = end - pd.DateOffset(months=12)
+        win = s[(s.index > start) & (s.index <= end)]
+        if len(win) < 60:
+            return float("nan")
+        return float(win.std(ddof=1) * np.sqrt(252.0))
+
+    # FIX: removido parêntese extra no final da linha
+    names = order or list(series_m_map.keys())
+
+    records: List[Dict[str, float]] = []
+    for name in names:
+        ret_m = series_m_map.get(name, pd.Series(dtype=float))
+        ret_d = series_d_map.get(name, pd.Series(dtype=float))
+
+        p12 = compound_last_n(ret_m, 12)
+        p6 = compound_last_n(ret_m, 6)
+        p1 = last_1m(ret_m)
+        v12 = ann_vol_12m(ret_d)
+
+        records.append(
+            {
+                "Série": name,
+                "Perf 12m": p12,
+                "Perf 6m": p6,
+                "Perf 1m": p1,
+                "Vol 12m": v12,
+            }
+        )
+
+    df = pd.DataFrame.from_records(records)
+
+    pal = get_palette()
+    fsize = int(table_font_size or 12)
+
+    gt_tbl = GT(df).cols_align(columns=list(df.columns), align="center")
+    if hasattr(gt_tbl, "fmt_percent"):
+        gt_tbl = (
+            gt_tbl.fmt_percent(
+                columns=["Perf 12m", "Perf 6m", "Perf 1m"], decimals=2
+            ).fmt_percent(columns=["Vol 12m"], decimals=2)
+        )
+    gt_tbl = _gt_apply_header_theme(gt_tbl, header_colored, pal, fsize)
+    gt_tbl = _gt_apply_body_theme(gt_tbl, pal, fsize)
+
+    return gt_tbl, int(height or 400), width
+
+def build_performance_table_gt(
     display_name: str,
     ccy: str,
     as_of: pd.Timestamp,
@@ -755,8 +1364,11 @@ def build_performance_table_fig(
     width: Optional[int] = None,
     table_font_size: Optional[int] = None,
     header_colored: bool = False,
-) -> go.Figure:
-    r3y = compound(ret_m.tail(36)) if len(ret_m) >= 36 else np.nan
+) -> Tuple[GT, int, Optional[int]]:
+    def compound_local(series: pd.Series) -> float:
+        if series is None or series.empty:
+            return float("nan")
+        return float(np.prod(1.0 + series.values) - 1.0)
 
     df = df_daily.sort_values("DT_COMPTC")
     last_dt = df["DT_COMPTC"].max()
@@ -769,391 +1381,37 @@ def build_performance_table_fig(
     else:
         ytd = np.nan
 
+    r3y = compound_local(ret_m.tail(36)) if len(ret_m) >= 36 else np.nan
+
     yr = annual_returns_from_monthly(ret_m)
     years_available = sorted(yr.index.tolist(), reverse=True)
     curr_year = last_dt.year
     years_available = [y for y in years_available if y != curr_year]
     years_cols = years_available[:5]
 
-    columns = [
-        "Solutions",
-        "Ccy",
-        "Performance as of",
-        "YTD (%)",
-        "3Y (%)",
-    ] + [str(y) for y in years_cols]
+    rec: Dict[str, object] = {
+        "Solutions": display_name,
+        "Ccy": ccy,
+        "Performance as of": as_of.strftime("%d.%m.%Y"),
+        "YTD (%)": ytd,
+        "3Y (%)": r3y,
+    }
+    for y in years_cols:
+        rec[str(y)] = float(yr.get(y, np.nan))
 
-    as_of_str = as_of.strftime("%d.%m.%Y")
-    row = (
-        [display_name, ccy, as_of_str]
-        + [_pct_str(ytd), _pct_str(r3y)]
-        + [_pct_str(yr.get(y, np.nan)) for y in years_cols]
-    )
+    df_row = pd.DataFrame([rec])
 
     pal = get_palette()
-    header_fill = pal[4 % len(pal)] if header_colored else "rgba(0,0,0,0)"
-    header_font_color = "#FFFFFF" if header_colored else pal[3 % len(pal)]
-    cell_font_color = pal[1 % len(pal)]
     fsize = int(table_font_size or 14)
 
-    table_fig = go.Figure(
-        data=[
-            go.Table(
-                columnwidth=[280, 60, 140, 70, 70] + [60 for _ in years_cols],
-                header=dict(
-                    values=_bold_labels(columns),
-                    fill_color=header_fill,
-                    align="left",
-                    font=dict(color=header_font_color, size=fsize),
-                    height=28,
-                ),
-                cells=dict(
-                    values=[[v] for v in row],
-                    align="left",
-                    height=26,
-                    fill_color="rgba(0,0,0,0)",
-                    font=dict(color=cell_font_color, size=fsize),
-                ),
-            )
-        ]
-    )
-    table_fig.update_layout(
-        title="",
-        height=height or 400,
-        width=width,
-        margin=dict(l=10, r=10, t=40, b=10),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-    return table_fig
+    gt_tbl = GT(df_row).cols_align(columns=list(df_row.columns), align="left")
+    pct_cols = ["YTD (%)", "3Y (%)"] + [str(y) for y in years_cols]
+    if hasattr(gt_tbl, "fmt_percent"):
+        gt_tbl = gt_tbl.fmt_percent(columns=pct_cols, decimals=2)
+    gt_tbl = _gt_apply_header_theme(gt_tbl, header_colored, pal, fsize)
+    gt_tbl = _gt_apply_body_theme(gt_tbl, pal, fsize)
 
-
-def _ytd_from_daily_returns(daily_ret: pd.Series) -> float:
-    if daily_ret is None or daily_ret.empty:
-        return float("nan")
-    daily_ret = daily_ret.dropna()
-    if daily_ret.empty:
-        return float("nan")
-    last_dt = daily_ret.index.max()
-    y0 = pd.Timestamp(year=last_dt.year, month=1, day=1, tz=last_dt.tz)
-    ytd_slice = daily_ret[daily_ret.index >= y0]
-    if ytd_slice.empty:
-        return float("nan")
-    return float(np.prod(1.0 + ytd_slice.values) - 1.0)
-
-
-def build_performance_comparison_table_fig(
-    rows: List[Dict[str, object]],
-    years_cols: Optional[List[int]] = None,
-    height: Optional[int] = None,
-    width: Optional[int] = None,
-    table_font_size: Optional[int] = None,
-    header_colored: bool = False,
-) -> go.Figure:
-    """
-    rows: list de dicts com chaves obrigatórias:
-      name, ccy, as_of (Timestamp), ytd (float), r3y (float),
-      yr_returns (pd.Series index=ano -> float)
-    Opcional por linha:
-      fmt: 'pct' (default) ou 'pp'
-      color_mode: ignorado para cores (sem cores de fundo)
-    """
-    default_height = 400
-    if not rows:
-        return go.Figure(
-            layout=dict(
-                title="Performance Snapshot - Comparativo",
-                height=height or default_height,
-                width=width,
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-            )
-        )
-
-    all_years = set()
-    for r in rows:
-        yrs = getattr(r["yr_returns"], "index", [])
-        all_years |= set(int(y) for y in yrs)
-    curr_years = [pd.Timestamp(r["as_of"]).year for r in rows]
-    max_curr = max(curr_years)
-    all_years = {y for y in all_years if y != max_curr}
-    years_cols = (
-        sorted(all_years, reverse=True)[:5] if years_cols is None else years_cols
-    )
-
-    columns = ["Série", "Ccy", "As of", "YTD", "3Y"] + [str(y) for y in years_cols]
-
-    col_vals: List[List[str]] = [[] for _ in columns]
-
-    def _fmt_val(fmt: str, v: float) -> str:
-        return _pct_str(v) if fmt == "pct" else _pp_str(v)
-
-    for r in rows:
-        fmt = str(r.get("fmt", "pct"))
-
-        as_of_str = pd.Timestamp(r["as_of"]).strftime("%d.%m.%Y")
-        vals = [str(r["name"]), str(r.get("ccy", "")), as_of_str]
-
-        base_vals = [r.get("ytd", np.nan), r.get("r3y", np.nan)]
-        for v in base_vals:
-            vals.append(_fmt_val(fmt, v))
-
-        yr: pd.Series = r["yr_returns"]
-        for y in years_cols:
-            v = float(yr.get(y, np.nan)) if isinstance(yr, pd.Series) else np.nan
-            vals.append(_fmt_val(fmt, v))
-
-        for i, v in enumerate(vals):
-            col_vals[i].append(v)
-
-    pal = get_palette()
-    header_fill = pal[4 % len(pal)] if header_colored else "rgba(0,0,0,0)"
-    header_font_color = "#FFFFFF" if header_colored else pal[3 % len(pal)]
-    cell_font_color = pal[1 % len(pal)]
-    fsize = int(table_font_size or 14)
-
-    table_fig = go.Figure(
-        data=[
-            go.Table(
-                columnwidth=[180, 60, 100, 80, 80] + [60 for _ in years_cols],
-                header=dict(
-                    values=_bold_labels(columns),
-                    fill_color=header_fill,
-                    align="left",
-                    font=dict(color=header_font_color, size=fsize),
-                    height=28,
-                ),
-                cells=dict(
-                    values=col_vals,
-                    align="left",
-                    height=26,
-                    fill_color="rgba(0,0,0,0)",
-                    font=dict(color=cell_font_color, size=fsize),
-                ),
-            )
-        ]
-    )
-    auto_height = 400
-    table_fig.update_layout(
-        title="Performance Snapshot - Comparativo",
-        height=height or auto_height,
-        width=width,
-        margin=dict(l=10, r=10, t=40, b=10),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-    return table_fig
-
-
-def build_last_12m_returns_table_multi(
-    series_map: Dict[str, pd.Series],
-    row_formats: Optional[Dict[str, str]] = None,  # name -> 'pct'|'pp'
-    row_color_modes: Optional[Dict[str, str]] = None,  # kept for API compat
-    height: Optional[int] = None,
-    width: Optional[int] = None,
-    table_font_size: Optional[int] = None,
-    header_colored: bool = False,
-) -> go.Figure:
-    default_height = 120
-    if not series_map or all(s.empty for s in series_map.values()):
-        return go.Figure(
-            layout=dict(
-                title="",
-                height=height or default_height,
-                width=width,
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-            )
-        )
-    row_formats = row_formats or {}
-    row_color_modes = row_color_modes or {}
-
-    # União de meses e corte para últimos 12
-    all_months = sorted(
-        set().union(*[set(pd.to_datetime(s.index)) for s in series_map.values()])
-    )
-    last12 = all_months[-12:]
-    months_labels = [pd.Timestamp(d).strftime("%b %Y") for d in last12]
-
-    # colunas
-    values: List[List[str]] = []
-
-    names = list(series_map.keys())
-    values.append(names)
-
-    def _fmt_val(name: str, v: float) -> str:
-        fmt = row_formats.get(name, "pct")
-        return _pct_str(v) if fmt == "pct" else _pp_str(v)
-
-    for m_date in last12:
-        col_vals = []
-        for name, s in series_map.items():
-            val = float(s.get(m_date, np.nan)) if not s.empty else np.nan
-            col_vals.append(_fmt_val(name, val))
-        values.append(col_vals)
-
-    pal = get_palette()
-    header_fill = pal[4 % len(pal)] if header_colored else "rgba(0,0,0,0)"
-    header_font_color = "#FFFFFF" if header_colored else pal[3 % len(pal)]
-    cell_font_color = pal[1 % len(pal)]
-    fsize = int(table_font_size or 12)
-
-    fig = go.Figure(
-        data=[
-            go.Table(
-                header=dict(
-                    values=_bold_labels(["Série"] + months_labels),
-                    fill_color=header_fill,
-                    align="center",
-                    font=dict(
-                        color=header_font_color, size=fsize, family="Arial"
-                    ),
-                    height=28,
-                ),
-                cells=dict(
-                    values=values,
-                    align="center",
-                    height=26,
-                    fill_color="rgba(0,0,0,0)",
-                    font=dict(
-                        color=cell_font_color, size=fsize, family="Arial"
-                    ),
-                ),
-            )
-        ]
-    )
-
-    auto_height = 400
-    fig.update_layout(
-        title="",
-        height=height or auto_height,
-        width=width,
-        margin=dict(l=10, r=10, t=40, b=10),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-
-    return fig
-
-
-# -------- New: Horizontal table with 12m/6m/1m performance + 12m vol ---------
-
-
-def _compound_last_n_months(ret_m: pd.Series, n: int) -> float:
-    if ret_m is None or ret_m.empty:
-        return float("nan")
-    s = ret_m.dropna()
-    if len(s) < n:
-        return float("nan")
-    return float(np.prod(1.0 + s.tail(n).values) - 1.0)
-
-
-def _last_1m(ret_m: pd.Series) -> float:
-    if ret_m is None or ret_m.empty:
-        return float("nan")
-    s = ret_m.dropna()
-    if s.empty:
-        return float("nan")
-    return float(s.iloc[-1])
-
-
-def _ann_vol_12m_from_daily(daily: pd.Series) -> float:
-    if daily is None or daily.empty:
-        return float("nan")
-    s = daily.dropna()
-    if s.empty:
-        return float("nan")
-    end = pd.to_datetime(s.index.max())
-    start = end - pd.DateOffset(months=12)
-    win = s[(s.index > start) & (s.index <= end)]
-    # Require a minimum number of observations for stability
-    if len(win) < 60:
-        return float("nan")
-    vol = float(win.std(ddof=1) * np.sqrt(252.0))
-    return vol
-
-
-def build_window_perf_table_multi(
-    series_m_map: Dict[str, pd.Series],
-    series_d_map: Dict[str, pd.Series],
-    order: Optional[List[str]] = None,
-    height: Optional[int] = None,
-    width: Optional[int] = None,
-    table_font_size: Optional[int] = None,
-    header_colored: bool = False,
-) -> go.Figure:
-    """
-    Tabela horizontal com colunas:
-    ['Série', 'Perf 12m', 'Perf 6m', 'Perf 1m', 'Vol 12m'].
-    - Perf 12m/6m/1m: composto a partir de retornos mensais (ret_m).
-    - Vol 12m: volatilidade anualizada a partir de retornos diários dos
-      últimos 12 meses (std * sqrt(252)).
-    """
-    names = order or list(series_m_map.keys())
-    if not names:
-        return go.Figure(
-            layout=dict(
-                title="",
-                height=height or 140,
-                width=width,
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-            )
-        )
-
-    col_labels = ["Série", "Perf 12m", "Perf 6m", "Perf 1m", "Vol 12m"]
-    col_values: List[List[str]] = [[] for _ in col_labels]
-
-    for name in names:
-        ret_m = series_m_map.get(name, pd.Series(dtype=float))
-        ret_d = series_d_map.get(name, pd.Series(dtype=float))
-
-        p12 = _compound_last_n_months(ret_m, 12)
-        p6 = _compound_last_n_months(ret_m, 6)
-        p1 = _last_1m(ret_m)
-        v12 = _ann_vol_12m_from_daily(ret_d)
-
-        row_vals = [name, _pct_str(p12), _pct_str(p6), _pct_str(p1), _pct_str(v12)]
-        for i, v in enumerate(row_vals):
-            col_values[i].append(v)
-
-    pal = get_palette()
-    header_fill = pal[4 % len(pal)] if header_colored else "rgba(0,0,0,0)"
-    header_font_color = "#FFFFFF" if header_colored else pal[3 % len(pal)]
-    cell_font_color = pal[1 % len(pal)]
-    fsize = int(table_font_size or 12)
-
-    table_fig = go.Figure(
-        data=[
-            go.Table(
-                header=dict(
-                    values=_bold_labels(col_labels),
-                    fill_color=header_fill,
-                    align="center",
-                    font=dict(color=header_font_color, size=fsize),
-                    height=28,
-                ),
-                cells=dict(
-                    values=col_values,
-                    align="center",
-                    height=26,
-                    fill_color="rgba(0,0,0,0)",
-                    font=dict(color=cell_font_color, size=fsize),
-                ),
-            )
-        ]
-    )
-
-    auto_height = 400
-    table_fig.update_layout(
-        title="",
-        height=height or auto_height,
-        width=width,
-        margin=dict(l=10, r=10, t=40, b=10),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-    return table_fig
+    return gt_tbl, int(height or 400), width
 
 
 # -------------------------- UI State --------------------------------
@@ -1168,14 +1426,21 @@ def init_session_state() -> None:
         st.session_state.preload_requested = False
     if "update_requested" not in st.session_state:
         st.session_state.update_requested = False
-    # Initialize color palette state
     if "ceres_colors" not in st.session_state:
         st.session_state.ceres_colors = CERES_COLORS.copy()
-    # New: Table styling state defaults (set BEFORE widgets are created)
     if "table_font_size" not in st.session_state:
         st.session_state.table_font_size = 12
     if "table_header_colored" not in st.session_state:
         st.session_state.table_header_colored = False
+    if "table_width_px" not in st.session_state:
+        st.session_state.table_width_px = 1100
+    # Alturas mantidas apenas para compat (não exibidas na UI)
+    if "height_perf_table_px" not in st.session_state:
+        st.session_state.height_perf_table_px = 360
+    if "height_window_table_px" not in st.session_state:
+        st.session_state.height_window_table_px = 320
+    if "height_12m_table_px" not in st.session_state:
+        st.session_state.height_12m_table_px = 340
 
 
 def add_cnpj(cnpj_input: str, display_name: str, ccy: str) -> bool:
@@ -1204,13 +1469,22 @@ def remove_cnpj(cnpj_digits: str) -> None:
 
 def render_cnpj_manager_sidebar(
     data_dir: str, start_year: int, db_path: str
-) -> Tuple[str, str, int, str, int, bool, bool, str, bool, bool]:
-    """
-    Retorna:
-      selected_cnpj, data_dir, start_year, db_path,
-      update_last_n, preload_clicked, update_clicked,
-      bench_db_path, compare_cdi, compare_ibov
-    """
+) -> Tuple[
+    str,
+    str,
+    int,
+    str,
+    int,
+    bool,
+    bool,
+    str,
+    bool,
+    bool,
+    int,
+    int,
+    int,
+    int,
+]:
     st.header("Configuração")
 
     data_dir = st.text_input(
@@ -1285,14 +1559,14 @@ def render_cnpj_manager_sidebar(
         st.divider()
         st.subheader("CNPJs adicionados")
         for cnpj_digits in list(st.session_state.cnpj_list.keys()):
-            col1, col2 = st.columns([3, 1])
-            with col1:
+            c1_row, c2_row = st.columns([3, 1])
+            with c1_row:
                 st.write(
                     f"**{st.session_state.cnpj_display_names[cnpj_digits]}** "
                     f"({cnpj_digits}) — "
                     f"{st.session_state.cnpj_list[cnpj_digits]}"
                 )
-            with col2:
+            with c2_row:
                 if st.button("❌", key=f"remove_{cnpj_digits}", help="Remover"):
                     remove_cnpj(cnpj_digits)
                     st.rerun()
@@ -1326,8 +1600,31 @@ def render_cnpj_manager_sidebar(
     compare_ibov = st.checkbox("Comparar com IBOV", value=False, key="cmp_ibov")
 
     st.divider()
-    st.subheader("Tema de cores (CERES)")
-    st.caption("Altere rapidamente as cores do tema abaixo.")
+    st.subheader("Tabelas — Tamanho")
+    table_width_px = st.slider(
+        "Largura (px) — TODAS as tabelas",
+        min_value=600,
+        max_value=2400,
+        value=int(st.session_state.table_width_px),
+        step=20,
+        help="Todas as tabelas manterão a mesma largura.",
+        key="table_width_px",
+    )
+    # Alturas passam a ser automáticas (iguais à tabela na exportação).
+    height_perf_table_px = int(st.session_state.height_perf_table_px)
+    height_window_table_px = int(st.session_state.height_window_table_px)
+    height_12m_table_px = int(st.session_state.height_12m_table_px)
+
+    st.divider()
+    st.subheader("Estilo / Paleta")
+    st.number_input(
+        "Tamanho da fonte (px) nas tabelas",
+        min_value=8,
+        max_value=24,
+        value=int(st.session_state.table_font_size),
+        step=1,
+        key="table_font_size",
+    )
     cols = st.columns(2)
     for i, default_col in enumerate(CERES_COLORS):
         with cols[i % 2]:
@@ -1337,27 +1634,9 @@ def render_cnpj_manager_sidebar(
                 key=f"ceres_color_{i}",
             )
             st.session_state.ceres_colors[i] = picked
-
     if st.button("Resetar paleta para padrão", key="reset_palette"):
         st.session_state.ceres_colors = CERES_COLORS.copy()
         st.rerun()
-
-    st.divider()
-    st.subheader("Estilo das Tabelas")
-    # IMPORTANT: do not assign to st.session_state for widget keys here.
-    st.number_input(
-        "Tamanho da fonte (px) nas tabelas",
-        min_value=8,
-        max_value=24,
-        value=int(st.session_state.table_font_size),
-        step=1,
-        key="table_font_size",
-    )
-    st.checkbox(
-        "Colorir cabeçalhos das tabelas (texto em negrito)",
-        value=bool(st.session_state.table_header_colored),
-        key="table_header_colored",
-    )
 
     st.divider()
     st.subheader("Visualizar")
@@ -1393,6 +1672,10 @@ def render_cnpj_manager_sidebar(
         bench_db_path,
         compare_cdi,
         compare_ibov,
+        int(table_width_px),
+        int(height_perf_table_px),
+        int(height_window_table_px),
+        int(height_12m_table_px),
     )
 
 
@@ -1407,6 +1690,12 @@ def main() -> None:
 
     init_session_state()
 
+    # CSS global para as tabelas inline
+    inject_gt_runtime_css(
+        font_px=int(st.session_state.get("table_font_size", 12)),
+        pal=get_palette(),
+    )
+
     with st.sidebar:
         (
             selected_cnpj,
@@ -1419,6 +1708,10 @@ def main() -> None:
             bench_db_path,
             compare_cdi,
             compare_ibov,
+            table_width_px,
+            height_perf_table_px,
+            height_window_table_px,
+            height_12m_table_px,
         ) = render_cnpj_manager_sidebar(
             data_dir="./data/inf_diario",
             start_year=START_YEAR,
@@ -1497,7 +1790,7 @@ def main() -> None:
     fund_name = display_name
     st.header(f"Análise: {display_name}")
 
-    # ---------- Comparativos: construir a partir de retornos diários ----------
+    # ---------- Comparativos ----------
     daily_map: Dict[str, pd.Series] = {}
     fund_daily = daily_series_from_nav(df_daily)
     if fund_daily.empty:
@@ -1529,7 +1822,6 @@ def main() -> None:
         except Exception as e:
             st.warning(f"Falha ao carregar IBOV: {e}")
 
-    # Interseção de datas (comparação justa)
     if len(daily_map) >= 1:
         starts = [s.index.min() for s in daily_map.values()]
         ends = [s.index.max() for s in daily_map.values()]
@@ -1537,7 +1829,9 @@ def main() -> None:
         end_common = min(ends)
         daily_map = {
             name: s[(s.index >= start_common) & (s.index <= end_common)]
-            for name, s in daily_map.items()}
+            for name, s in daily_map.items()
+        }
+
     ret_m_map: Dict[str, pd.Series] = {
         name: series_daily_to_monthly(s) for name, s in daily_map.items()
     }
@@ -1545,7 +1839,7 @@ def main() -> None:
         name: series_daily_to_cumret(s) for name, s in daily_map.items()
     }
 
-    # ------------- Derivados: % CDI e Diferença p.p. vs IBOV ----------
+    # ------------- Derivados ----------
     row_formats: Dict[str, str] = {}
     row_color_modes: Dict[str, str] = {}
 
@@ -1560,7 +1854,7 @@ def main() -> None:
         ratio_name = f"% CDI"
         ret_m_map[ratio_name] = ratio_m
         row_formats[ratio_name] = "pct"
-        row_color_modes[ratio_name] = "ratio"  # mantido para compat
+        row_color_modes[ratio_name] = "ratio"
 
     if "IBOV" in ret_m_map:
         ibov_m = ret_m_map["IBOV"]
@@ -1572,14 +1866,14 @@ def main() -> None:
         row_color_modes[diff_name] = "raw"
 
     # ---------------------- Gráficos e Tabelas -----------------------
-    # Controles de estilo das tabelas (lidos do session_state)
     tbl_font_size = int(st.session_state.get("table_font_size", 12))
-    tbl_header_colored = bool(st.session_state.get("table_header_colored", False))
 
-    # 1) Retornos mensais — Barras
+    # 1) Retornos mensais — Barras (Plotly)
     st.subheader("Retorno mensal — barras (comparativo)")
     base_series_for_bars = {
-        k: v for k, v in ret_m_map.items() if (k == fund_name) or (k in ("CDI", "IBOV"))
+        k: v
+        for k, v in ret_m_map.items()
+        if (k == fund_name) or (k in ("CDI", "IBOV"))
     }
     names_for_bars = list(base_series_for_bars.keys())
     bar_color_map = name_color_map(names_for_bars)
@@ -1588,7 +1882,7 @@ def main() -> None:
     c1, c2 = st.columns(2)
     with c1:
         bar_height = st.number_input(
-            "Altura (px) — Retornos mensais",
+            "Altura (px) — Retornos mensais (gráfico)",
             min_value=200,
             max_value=2000,
             value=default_bar_height,
@@ -1597,7 +1891,7 @@ def main() -> None:
         )
     with c2:
         bar_width = st.number_input(
-            "Largura (px) — Retornos mensais",
+            "Largura (px) — Retornos mensais (gráfico)",
             min_value=500,
             max_value=3000,
             value=default_bar_width,
@@ -1696,110 +1990,76 @@ def main() -> None:
             )
         )
 
-    default_perf_table_height = 400
-    default_perf_table_width = 1100
-    t1, t2 = st.columns(2)
-    with t1:
-        perf_table_height = st.number_input(
-            "Altura (px) — Tabela de performance",
-            min_value=140,
-            max_value=2000,
-            value=int(default_perf_table_height),
-            step=20,
-            key="height_perf_table",
-        )
-    with t2:
-        perf_table_width = st.number_input(
-            "Largura (px) — Tabela de performance",
-            min_value=500,
-            max_value=3000,
-            value=default_perf_table_width,
-            step=50,
-            key="width_perf_table",
-        )
-    table_fig = build_performance_comparison_table_fig(
+    gt_tbl, _, _ = build_performance_comparison_table_gt(
         rows,
-        height=perf_table_height,
-        width=perf_table_width,
+        height=height_perf_table_px,
+        width=table_width_px,
         table_font_size=tbl_font_size,
-        header_colored=tbl_header_colored,
+        header_colored=True,
     )
-    st.plotly_chart(table_fig, use_container_width=False)
+    render_gt_inline_with_runtime_export(
+        gt_obj=gt_tbl,
+        filename_base=(
+            f"tabela_performance_comparativo_{sanitize_cnpj(selected_cnpj)}"
+        ),
+        width_px=int(table_width_px),
+        n_rows=len(rows),
+        font_px=int(tbl_font_size),
+        key_suffix="perf_cmp",
+        n_header_rows=1,
+        title_rows=0,
+    )
 
-    # 2.5) Nova Tabela — Performance 12m, 6m, 1m e Vol 12m (horizontal)
+    # 2.5) Janelas 1m/6m/12m e Vol 12m
     st.subheader("Janelas: 1m, 6m, 12m e Vol 12m (horizontal)")
     base_metric_names = [fund_name] + [n for n in ("CDI", "IBOV") if n in daily_map]
     series_m_sel = {n: ret_m_map[n] for n in base_metric_names}
     series_d_sel = {n: daily_map[n] for n in base_metric_names}
 
-    default_window_height = 400
-    default_window_width = 1100
-    w1, w2 = st.columns(2)
-    with w1:
-        window_table_height = st.number_input(
-            "Altura (px) — Tabela janelas",
-            min_value=120,
-            max_value=2000,
-            value=int(default_window_height),
-            step=20,
-            key="height_window_table",
-        )
-    with w2:
-        window_table_width = st.number_input(
-            "Largura (px) — Tabela janelas",
-            min_value=500,
-            max_value=3000,
-            value=default_window_width,
-            step=50,
-            key="width_window_table",
-        )
-
-    fig_window_table = build_window_perf_table_multi(
+    gt_tbl_win, _, _ = build_window_perf_table_gt(
         series_m_map=series_m_sel,
         series_d_map=series_d_sel,
         order=base_metric_names,
-        height=window_table_height,
-        width=window_table_width,
+        height=height_window_table_px,
+        width=table_width_px,
         table_font_size=tbl_font_size,
-        header_colored=tbl_header_colored,
+        header_colored=True,
     )
-    st.plotly_chart(fig_window_table, use_container_width=False)
+    render_gt_inline_with_runtime_export(
+        gt_obj=gt_tbl_win,
+        filename_base=f"tabela_janelas_{sanitize_cnpj(selected_cnpj)}",
+        width_px=int(table_width_px),
+        n_rows=len(base_metric_names),
+        font_px=int(tbl_font_size),
+        key_suffix="win_tbl",
+        n_header_rows=1,
+        title_rows=0,
+    )
 
-    # 3) Últimos 12 meses — Tabela
+    # 3) Últimos 12 meses — Retornos mensais (comparativo)
     st.subheader("Últimos 12 meses — Retornos mensais (comparativo)")
-    default_12m_height = 400
-    default_12m_width = 1100
-    m1, m2 = st.columns(2)
-    with m1:
-        last12_height = st.number_input(
-            "Altura (px) — Tabela 12 meses",
-            min_value=120,
-            max_value=2000,
-            value=int(default_12m_height),
-            step=20,
-            key="height_12m_table",
-        )
-    with m2:
-        last12_width = st.number_input(
-            "Largura (px) — Tabela 12 meses",
-            min_value=500,
-            max_value=3000,
-            value=default_12m_width,
-            step=50,
-            key="width_12m_table",
-        )
-    fig_12m_table = build_last_12m_returns_table_multi(
+    gt_tbl_12m, _, _ = build_last_12m_returns_table_gt(
         ret_m_map,
         row_formats=row_formats,
         row_color_modes=row_color_modes,
-        height=last12_height,
-        width=last12_width,
+        height=height_12m_table_px,
+        width=table_width_px,
         table_font_size=tbl_font_size,
-        header_colored=tbl_header_colored,
+        header_colored=True,
     )
-    st.plotly_chart(fig_12m_table, use_container_width=False)
+    n_series = len(ret_m_map)
+    render_gt_inline_with_runtime_export(
+        gt_obj=gt_tbl_12m,
+        filename_base=f"tabela_ultimos_12m_{sanitize_cnpj(selected_cnpj)}",
+        width_px=int(table_width_px),
+        n_rows=n_series,
+        font_px=int(tbl_font_size),
+        key_suffix="last12",
+        n_header_rows=1,
+        title_rows=0,
+    )
 
-    # 4) Série (linha) — Retorno acumulado
+    # 4) Série (linha) — Retorno acumulado (Plotly)
     st.subheader("Série (linha) — Retorno acumulado (composto)")
     base_line_series = {
         k: v
@@ -1813,7 +2073,7 @@ def main() -> None:
     l1, l2 = st.columns(2)
     with l1:
         line_height = st.number_input(
-            "Altura (px) — Linha acumulada",
+            "Altura (px) — Linha acumulada (gráfico)",
             min_value=200,
             max_value=2000,
             value=default_line_height,
@@ -1822,7 +2082,7 @@ def main() -> None:
         )
     with l2:
         line_width = st.number_input(
-            "Largura (px) — Linha acumulada",
+            "Largura (px) — Linha acumulada (gráfico)",
             min_value=500,
             max_value=3000,
             value=default_line_width,
@@ -1843,19 +2103,14 @@ def main() -> None:
         st.write(
             "- Fonte: CVM Dados Abertos - FI/DOC/INF_DIARIO\n"
             "- Armazenamento: SQLite (data_fundos.db)\n"
-            "- Retorno mensal: composto a partir de retornos diários por "
-            "mês-calendário\n"
+            "- Retorno mensal: composto por mês-calendário a partir de diários\n"
             "- 12m/3y: composto de retornos mensais\n"
             "- YTD: composto de retornos diários desde 1º dia útil do ano\n"
             "- Linha: retorno acumulado composto (base 0 = início comum)\n"
-            "- Benchmarks: CDI/IBOV lidos de data_cdi_ibov.db "
-            "(tabelas 'cdi'/'ibov')\n"
-            "- Tabelas incluem: Fund % de CDI (quando ligado) e "
-            "Fund - IBOV em p.p.\n"
-            "- Tema: paleta CERES aplicada em gráficos e tipografia; fundos e "
-            "gráficos com fundo transparente.\n"
-            "- Estilo de tabelas: tamanho da fonte configurável e cabeçalhos "
-            "opcionalmente coloridos em negrito."
+            "- Benchmarks: CDI/IBOV de data_cdi_ibov.db ('cdi'/'ibov')\n"
+            "- Tabelas: %CDI e Diferença p.p. quando comparadores ligados\n"
+            "- Tema: paleta CERES; fundo transparente; sem barras verticais\n"
+            "- Exports: SVG/PNG em alta definição (escala 3x), com altura exata"
         )
 
         last_dt = df_daily["DT_COMPTC"].max()
@@ -1867,7 +2122,7 @@ def main() -> None:
         st.download_button(
             "Baixar série diária (CSV)",
             df_daily.to_csv(index=False).encode("utf-8"),
-            file_name=f"inf_diario_{selected_cnpj}_diario.csv",
+            file_name=(f"inf_diario_{sanitize_cnpj(selected_cnpj)}_diario.csv"),
             mime="text/csv",
         )
 
@@ -1880,9 +2135,23 @@ def main() -> None:
         st.download_button(
             "Baixar retornos mensais (CSV)",
             fund_monthly_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"inf_diario_{selected_cnpj}_mensal.csv",
+            file_name=(f"inf_diario_{sanitize_cnpj(selected_cnpj)}_mensal.csv"),
             mime="text/csv",
         )
+
+
+def _ytd_from_daily_returns(daily_ret: pd.Series) -> float:
+    if daily_ret is None or daily_ret.empty:
+        return float("nan")
+    daily_ret = daily_ret.dropna()
+    if daily_ret.empty:
+        return float("nan")
+    last_dt = daily_ret.index.max()
+    y0 = pd.Timestamp(year=last_dt.year, month=1, day=1, tz=last_dt.tz)
+    ytd_slice = daily_ret[daily_ret.index >= y0]
+    if ytd_slice.empty:
+        return float("nan")
+    return float(np.prod(1.0 + ytd_slice.values) - 1.0)
 
 
 def render() -> None:
