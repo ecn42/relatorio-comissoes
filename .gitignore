@@ -37,3 +37,5 @@ data_cda_fi/
 .DS_Store
 Thumbs.db
 patchfunds.patch
+.streamlit/secrets.toml
+gorila_debug.log

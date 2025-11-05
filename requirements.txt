@@ -67,7 +67,7 @@ sortedcontainers==2.4.0
 soupsieve==2.7
 st-annotated-text==4.0.2
 st-theme==1.2.3
-streamlit==1.46.1
+streamlit
 streamlit-avatar==0.1.3
 streamlit-camera-input-live==0.2.0
 streamlit-card==1.0.2
@@ -95,7 +95,7 @@ xlsxwriter>=3.0.0
 reportlab>=4.4.2
 matplotlib>=3.10.3
 seaborn>=0.13.2
-kaleido==1.0.0
+kaleido
 yfinance
 bs4
 selenium
@@ -103,3 +103,6 @@ webdriver-manager
 lxml
 streamlit-extras
 great_tables
+pillow
+python-pptx
+python-dotenv
