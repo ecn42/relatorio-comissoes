@@ -7,13 +7,10 @@
 #    filter by the CNPJ, show the rows, and store/update them in SQLite.
 # 4) Compute PCT_CARTEIRA (0–1 fraction) for each row from VL_MERC_POS_FINAL
 #    and include it in the CSV stored in the DB.
-# 5) Portfolio summary section: Load from DB, dropdown select fund, show allocation
-#    summary, top 10 positions, and donut chart.
+# 5) Bulk mode: check and save many CNPJs at once to the DB.
 # Updated: Store BLC data as rows in a proper SQLite table (blc_data) instead of
-# CSV BLOB for better querying and reliability. Added DENOM_SOCIAL to fundos_meta.
-# Donut chart with Ceres Wealth colors and transparent background.
-# Legend integrated into the plot, positioned to the right.
-# New: Fallback over last N months for BLC storage and BULK processing for CNPJs.
+# CSV BLOB for better querying and reliability. Added DENOM_SOCIAL to
+# fundos_meta. Added bulk processing helpers and UI. Added index on (cnpj, yyyymm).
 
 from __future__ import annotations
 
@@ -51,9 +48,7 @@ with tab1:
 
     def blc_pattern(yyyymm: str) -> re.Pattern:
         # cda_fi_BLC_[1..8]_YYYYMM.csv (possibly in a subfolder)
-        return re.compile(
-            rf"(^|/)cda_fi_BLC_[1-8]_{yyyymm}\.csv$", re.IGNORECASE
-        )
+        return re.compile(rf"(^|/)cda_fi_BLC_[1-8]_{yyyymm}\.csv$", re.IGNORECASE)
 
     # ------------------------ CSV limits (fix large-field error) ------------------
 
@@ -110,9 +105,7 @@ with tab1:
         return names
 
     def newest_k(names: List[str], k: int = 6) -> List[str]:
-        return sorted(names, key=lambda n: int(ZIP_RE.search(n).group(1)))[
-            -k:
-        ]
+        return sorted(names, key=lambda n: int(ZIP_RE.search(n).group(1)))[-k:]
 
     def file_exists(path: str) -> bool:
         try:
@@ -128,9 +121,7 @@ with tab1:
         headers = {"User-Agent": USER_AGENT}
         tmp = dest + ".part"
         try:
-            with requests.get(
-                url, stream=True, headers=headers, timeout=120
-            ) as r:
+            with requests.get(url, stream=True, headers=headers, timeout=120) as r:
                 r.raise_for_status()
                 with open(tmp, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1 << 20):
@@ -172,9 +163,7 @@ with tab1:
 
         downloaded, failed = [], []
         if to_get:
-            with ThreadPoolExecutor(
-                max_workers=min(4, len(to_get))
-            ) as ex:
+            with ThreadPoolExecutor(max_workers=min(4, len(to_get))) as ex:
                 futures = []
                 for name in to_get:
                     url = BASE_URL + name
@@ -287,66 +276,6 @@ with tab1:
             return "(present in all synced months)"
         return f"{ym[:4]}-{ym[4:]}"
 
-    # ------------------------ Fallback helpers (last N months) -------------------
-
-    def eligible_months_for_cnpj(
-        cnpj: str,
-        months_desc: List[str],
-        cnpjs_by_month: Dict[str, Set[str]],
-        fallback_n: int = 3,
-    ) -> List[str]:
-        """
-        Among the newest months (descending), take up to fallback_n months where
-        the CNPJ is NOT present in CONFID. These are the months we can legally
-        expect BLC detail to be disclosed.
-        """
-        recent = months_desc[: max(1, int(fallback_n))]
-        return [ym for ym in recent if cnpj not in cnpjs_by_month.get(ym, set())]
-
-    def store_blc_with_fallback(
-        *,
-        cnpj: str,
-        ym_list: List[str],
-        ym_to_zip: Dict[str, str],
-        db_path: str,
-    ) -> Dict[str, object]:
-        """
-        Try each candidate month in ym_list (descending), stop at first month
-        where BLC rows exist. Compute PCT_CARTEIRA, store in DB, and return a
-        small result dict.
-        """
-        for ym in ym_list:
-            zip_path = ym_to_zip.get(ym)
-            if not zip_path or not os.path.isfile(zip_path):
-                continue
-            try:
-                df_blc = read_blc_joined_for_cnpj_from_zip(zip_path, cnpj)
-            except Exception:
-                # Corrupt ZIP or parsing error: try next month
-                continue
-            df_blc = add_pct_carteira_by_vl_merc(df_blc)
-            if df_blc.empty:
-                # No data for this month — try older month
-                continue
-            # Store/update
-            action, prev = upsert_blc_in_db(db_path, cnpj, ym, df_blc)
-            return {
-                "cnpj": cnpj,
-                "ym": ym,
-                "rows": int(len(df_blc)),
-                "action": action,
-                "prev": prev,
-                "df": df_blc,  # for optional UI display in single mode
-            }
-        # Nothing found across fallbacks
-        return {
-            "cnpj": cnpj,
-            "ym": None,
-            "rows": 0,
-            "action": "skipped",
-            "prev": None,
-        }
-
     # ------------------------ BLC joining/filtering ------------------------
 
     def filter_df_by_cnpj(df: pd.DataFrame, cnpj: str) -> pd.DataFrame:
@@ -404,10 +333,7 @@ with tab1:
                         match = True
                         break
             if match:
-                row = {
-                    header[i]: (parts[i] if i < len(parts) else "")
-                    for i in range(n)
-                }
+                row = {header[i]: (parts[i] if i < len(parts) else "") for i in range(n)}
                 row["_ARQUIVO"] = os.path.basename(filename)
                 out_rows.append(row)
 
@@ -415,9 +341,7 @@ with tab1:
             return pd.DataFrame()
         return pd.DataFrame(out_rows)
 
-    def read_blc_joined_for_cnpj_from_zip(
-        zip_path: str, cnpj: str
-    ) -> pd.DataFrame:
+    def read_blc_joined_for_cnpj_from_zip(zip_path: str, cnpj: str) -> pd.DataFrame:
         """
         Open cda_fi_BLC_1..8_YYYYMM.csv inside the ZIP, read robustly (tolerate
         malformed quoting and huge fields), filter by CNPJ while streaming,
@@ -505,17 +429,10 @@ with tab1:
 
         # Find the VL_MERC_POS_FINAL column (case-insensitive; substring fallback)
         cols_norm = {c: str(c).strip().upper() for c in df.columns}
-        col = next(
-            (c for c, n in cols_norm.items() if n == "VL_MERC_POS_FINAL"), None
-        )
+        col = next((c for c, n in cols_norm.items() if n == "VL_MERC_POS_FINAL"), None)
         if col is None:
             col = next(
-                (
-                    c
-                    for c, n in cols_norm.items()
-                    if "VL_MERC_POS_FINAL" in n
-                ),
-                None,
+                (c for c, n in cols_norm.items() if "VL_MERC_POS_FINAL" in n), None
             )
         if col is None:
             # Column not found; nothing to compute
@@ -534,14 +451,9 @@ with tab1:
         both = s.str.contains(",", na=False) & s.str.contains(r"\.", na=False)
         # If both present, assume '.' thousands and ',' decimal
         s = s.where(
-            ~both,
-            s.str.replace(".", "", regex=False).str.replace(
-                ",", ".", regex=False
-            ),
+            ~both, s.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
         )
-        only_comma = s.str.contains(",", na=False) & ~s.str.contains(
-            r"\.", na=False
-        )
+        only_comma = s.str.contains(",", na=False) & ~s.str.contains(r"\.", na=False)
         # If only comma present, treat comma as decimal
         s = s.where(~only_comma, s.str.replace(",", ".", regex=False))
         # Else: either '.' decimal or digits only
@@ -612,8 +524,11 @@ with tab1:
             )
             """
         )
-        # Index for faster queries
+        # Indexes for faster queries
         cur.execute("CREATE INDEX IF NOT EXISTS idx_blc_cnpj ON blc_data(cnpj)")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_blc_cnpj_ym ON blc_data(cnpj, yyyymm)"
+        )
         conn.commit()
 
     def upsert_blc_in_db(
@@ -661,9 +576,7 @@ with tab1:
         ensure_db_schema(conn)
         cur = conn.cursor()
 
-        cur.execute(
-            "SELECT last_month_yyyymm FROM fundos_meta WHERE cnpj=?", (cnpj,)
-        )
+        cur.execute("SELECT last_month_yyyymm FROM fundos_meta WHERE cnpj=?", (cnpj,))
         row = cur.fetchone()
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         cols_list = list(df.columns)
@@ -681,8 +594,8 @@ with tab1:
                 (cnpj,),
             )
             cur.execute(
-                "INSERT INTO fundos_meta (cnpj, denom_social, last_month_yyyymm, last_updated_utc, "
-                "n_rows, columns_json) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO fundos_meta (cnpj, denom_social, last_month_yyyymm, "
+                "last_updated_utc, n_rows, columns_json) VALUES (?, ?, ?, ?, ?, ?)",
                 (cnpj, denom_social, ym, now_iso, n_rows, cols_json),
             )
             action = "inserted"
@@ -696,8 +609,8 @@ with tab1:
                     (cnpj,),
                 )
                 cur.execute(
-                    "UPDATE fundos_meta SET denom_social=?, last_month_yyyymm=?, last_updated_utc=?, "
-                    "n_rows=?, columns_json=? WHERE cnpj=?",
+                    "UPDATE fundos_meta SET denom_social=?, last_month_yyyymm=?, "
+                    "last_updated_utc=?, n_rows=?, columns_json=? WHERE cnpj=?",
                     (denom_social, ym, now_iso, n_rows, cols_json, cnpj),
                 )
                 action = "updated"
@@ -710,14 +623,12 @@ with tab1:
         if not df.empty:
             try:
                 # Select only known columns + cnpj, yyyymm
-                df_insert = df[[col for col in known_cols if col in df.columns]].copy()  # fmt: skip
+                df_insert = df[[col for col in known_cols if col in df.columns]].copy()
                 df_insert["cnpj"] = cnpj
                 df_insert["yyyymm"] = ym
                 # Ensure PCT_CARTEIRA is str
                 if "PCT_CARTEIRA" in df_insert.columns:
-                    df_insert["PCT_CARTEIRA"] = df_insert["PCT_CARTEIRA"].astype(
-                        str
-                    )
+                    df_insert["PCT_CARTEIRA"] = df_insert["PCT_CARTEIRA"].astype(str)
                 # Fill NaN with empty str for TEXT columns
                 df_insert = df_insert.fillna("")
                 df_insert.to_sql(
@@ -729,9 +640,7 @@ with tab1:
                     chunksize=1000,
                 )
             except Exception as insert_err:
-                st.warning(
-                    f"to_sql failed: {insert_err}. Falling back to manual insert."
-                )
+                st.warning(f"to_sql failed: {insert_err}. Falling back to manual insert.")
                 # Fallback: manual insert
                 cur.execute("DELETE FROM blc_data WHERE cnpj=?", (cnpj,))
                 for _, row in df.iterrows():
@@ -741,9 +650,7 @@ with tab1:
                         *[row.get(col, "") for col in known_cols],
                     ]
                     placeholders = ", ".join(["?" for _ in values])
-                    columns_str = (
-                        "(cnpj, yyyymm, " + ", ".join(known_cols) + ")"
-                    )
+                    columns_str = "(cnpj, yyyymm, " + ", ".join(known_cols) + ")"
                     sql = f"INSERT INTO blc_data {columns_str} VALUES ({placeholders})"
                     cur.execute(sql, values)
 
@@ -751,164 +658,130 @@ with tab1:
         conn.close()
         return action, prev_ym
 
-    # ------------------------ Portfolio Summary Functions ------------------------
+    # ------------------------ Bulk helpers ------------------------
 
-    def load_fund_data_from_db(
-        db_path: str, cnpj: str
-    ) -> Optional[Tuple[pd.DataFrame, str, str]]:
+    def build_cnpjs_by_month_from_local(
+        dest_dir: str, k: int
+    ) -> Tuple[List[str], Dict[str, Set[str]], Dict[str, str]]:
         """
-        Load BLC rows from blc_data table and meta for CNPJ.
-        Returns (df, yyyymm, denom_social).
+        Build month -> set(CNPJs) from local ZIPs (newest k) and map yyyymm -> zip path.
+        Returns (months_desc, cnpjs_by_month, zip_paths_by_ym).
         """
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT denom_social, last_month_yyyymm FROM fundos_meta WHERE cnpj=?",
-            (cnpj,),
+        local = [
+            n
+            for n in os.listdir(dest_dir)
+            if ZIP_RE.search(n) and os.path.isfile(os.path.join(dest_dir, n))
+        ]
+        if not local:
+            raise FileNotFoundError(
+                "No local ZIPs found. Click one of the 'Sync' buttons first."
+            )
+        local_sorted = sorted(local, key=lambda n: int(ZIP_RE.search(n).group(1)))[
+            -int(k) :
+        ]
+        local_paths = [os.path.join(dest_dir, n) for n in local_sorted]
+
+        cnpjs_by_month: Dict[str, Set[str]] = {}
+        zip_paths_by_ym: Dict[str, str] = {}
+        for zp in local_paths:
+            ym, s = read_confid_cnpjs_from_zip(zp)
+            cnpjs_by_month[ym] = s
+            zip_paths_by_ym[ym] = zp
+
+        months_desc = sorted(list(cnpjs_by_month.keys()), key=int, reverse=True)
+        return months_desc, cnpjs_by_month, zip_paths_by_ym
+
+    def process_one_cnpj_bulk(
+        cnpj: str,
+        months_desc: List[str],
+        cnpjs_by_month: Dict[str, Set[str]],
+        zip_paths_by_ym: Dict[str, str],
+        db_path: str,
+        *,
+        only_absent: bool = True,
+        fallback_ym: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """
+        For a CNPJ, decide which month to process (latest absent or fallback),
+        read/join BLC, compute PCT_CARTEIRA, and upsert into DB.
+        Returns a result dict with status.
+        """
+        result: Dict[str, object] = {
+            "CNPJ": cnpj,
+            "YM": None,
+            "Action": None,
+            "PrevYM": None,
+            "Rows": 0,
+            "Error": None,
+        }
+        try:
+            ym = latest_absent_month_for_cnpj(cnpj, months_desc, cnpjs_by_month)
+            if ym is None:
+                if only_absent:
+                    result["Action"] = "skipped_no_absent"
+                    return result
+                if fallback_ym:
+                    ym = fallback_ym
+
+            if ym is None:
+                result["Action"] = "skipped_no_month"
+                return result
+
+            if ym not in zip_paths_by_ym:
+                result["Error"] = f"No local ZIP for {ym}. Increase K or re-sync."
+                result["Action"] = "error"
+                return result
+
+            zip_path = zip_paths_by_ym[ym]
+            df_blc = read_blc_joined_for_cnpj_from_zip(zip_path, cnpj)
+            df_blc = add_pct_carteira_by_vl_merc(df_blc)
+
+            if df_blc.empty:
+                result["Action"] = "no_rows"
+                result["YM"] = ym
+                return result
+
+            action, prev = upsert_blc_in_db(db_path, cnpj, ym, df_blc)
+            result["Action"] = action
+            result["PrevYM"] = prev
+            result["Rows"] = int(len(df_blc))
+            result["YM"] = ym
+            return result
+        except Exception as e:
+            result["Error"] = str(e)
+            result["Action"] = "error"
+            return result
+
+    def bulk_process_cnpjs(
+        cnpjs: List[str],
+        db_path: str,
+        dest_dir: str,
+        k: int,
+        *,
+        only_absent: bool = True,
+        fallback_ym: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """
+        Bulk: build months/CNPJ presence once, then process each CNPJ.
+        Returns a DataFrame with results.
+        """
+        months_desc, cnpjs_by_month, zip_paths_by_ym = build_cnpjs_by_month_from_local(
+            dest_dir, k
         )
-        row = cur.fetchone()
-        if not row:
-            conn.close()
-            return None
 
-        denom_social, yyyymm = row
-
-        df = pd.read_sql_query(
-            "SELECT * FROM blc_data WHERE cnpj=? ORDER BY DS_ATIVO, EMISSOR",
-            params=(cnpj,),
-            con=conn,
-        )
-        # Convert PCT_CARTEIRA back to numeric
-        if "PCT_CARTEIRA" in df.columns:
-            df["PCT_CARTEIRA"] = pd.to_numeric(
-                df["PCT_CARTEIRA"], errors="coerce"
-            ).fillna(0.0)
-        else:
-            df["PCT_CARTEIRA"] = 0.0
-
-        conn.close()
-
-        return df, yyyymm, denom_social
-
-    def categorize_tp_ativo(tp_ativo: str) -> str:
-        """
-        Map TP_ATIVO to broader allocation categories (custom mapping based on
-        common CVM types).
-        Adjust as needed for accuracy.
-        """
-        if pd.isna(tp_ativo) or not str(tp_ativo).strip():
-            return "Outros"
-
-        tp_upper = str(tp_ativo).strip().upper()
-
-        # Depósitos a prazo e outros títulos de IF (CDB, RDB, LF, etc.)
-        if any(kw in tp_upper for kw in ["CDB", "RDB", "LETRA FINANCEIRA", "LF", "LCR"]):  # fmt: skip
-            return "Depósitos a prazo e outros títulos de IF"
-
-        # Títulos Públicos (NTN, LTN, etc.)
-        if any(kw in tp_upper for kw in ["TÍTULO PÚBLICO", "NTN", "LTN", "LFT", "TESOURO"]):  # fmt: skip
-            return "TÍTULOS PÚBLICOS"
-
-        # Operações Compromissadas
-        if "COMPROMISSADA" in tp_upper:
-            return "OPERAÇÕES COMPROMISSADAS"
-
-        # Ações (Stocks)
-        if "AÇÃO" in tp_upper:
-            return "AÇÕES"
-
-        # Fundo de Investimento
-        if "FUNDO" in tp_upper:
-            return "FUNDO DE INVESTIMENTO"
-
-        # Imóveis
-        if "IMOBILIÁRIO" in tp_upper or "FII" in tp_upper:
-            return "IMÓVEIS"
-
-        # Outros (default)
-        return "Outros"
-
-    def prepare_allocation_summary(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Group by categorized TP_ATIVO, sum PCT_CARTEIRA.
-        """
-        if (
-            "TP_ATIVO" not in df.columns
-            or "PCT_CARTEIRA" not in df.columns
-            or df["PCT_CARTEIRA"].sum() == 0
-        ):
-            return pd.DataFrame()
-
-        df["CATEGORIA"] = df["TP_ATIVO"].apply(categorize_tp_ativo)
-        alloc = (
-            df.groupby("CATEGORIA")["PCT_CARTEIRA"]
-            .sum()
-            .reset_index()
-        )
-        alloc = (
-            alloc[alloc["PCT_CARTEIRA"] > 0]
-            .sort_values("PCT_CARTEIRA", ascending=False)
-            .head(5)
-        )
-        if alloc.empty:
-            return pd.DataFrame()
-        alloc["PCT_STR"] = (alloc["PCT_CARTEIRA"] * 100).round(2).astype(str) + "%"
-        return alloc
-
-    def prepare_top_positions(df: pd.DataFrame, ym: str) -> pd.DataFrame:
-        """
-        Aggregate positions by unique asset (TP_ATIVO + EMISSOR + Maturity),
-        sum PCT_CARTEIRA. Format maturity from DT_FIM_VIGENCIA (MM/YYYY).
-        """
-        required_cols = ["TP_ATIVO", "DT_FIM_VIGENCIA", "PCT_CARTEIRA"]
-        if not all(col in df.columns for col in required_cols):
-            return pd.DataFrame()
-
-        # Fallback for EMISSOR
-        if "EMISSOR" not in df.columns:
-            if "EMISSOR_LIGADO" in df.columns:
-                df["EMISSOR"] = df["EMISSOR_LIGADO"]
-            else:
-                df["EMISSOR"] = "N/A"
-
-        # Filter non-zero positions
-        df_pos = df[df["PCT_CARTEIRA"] > 0].copy()
-        if df_pos.empty:
-            return pd.DataFrame()
-
-        # Parse maturity
-        def format_maturity(date_str):
-            if pd.isna(date_str) or not str(date_str).strip():
-                return ""
-            date_str = str(date_str).strip()
-            try:
-                dt = pd.to_datetime(date_str, errors="coerce")
-                if pd.isna(dt):
-                    return ""
-                return dt.strftime("%m/%Y")
-            except Exception:
-                m = re.search(r"(\d{4})([/-]?)(\d{2})", date_str)
-                if m:
-                    return f"{m.group(3)}/{m.group(1)}"
-                return ""
-
-        df_pos["MATURITY"] = df_pos["DT_FIM_VIGENCIA"].apply(format_maturity)
-        df_pos["POSICAO_KEY"] = (
-            df_pos["TP_ATIVO"].astype(str).str.strip()
-            + " - "
-            + df_pos["EMISSOR"].astype(str).str.strip()
-            + " - "
-            + df_pos["MATURITY"]
-        ).str.rstrip(" -")
-        df_pos["PCT_NUM"] = df_pos["PCT_CARTEIRA"]
-
-        top = df_pos.groupby("POSICAO_KEY")["PCT_NUM"].sum().reset_index()
-        top = top.sort_values("PCT_NUM", ascending=False).head(10)
-        if top.empty:
-            return pd.DataFrame()
-        top["PCT_STR"] = (top["PCT_NUM"] * 100).round(2).astype(str) + "%"
-        top["POSICAO_FULL"] = top["POSICAO_KEY"] + " - " + top["PCT_STR"]
-        return top
+        results: List[Dict[str, object]] = []
+        for cnpj in cnpjs:
+            res = process_one_cnpj_bulk(
+                cnpj,
+                months_desc,
+                cnpjs_by_month,
+                zip_paths_by_ym,
+                db_path,
+                only_absent=only_absent,
+                fallback_ym=fallback_ym,
+            )
+            results.append(res)
+        return pd.DataFrame(results)
 
     # ------------------------ Streamlit UI ------------------------
 
@@ -982,27 +855,6 @@ with tab1:
         st.session_state.absent_map = {}
     if "checked_cnpjs" not in st.session_state:
         st.session_state.checked_cnpjs = []
-    if "confid_months_desc" not in st.session_state:
-        st.session_state.confid_months_desc = []
-    if "confid_cnpjs_by_month" not in st.session_state:
-        st.session_state.confid_cnpjs_by_month = {}
-    if "ym_to_zip" not in st.session_state:
-        st.session_state.ym_to_zip = {}
-    if "fallback_n" not in st.session_state:
-        st.session_state.fallback_n = 3
-
-    st.number_input(
-        "Fallback months to try (if BLC not found)",
-        min_value=1,
-        max_value=6,
-        value=int(st.session_state.fallback_n),
-        step=1,
-        key="fallback_n",
-        help=(
-            "When a fund is absent in CONFID in the newest month but hasn't "
-            "sent BLC yet, we automatically try older months (up to N)."
-        ),
-    )
 
     if check_btn:
         cnpjs = parse_cnpj_input(cnpj_text)
@@ -1026,9 +878,7 @@ with tab1:
                     local_sorted = sorted(
                         local, key=lambda n: int(ZIP_RE.search(n).group(1))
                     )[-int(k) :]
-                    local_paths = [
-                        os.path.join(dest_dir, n) for n in local_sorted
-                    ]
+                    local_paths = [os.path.join(dest_dir, n) for n in local_sorted]
 
                     cnpjs_by_month: Dict[str, Set[str]] = {}
                     prog = st.progress(0.0)
@@ -1040,13 +890,6 @@ with tab1:
                     months_desc = sorted(
                         list(cnpjs_by_month.keys()), key=int, reverse=True
                     )
-
-                    # Map yyyymm -> absolute ZIP path for fast access later
-                    ym_to_zip = {}
-                    for p in local_paths:
-                        m = ZIP_RE.search(os.path.basename(p))
-                        if m:
-                            ym_to_zip[m.group(1)] = p
 
                     absent_map = {}
                     rows = []
@@ -1063,349 +906,139 @@ with tab1:
                         )
 
                     st.session_state.absent_map = absent_map
-                    st.session_state.confid_months_desc = months_desc
-                    st.session_state.confid_cnpjs_by_month = cnpjs_by_month
-                    st.session_state.ym_to_zip = ym_to_zip
                     st.dataframe(pd.DataFrame(rows), use_container_width=True)
             except Exception as e:
                 st.error(f"Error while checking CNPJs: {e}")
 
-    # Section to load BLC rows with fallback (single and bulk)
+    # Section to load BLC rows for the selected CNPJ's absent month
     if st.session_state.checked_cnpjs:
-        st.markdown(
-            "Select a CNPJ to view and store its BLC rows (with fallback):"
-        )
+        st.markdown("Select a CNPJ to view and store its BLC rows:")
         selected_cnpj = st.selectbox(
             "CNPJ (normalized digits)",
             st.session_state.checked_cnpjs,
             index=0,
         )
-        show_blc_btn = st.button(
-            "Show + Save BLC for newest eligible month (try up to fallback N)"
-        )
+        show_blc_btn = st.button("Show BLC rows for that absent month and save")
 
         if show_blc_btn:
-            months_desc = st.session_state.get("confid_months_desc", [])
-            cnpjs_by_month = st.session_state.get(
-                "confid_cnpjs_by_month", {}
-            )
-            ym_to_zip = st.session_state.get("ym_to_zip", {})
-            if not months_desc or not cnpjs_by_month or not ym_to_zip:
-                st.error(
-                    "Please run the CONFID check first to cache months and ZIP paths."
+            ym = st.session_state.absent_map.get(selected_cnpj)
+            if not ym:
+                st.info(
+                    "That CNPJ is present in all synced months, so there is no "
+                    "absent month to inspect."
                 )
             else:
-                eligible = eligible_months_for_cnpj(
-                    selected_cnpj,
-                    months_desc,
-                    cnpjs_by_month,
-                    fallback_n=int(st.session_state.fallback_n),
-                )
-                if not eligible:
-                    st.info(
-                        "No non-confidential months found among the last N months "
-                        f"(N={int(st.session_state.fallback_n)})."
+                zip_name = f"cda_fi_{ym}.zip"
+                zip_path = os.path.join(dest_dir, zip_name)
+                if not os.path.isfile(zip_path):
+                    st.error(
+                        f"ZIP {zip_name} not found locally. Increase K or re-sync."
                     )
                 else:
                     with st.spinner(
-                        f"Trying up to {int(st.session_state.fallback_n)} month(s) "
-                        f"for {selected_cnpj}..."
+                        f"Reading BLC files for {selected_cnpj} in {ym_label(ym)}..."
                     ):
-                        res = store_blc_with_fallback(
-                            cnpj=selected_cnpj,
-                            ym_list=eligible,
-                            ym_to_zip=ym_to_zip,
-                            db_path=db_path,
-                        )
-                    if res.get("ym"):
-                        df_blc = res.get("df", pd.DataFrame())
-                        st.success(
-                            f"Stored {res['rows']} rows for {selected_cnpj} "
-                            f"in {ym_label(res['ym'])} (action={res['action']})."
-                        )
-                        if not df_blc.empty:
-                            st.dataframe(
-                                df_blc, use_container_width=True, height=420
+                        try:
+                            df_blc = read_blc_joined_for_cnpj_from_zip(
+                                zip_path, selected_cnpj
                             )
-                            csv_bytes = df_blc.to_csv(index=False).encode(
-                                "utf-8"
-                            )
-                            st.download_button(
-                                "Download filtered BLC as CSV",
-                                data=csv_bytes,
-                                file_name=(
-                                    f"blc_{selected_cnpj}_{res['ym']}.csv"
-                                ),
-                                mime="text/csv",
-                            )
-                    else:
-                        st.warning(
-                            f"No BLC rows found for {selected_cnpj} across "
-                            f"{len(eligible)} eligible month(s)."
-                        )
+                            # Add share of portfolio (0–1 fraction) based on VL_MERC_POS_FINAL
+                            df_blc = add_pct_carteira_by_vl_merc(df_blc)
 
-        st.markdown("---")
-        st.markdown("Or process in bulk:")
-        cnpjs_bulk = st.multiselect(
-            "CNPJs to process in bulk",
-            options=st.session_state.checked_cnpjs,
-            default=st.session_state.checked_cnpjs,
-        )
-        bulk_btn = st.button(
-            "Process ALL selected CNPJs (try up to fallback N months each)"
-        )
-        if bulk_btn:
-            months_desc = st.session_state.get("confid_months_desc", [])
-            cnpjs_by_month = st.session_state.get(
-                "confid_cnpjs_by_month", {}
-            )
-            ym_to_zip = st.session_state.get("ym_to_zip", {})
-            if not months_desc or not cnpjs_by_month or not ym_to_zip:
-                st.error(
-                    "Please run the CONFID check first to cache months and ZIP paths."
-                )
-            elif not cnpjs_bulk:
-                st.warning("Select at least one CNPJ to process in bulk.")
-            else:
-                results: List[Dict[str, object]] = []
-                prog = st.progress(0.0)
-                for i, cnpj in enumerate(cnpjs_bulk, start=1):
-                    eligible = eligible_months_for_cnpj(
-                        cnpj,
-                        months_desc,
-                        cnpjs_by_month,
-                        fallback_n=int(st.session_state.fallback_n),
-                    )
-                    if not eligible:
-                        results.append(
-                            {
-                                "CNPJ": cnpj,
-                                "Chosen month": "-",
-                                "Rows": 0,
-                                "Action": "skipped (no eligible months)",
-                            }
-                        )
-                        prog.progress(i / len(cnpjs_bulk))
-                        continue
-                    res = store_blc_with_fallback(
-                        cnpj=cnpj,
-                        ym_list=eligible,
-                        ym_to_zip=ym_to_zip,
-                        db_path=db_path,
-                    )
-                    if res.get("ym"):
-                        results.append(
-                            {
-                                "CNPJ": cnpj,
-                                "Chosen month": ym_label(str(res["ym"])),
-                                "Rows": int(res["rows"]),
-                                "Action": str(res["action"]),
-                            }
-                        )
-                    else:
-                        results.append(
-                            {
-                                "CNPJ": cnpj,
-                                "Chosen month": "-",
-                                "Rows": 0,
-                                "Action": "no_data_in_fallbacks",
-                            }
-                        )
-                    prog.progress(i / len(cnpjs_bulk))
-                prog.empty()
-                df_res = pd.DataFrame(results)
-                st.success("Bulk processing finished.")
-                st.dataframe(df_res, use_container_width=True)
-                st.download_button(
-                    "Download bulk results (CSV)",
-                    data=df_res.to_csv(index=False).encode("utf-8"),
-                    file_name="bulk_blc_results.csv",
-                    mime="text/csv",
-                )
-
-    # ------------------------ New Section: Portfolio Summary from DB ------------------------
-
-    st.markdown("---")
-    st.subheader("Resumo de Carteira de Fundos (do Banco de Dados)")
-
-    # Load list of funds from DB
-    try:
-        conn = sqlite3.connect(db_path)
-        funds_df = pd.read_sql_query(
-            "SELECT cnpj, last_month_yyyymm, n_rows FROM fundos_meta ORDER BY cnpj",
-            conn,
-        )
-        conn.close()
-    except Exception:
-        funds_df = pd.DataFrame()
-
-    if funds_df.empty:
-        st.info(
-            "Nenhum fundo encontrado no banco de dados. "
-            "Adicione fundos na seção anterior primeiro."
-        )
-    else:
-        # Dropdown to select fund
-        def format_cnpj(cnpj):
-            mask = funds_df["cnpj"] == cnpj
-            if mask.any():
-                ym = funds_df.loc[mask, "last_month_yyyymm"].iloc[0]
-                return f"{cnpj} ({ym[:4]}-{ym[4:]})"
-            return cnpj
-
-        cnpj_options = funds_df["cnpj"].tolist()
-        selected_cnpj_summary = st.selectbox(
-            "Selecione um fundo (CNPJ)",
-            options=cnpj_options,
-            format_func=format_cnpj,
-        )
-
-        if selected_cnpj_summary:
-            with st.spinner("Carregando dados do fundo..."):
-                try:
-                    fund_data = load_fund_data_from_db(
-                        db_path, selected_cnpj_summary
-                    )
-                    if fund_data is None:
-                        st.error("Dados não encontrados para este CNPJ.")
-                    else:
-                        df, ym, denom_social = fund_data
-                        if df.empty:
-                            st.warning("Nenhuma posição encontrada para este fundo.")
-                        else:
-                            total_positions = len(df[df["PCT_CARTEIRA"] > 0])
-                            st.markdown(
-                                f"**Fundo:** {denom_social} ({selected_cnpj_summary})"
-                            )
-                            st.markdown(
-                                f"**Mês:** {ym[:4]}-{ym[4:]} | "
-                                f"**Total de Posições:** {total_positions}"
-                            )
-
-                            # Allocation Summary
-                            alloc_df = prepare_allocation_summary(df)
-                            if not alloc_df.empty:
-                                st.markdown(
-                                    "### PORTFÓLIO, ALOCAÇÃO E PRINCIPAIS TESES"
+                            if df_blc.empty:
+                                st.warning(
+                                    "No matching rows found in cda_fi_BLC_1..8 for "
+                                    f"{selected_cnpj} in {ym_label(ym)}."
                                 )
-                                for _, row in alloc_df.iterrows():
-                                    st.markdown(
-                                        f"{row['PCT_STR']} {row['CATEGORIA']}"
+                            else:
+                                st.dataframe(
+                                    df_blc, use_container_width=True, height=420
+                                )
+                                # Save/update in SQLite (now as table rows)
+                                action, prev = upsert_blc_in_db(
+                                    db_path, selected_cnpj, ym, df_blc
+                                )
+                                if action == "inserted":
+                                    st.success(
+                                        f"Saved {len(df_blc)} rows for CNPJ "
+                                        f"{selected_cnpj} at {ym_label(ym)} to DB."
                                     )
-
-                                # Donut chart with Ceres Wealth colors and transparent background
-                                if len(alloc_df) > 1:
-                                    # Ceres Wealth colors
-                                    ceres_colors = [
-                                        "#8c6239",
-                                        "#dedede",
-                                        "#88888B",
-                                        "#b08568",
-                                        "#1f6c9c",
-                                        "#973E11",
-                                        "#997a00",
-                                    ]
-                                    # Use first N colors where N = len(alloc_df)
-                                    num_cats = len(alloc_df)
-                                    colors_to_use = ceres_colors[:num_cats]
-
-                                    # Create custom labels with percentages
-                                    alloc_df["LABEL_PCT"] = (
-                                        alloc_df["CATEGORIA"]
-                                        + " - "
-                                        + (alloc_df["PCT_CARTEIRA"] * 100)
-                                        .round(1)
-                                        .astype(str)
-                                        + "%"
-                                    )
-
-                                    fig = go.Figure(
-                                        data=[
-                                            go.Pie(
-                                                labels=alloc_df[
-                                                    "CATEGORIA"
-                                                ].tolist(),
-                                                values=(
-                                                    alloc_df[
-                                                        "PCT_CARTEIRA"
-                                                    ]
-                                                    * 100
-                                                ).tolist(),
-                                                text=alloc_df[
-                                                    "LABEL_PCT"
-                                                ].tolist(),
-                                                textposition="inside",
-                                                textinfo="percent",
-                                                hole=0.3,  # Donut style
-                                                marker=dict(
-                                                    colors=colors_to_use
-                                                ),
-                                            )
-                                        ]
-                                    )
-
-                                    # Transparent background with minimal margins
-                                    fig.update_layout(
-                                        title=" ",
-                                        paper_bgcolor="rgba(0,0,0,0)",
-                                        plot_bgcolor="rgba(0,0,0,0)",
-                                        showlegend=True,  # Enable the legend
-                                        legend=dict(
-                                            orientation="h",  # Horizontal orientation
-                                            yanchor="top",
-                                            y=-0.15,  # Adjust this value to position lower/higher
-                                            xanchor="center",
-                                            x=0.5,
-                                        ),
-                                        margin=dict(
-                                            l=20, r=20, t=20, b=80
-                                        ),  # Tight margins
-                                        height=450,
-                                    )
-
-                                    fig.update_traces(
-                                        textfont=dict(size=16),
-                                        hovertemplate=(
-                                            "<b>%{label}</b><br>%{value:.1f}%"
-                                            "<extra></extra>"
-                                        ),
-                                    )
-
-                                    st.plotly_chart(
-                                        fig, use_container_width=True
+                                elif action == "updated":
+                                    st.success(
+                                        f"Existing CNPJ updated from {ym_label(prev)} "
+                                        f"to {ym_label(ym)} with {len(df_blc)} rows."
                                     )
                                 else:
                                     st.info(
-                                        "Não há categorias suficientes para o gráfico de alocação."
+                                        f"Database already has {ym_label(prev)} for "
+                                        f"{selected_cnpj}. New month {ym_label(ym)} is "
+                                        "not newer; keeping existing snapshot."
                                     )
-                            else:
-                                st.warning(
-                                    "Não foi possível preparar o resumo de alocação (verifique TP_ATIVO e PCT_CARTEIRA)."
-                                )
 
-                            # Top Positions
-                            top_df = prepare_top_positions(df, ym)
-                            if not top_df.empty:
-                                st.markdown("### MAIORES POSIÇÕES NA CARTEIRA")
-                                for _, row in top_df.iterrows():
-                                    st.markdown(f"{row['POSICAO_FULL']}")
-                            else:
-                                st.warning(
-                                    "Não foi possível preparar as top posições (verifique colunas TP_ATIVO, EMISSOR/EMISSOR_LIGADO, DT_FIM_VIGENCIA)."
+                                csv_bytes = df_blc.to_csv(index=False).encode("utf-8")
+                                st.download_button(
+                                    "Download filtered BLC as CSV",
+                                    data=csv_bytes,
+                                    file_name=f"blc_{selected_cnpj}_{ym}.csv",
+                                    mime="text/csv",
                                 )
+                        except Exception as e:
+                            st.error(f"Failed to load BLC data: {e}")
 
-                            # Option to download full data as CSV
-                            csv_bytes = df.to_csv(index=False).encode("utf-8")
-                            st.download_button(
-                                "Download CSV completo do fundo",
-                                data=csv_bytes,
-                                file_name=(
-                                    f"carteira_{selected_cnpj_summary}_{ym}.csv"
-                                ),
-                                mime="text/csv",
-                            )
+    # ------------------------ Bulk: process and save many CNPJs ------------------------
+
+    st.subheader("Processar em lote e salvar no DB")
+
+    st.caption(
+        "Processa todos os CNPJs acima de uma vez. Para cada CNPJ, seleciona o "
+        "mês mais recente em que está ausente no CONFID (entre os meses locais). "
+        "Caso não haja mês ausente, você pode optar por pular ou usar um YYYYMM "
+        "específico (fallback)."
+    )
+
+    col_bulk1, col_bulk2 = st.columns(2)
+    with col_bulk1:
+        only_absent = st.checkbox(
+            "Processar somente quando houver mês ausente", value=True
+        )
+    with col_bulk2:
+        fallback_ym = st.text_input(
+            "Fallback YYYYMM (opcional)", value="", placeholder="202501"
+        ).strip()
+    if fallback_ym and not re.fullmatch(r"\d{6}", fallback_ym):
+        st.warning("Fallback YYYYMM deve ser 6 dígitos. Ex.: 202501")
+        fallback_ym = ""
+
+    bulk_btn = st.button("Processar e salvar TODOS os CNPJs acima")
+
+    if bulk_btn:
+        cnpjs_bulk = parse_cnpj_input(cnpj_text)
+        if not cnpjs_bulk:
+            st.warning("Insira ao menos um CNPJ válido.")
+        else:
+            with st.spinner("Processando em lote..."):
+                try:
+                    df_res = bulk_process_cnpjs(
+                        cnpjs=cnpjs_bulk,
+                        db_path=db_path,
+                        dest_dir=dest_dir,
+                        k=int(k),
+                        only_absent=bool(only_absent),
+                        fallback_ym=(fallback_ym or None),
+                    )
+                    st.success("Lote concluído.")
+                    if not df_res.empty:
+                        st.dataframe(df_res, use_container_width=True, height=380)
+                        st.download_button(
+                            "Baixar relatório (CSV)",
+                            data=df_res.to_csv(index=False).encode("utf-8"),
+                            file_name="resultado_lote_cnpjs.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.info("Nenhum resultado.")
                 except Exception as e:
-                    st.error(f"Erro ao processar resumo: {e}")
+                    st.error(f"Falha no processamento em lote: {e}")
 
     st.caption(
         "Notes: Only the newest K months available locally are checked for "
@@ -1413,8 +1046,7 @@ with tab1:
         "cda_fi_BLC_[1..8]_YYYYMM.csv inside each ZIP. Malformed lines are "
         "skipped; quotes issues are handled with fallback parsing. Database "
         "stores one snapshot per CNPJ (latest month only, as table rows). PCT_CARTEIRA is a "
-        "0–1 fraction computed from VL_MERC_POS_FINAL over the total of the rows. "
-        "Resumo: Usa TP_ATIVO para categorizar alocações e agrupa posições por ativo + emissor + vencimento."
+        "0–1 fraction computed from VL_MERC_POS_FINAL over the total of the rows."
     )
 
 with tab2:
@@ -1754,9 +1386,7 @@ with tab3:
                                     quota_col: "VL_QUOTA",
                                 }
                             )
-                            ch["CNPJ"] = ch["CNPJ_ID"].astype(str).map(
-                                sanitize_cnpj
-                            )
+                            ch["CNPJ"] = ch["CNPJ_ID"].astype(str).map(sanitize_cnpj)
 
                             if target_set is not None:
                                 ch = ch[ch["CNPJ"].isin(target_set)]
@@ -1764,9 +1394,7 @@ with tab3:
                                     continue
 
                             ch["DT_COMPTC"] = pd.to_datetime(
-                                ch["DT_COMPTC"],
-                                errors="coerce",
-                                format="%Y-%m-%d",
+                                ch["DT_COMPTC"], errors="coerce", format="%Y-%m-%d"
                             )
                             ch["VL_QUOTA"] = _parse_decimal_series_flexible(
                                 ch["VL_QUOTA"]
@@ -1776,9 +1404,7 @@ with tab3:
                             if ch.empty:
                                 continue
 
-                            ch["DT_STR"] = ch["DT_COMPTC"].dt.strftime(
-                                "%Y-%m-%d"
-                            )
+                            ch["DT_STR"] = ch["DT_COMPTC"].dt.strftime("%Y-%m-%d")
                             rows = list(
                                 zip(
                                     ch["CNPJ"].astype(str).tolist(),
@@ -1787,9 +1413,7 @@ with tab3:
                                 )
                             )
 
-                            total_inserted += insert_nav_daily_batch(
-                                conn, rows
-                            )
+                            total_inserted += insert_nav_daily_batch(conn, rows)
                     return total_inserted
                 except Exception as e:
                     last_err = e
@@ -1824,9 +1448,7 @@ with tab3:
         for i, ym in enumerate(months, start=1):
             zip_path = month_to_local_path(data_dir, ym)
             try:
-                inserted = ingest_zip_for_cnpjs_to_db(
-                    zip_path, target_set, conn
-                )
+                inserted = ingest_zip_for_cnpjs_to_db(zip_path, target_set, conn)
                 total_inserted += inserted
             except Exception as e:
                 st.error(f"Falha ao ingerir {ym}: {e}")
@@ -1921,18 +1543,16 @@ with tab3:
             elif table.lower() == "cdi" and "daily_rate_pct" in cols:
                 q = f"SELECT date, daily_rate_pct FROM {table} ORDER BY date"
                 df = pd.read_sql_query(q, conn, parse_dates=["date"])
-                df["daily_return"] = (
-                    pd.to_numeric(df["daily_rate_pct"], errors="coerce") / 100.0
-                )
+                df["daily_return"] = pd.to_numeric(
+                    df["daily_rate_pct"], errors="coerce"
+                ) / 100.0
                 df = df[["date", "daily_return"]]
             elif table.lower() == "ibov" and "close" in cols:
                 q = f"SELECT date, close FROM {table} ORDER BY date"
                 df = pd.read_sql_query(q, conn, parse_dates=["date"])
                 df["close"] = pd.to_numeric(df["close"], errors="coerce")
                 df["daily_return"] = df["close"].pct_change()
-                df = df.dropna(subset=["daily_return"])[
-                    ["date", "daily_return"]
-                ]
+                df = df.dropna(subset=["daily_return"])[["date", "daily_return"]]
             else:
                 raise ValueError(
                     f"Tabela {table} não possui colunas esperadas: {cols}"
@@ -2019,7 +1639,9 @@ with tab3:
             )
 
         all_months = sorted(
-            set().union(*[set(pd.to_datetime(s.index)) for s in series_map.values()])
+            set().union(
+                *[set(pd.to_datetime(s.index)) for s in series_map.values()]
+            )
         )
 
         fig = make_subplots(specs=[[{"secondary_y": False}]])
@@ -2197,7 +1819,10 @@ with tab3:
 
         components.html(html_str, height=fallback_height, scrolling=True)
 
-    def ceres_gt_css(pal: List[str], font_px: int) -> str:
+    def ceres_gt_css(
+        pal: List[str],
+        font_px: int,
+    ) -> str:
         header_bg = pal[0] if pal else "#8c6239"
         body_text = "#f1f1f1"
         border_col = "rgba(222,222,222,0.18)"
@@ -2314,11 +1939,7 @@ with tab3:
         st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
     def estimate_gt_render_height(
-        *,
-        font_px: int,
-        n_rows: int,
-        n_header_rows: int = 1,
-        title_rows: int = 0,
+        *, font_px: int, n_rows: int, n_header_rows: int = 1, title_rows: int = 0
     ) -> int:
         """
         Estima altura necessária para caber a tabela (quase sem sobra).
@@ -2689,6 +2310,7 @@ with tab3:
                 return float("nan")
             return float(win.std(ddof=1) * np.sqrt(252.0))
 
+        # FIX: removido parêntese extra no final da linha
         names = order or list(series_m_map.keys())
 
         records: List[Dict[str, float]] = []
@@ -2824,9 +2446,7 @@ with tab3:
             return False
         st.session_state.cnpj_list[cnpj_digits] = ccy
         st.session_state.cnpj_display_names[cnpj_digits] = (
-            display_name.strip()
-            if display_name.strip()
-            else f"CNPJ {cnpj_digits}"
+            display_name.strip() if display_name.strip() else f"CNPJ {cnpj_digits}"
         )
         return True
 
@@ -2937,9 +2557,7 @@ with tab3:
                         f"{st.session_state.cnpj_list[cnpj_digits]}"
                     )
                 with c2_row:
-                    if st.button(
-                        "❌", key=f"remove_{cnpj_digits}", help="Remover"
-                    ):
+                    if st.button("❌", key=f"remove_{cnpj_digits}", help="Remover"):
                         remove_cnpj(cnpj_digits)
                         st.rerun()
 
@@ -3107,10 +2725,7 @@ with tab3:
             )
             with st.spinner("Ingestão em andamento..."):
                 inserted = preload_cnpjs_to_db(
-                    cnpj_map=cnpj_map,
-                    months=months_all,
-                    data_dir=data_dir,
-                    conn=conn,
+                    cnpj_map=cnpj_map, months=months_all, data_dir=data_dir, conn=conn
                 )
             st.success(f"Pré-carregamento concluído. Linhas novas: {inserted}")
 
@@ -3385,9 +3000,7 @@ with tab3:
 
         # 2.5) Janelas 1m/6m/12m e Vol 12m
         st.subheader("Janelas: 1m, 6m, 12m e Vol 12m (horizontal)")
-        base_metric_names = [fund_name] + [
-            n for n in ("CDI", "IBOV") if n in daily_map
-        ]
+        base_metric_names = [fund_name] + [n for n in ("CDI", "IBOV") if n in daily_map]
         series_m_sel = {n: ret_m_map[n] for n in base_metric_names}
         series_d_sel = {n: daily_map[n] for n in base_metric_names}
 

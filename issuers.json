@@ -1,0 +1,1562 @@
+[
+  {
+    "id": "00000000000000",
+    "name": "EMISSOR NAO INFORMADO"
+  },
+  {
+    "id": "00000000000191",
+    "name": "BANCO DO BRASIL"
+  },
+  {
+    "id": "00000208000100",
+    "name": "BRB BANCO DE BRASILIA"
+  },
+  {
+    "id": "00122327000136",
+    "name": "SANTINVEST CREDITO FINANCIAMENTO E INVESTIMENTOS"
+  },
+  {
+    "id": "00315557000111",
+    "name": "COOPERATIVA UNICRED"
+  },
+  {
+    "id": "00360305000104",
+    "name": "CAIXA ECONOMICA FEDERAL"
+  },
+  {
+    "id": "00394460040950",
+    "name": "SECRETARIA DO TESOURO NACIONAL"
+  },
+  {
+    "id": "00416968000101",
+    "name": "BANCO INTER"
+  },
+  {
+    "id": "00517645000104",
+    "name": "BANCO RIBEIRAO PRETO"
+  },
+  {
+    "id": "00517645000287",
+    "name": "BANCO RIBEIRAO PRETO SA"
+  },
+  {
+    "id": "00556603000174",
+    "name": "BANCO BARI"
+  },
+  {
+    "id": "00558456000171",
+    "name": "BANCO CETELEM"
+  },
+  {
+    "id": "00571135000107",
+    "name": "VEXTY ASSOCIAÇÃO PRIVADA"
+  },
+  {
+    "id": "00655522000121",
+    "name": "ASSOCIACAO DE POUPANCA E EMPRESTIMO POUPEX"
+  },
+  {
+    "id": "00795423000145",
+    "name": "BANCO SEMEAR"
+  },
+  {
+    "id": "00997185000150",
+    "name": "BANCO BM&FBOVESPA"
+  },
+  {
+    "id": "01023570000160",
+    "name": "BANCO RABOBANK INTERNATIONAL BRASIL"
+  },
+  {
+    "id": "01023570001212",
+    "name": "BANCO RABOBANK INT BR"
+  },
+  {
+    "id": "01181521000155",
+    "name": "BANCO COOPERATIVO SICREDI"
+  },
+  {
+    "id": "01522368000182",
+    "name": "BANCO BNP PARIBAS BRASIL"
+  },
+  {
+    "id": "01658426000108",
+    "name": "COOPERFORTE"
+  },
+  {
+    "id": "01701201000189",
+    "name": "HSBC BANK BRASIL BANCO MULTIPLO"
+  },
+  {
+    "id": "01800019000185",
+    "name": "PORTOCRED FINANCEIRA"
+  },
+  {
+    "id": "01838723000127",
+    "name": "BRF SA"
+  },
+  {
+    "id": "01852137000137",
+    "name": "BANCO BBC - GRUPO SIMPAR"
+  },
+  {
+    "id": "01858774000110",
+    "name": "BANCO BV S.A."
+  },
+  {
+    "id": "02038232000164",
+    "name": "BANCO SICOOB"
+  },
+  {
+    "id": "02102498000129",
+    "name": "METROPOLITAN LIFE SEGUROS E PREVIDENCIA PRIVADA SA"
+  },
+  {
+    "id": "02105040000123",
+    "name": "VIRGO II COMPANHIA DE SECURITIZACAO"
+  },
+  {
+    "id": "02318507000113",
+    "name": "BANCO KEB HANA DO BRASIL"
+  },
+  {
+    "id": "02328280000197",
+    "name": "ELEKTRO REDES S.A"
+  },
+  {
+    "id": "02332886000104",
+    "name": "XP INVESTIMENTOS CORRETORA DE CAMBIO"
+  },
+  {
+    "id": "02332886001682",
+    "name": "XP DTVM"
+  },
+  {
+    "id": "02643896000152",
+    "name": "REAL AI PIC SECURITIZADORA DE CREDITOS IMOBILIARIOS S.A."
+  },
+  {
+    "id": "02658435000153",
+    "name": "BANCO CATERPILLAR"
+  },
+  {
+    "id": "02736470000143",
+    "name": "CONFIANZA SECURITIZADORA S.A."
+  },
+  {
+    "id": "02773542000122",
+    "name": "OPEA SECURITIZADORA S.A."
+  },
+  {
+    "id": "02783423000150",
+    "name": "ALTERE SECURITIZADORA S.A."
+  },
+  {
+    "id": "02800026000140",
+    "name": "COGNA EDUCACIONAL S.A."
+  },
+  {
+    "id": "02801938000136",
+    "name": "BANCO MORGAN STANLEY"
+  },
+  {
+    "id": "02992446000175",
+    "name": "BANCO CNH INDUSTRIAL CAPITAL"
+  },
+  {
+    "id": "03012230000169",
+    "name": "HIPERCARD BANCO MULTIPLO"
+  },
+  {
+    "id": "03017677000120",
+    "name": "BANCO J. SAFRA"
+  },
+  {
+    "id": "03215790000110",
+    "name": "BANCO TOYOTA DO BRASIL"
+  },
+  {
+    "id": "03323840000183",
+    "name": "BANCO ALFA"
+  },
+  {
+    "id": "03502961000192",
+    "name": "BANCO PSA FINANCE BRASIL"
+  },
+  {
+    "id": "03532415000102",
+    "name": "BANCO ABN AMRO"
+  },
+  {
+    "id": "03559006000191",
+    "name": "RB CAPITAL SECURITIZADORA S.A."
+  },
+  {
+    "id": "03609817000150",
+    "name": "BANCO CARGILL"
+  },
+  {
+    "id": "03634220000165",
+    "name": "BANCO HONDA"
+  },
+  {
+    "id": "03767538000114",
+    "name": "BRAZILIAN SECURITIES COMPANHIA DE SECURITIZAÇÃO"
+  },
+  {
+    "id": "03881423000156",
+    "name": "SOCINAL"
+  },
+  {
+    "id": "04184779000101",
+    "name": "BANCO BRADESCARD"
+  },
+  {
+    "id": "04200649000107",
+    "name": "COMPANHIA PROVINCIA DE SECURITIZACAO"
+  },
+  {
+    "id": "04257795000179",
+    "name": "NOVA FUTURA CORRETORA DE TÍTULOS E VALORES LTDA"
+  },
+  {
+    "id": "04332281000130",
+    "name": "GOLDMAN SACHS DO BRASIL BANCO MULTIPLO"
+  },
+  {
+    "id": "04379829000106",
+    "name": "NEGRESCO"
+  },
+  {
+    "id": "04398168000158",
+    "name": "ACCESSTAGE TECNOLOGIA S.A."
+  },
+  {
+    "id": "04533779000161",
+    "name": "AVISTA ADMINISTRADORA DE CARTOES DE CREDITO LTDA"
+  },
+  {
+    "id": "04814563000174",
+    "name": "SOROCRED"
+  },
+  {
+    "id": "04838403000165",
+    "name": "BS2"
+  },
+  {
+    "id": "04866275000163",
+    "name": "BANCO INBURSA DE INVESTIMENTOS"
+  },
+  {
+    "id": "04891850000188",
+    "name": "SICOOB COOPERATIVA"
+  },
+  {
+    "id": "04902979000144",
+    "name": "BANCO DA AMAZONIA"
+  },
+  {
+    "id": "04913711000108",
+    "name": "BANCO DO ESTADO DO PARA"
+  },
+  {
+    "id": "05040481000182",
+    "name": "BANCO DLL"
+  },
+  {
+    "id": "05192316000146",
+    "name": "VIA CERTA FINANCIADORA"
+  },
+  {
+    "id": "05351887000186",
+    "name": "ZEMA FINANCEIRA"
+  },
+  {
+    "id": "05463212000129",
+    "name": "CECRED"
+  },
+  {
+    "id": "05503849000100",
+    "name": "SANTANA"
+  },
+  {
+    "id": "05676026000178",
+    "name": "CREDIARE S.A."
+  },
+  {
+    "id": "05898757000168",
+    "name": "POLONIEX"
+  },
+  {
+    "id": "06249129000114",
+    "name": "EMPRESTA CAPITAL S/A"
+  },
+  {
+    "id": "06271464000119",
+    "name": "BANCO BRADESCO BBI"
+  },
+  {
+    "id": "06308369000142",
+    "name": "BANCOIN"
+  },
+  {
+    "id": "06977751000149",
+    "name": "SOLID ATIVOS IMOBILIARIOS S.A."
+  },
+  {
+    "id": "07021459000110",
+    "name": "BETA SECURITIZADORA S.A."
+  },
+  {
+    "id": "07119838000148",
+    "name": "SECME COMPANHIA SECURITIZADORA DE CREDITOS IMOBILIARIOS"
+  },
+  {
+    "id": "07138049000154",
+    "name": "PICPAY INVEST DTVM"
+  },
+  {
+    "id": "07207996000150",
+    "name": "BANCO BRADESCO FINANCIAMENTOS"
+  },
+  {
+    "id": "07211698000133",
+    "name": "BANCO CRESOL"
+  },
+  {
+    "id": "07237373000120",
+    "name": "BANCO DO NORDESTE DO BRASIL"
+  },
+  {
+    "id": "07441209000130",
+    "name": "BANCO MONEO"
+  },
+  {
+    "id": "07450604000189",
+    "name": "CHINA CONSTRUCTION BANK (BRASIL) BANCO MULTIPLO"
+  },
+  {
+    "id": "07587384000130",
+    "name": "PLANETA SECURITIZADORA SA"
+  },
+  {
+    "id": "07652226000116",
+    "name": "LECCA"
+  },
+  {
+    "id": "07656500000125",
+    "name": "BANCO KDB DO BRASIL"
+  },
+  {
+    "id": "07679404000100",
+    "name": "BANCO TOPAZIO"
+  },
+  {
+    "id": "07747410000140",
+    "name": "M PAGAMENTOS S.A"
+  },
+  {
+    "id": "07976147000160",
+    "name": "MOVIDA LOCACAO DE VEICULOS S.A."
+  },
+  {
+    "id": "08070508000178",
+    "name": "RAIZEN ENERGIA S.A"
+  },
+  {
+    "id": "08159965000133",
+    "name": "IGUA SANEAMENTO S.A."
+  },
+  {
+    "id": "08357240000150",
+    "name": "BANCO CSF"
+  },
+  {
+    "id": "08561701000101",
+    "name": "PAGSEGURO INTERNET S/A"
+  },
+  {
+    "id": "08653753000108",
+    "name": "BRC SECURITIZADORA S.A."
+  },
+  {
+    "id": "08769451000108",
+    "name": "ISEC SECURITIZADORA"
+  },
+  {
+    "id": "08903116000142",
+    "name": "NOVA SECURITIZACAO S.A."
+  },
+  {
+    "id": "09089356000118",
+    "name": "EFI BANK"
+  },
+  {
+    "id": "09274232000102",
+    "name": "NATIXIS BRASIL BANCO MULTIPLO"
+  },
+  {
+    "id": "09304427000158",
+    "name": "HABITASEC SECURITIZADORA"
+  },
+  {
+    "id": "09313766000109",
+    "name": "CARUANA"
+  },
+  {
+    "id": "09439783000189",
+    "name": "AQUILLA S/A CONSULTORIA EMPRESARIAL E FINANCEIRA"
+  },
+  {
+    "id": "09464032000112",
+    "name": "MIDWAY - RIACHUELO S/A"
+  },
+  {
+    "id": "09516419000175",
+    "name": "PICPAY BANK- BANCO MULTIPLO S.A"
+  },
+  {
+    "id": "09526594000143",
+    "name": "BANCO VIPAL"
+  },
+  {
+    "id": "09538973000153",
+    "name": "PDG COMPANHIA SECURITIZADORA"
+  },
+  {
+    "id": "09602719000177",
+    "name": "SB CRÉDITO SECURITIZADORA S/A"
+  },
+  {
+    "id": "10215988000160",
+    "name": "COMPANHIA DE LOCACAO DAS AMERICAS"
+  },
+  {
+    "id": "10264663000177",
+    "name": "BANCO SEGURO"
+  },
+  {
+    "id": "10371492000185",
+    "name": "BANCO YAMAHA MOTOR DO BRASIL"
+  },
+  {
+    "id": "10573521000191",
+    "name": "MERCADO PAGO"
+  },
+  {
+    "id": "10608405000160",
+    "name": "BARI SECURITIZADORA S.A"
+  },
+  {
+    "id": "10664513000150",
+    "name": "BANCO AGIBANK"
+  },
+  {
+    "id": "10690848000143",
+    "name": "BANCO DA CHINA BRASIL"
+  },
+  {
+    "id": "10753164000143",
+    "name": "ECO SECURITIZADORA DE DIREITOS CREDITÓRIOS DO AGRONEGÓCIO"
+  },
+  {
+    "id": "10866788000177",
+    "name": "BANCO BANDEPE"
+  },
+  {
+    "id": "11257352000143",
+    "name": "BSI CAPITAL SECURITIZADORA S/A"
+  },
+  {
+    "id": "11271860000186",
+    "name": "LEBES FINANCEIRA"
+  },
+  {
+    "id": "11274829000107",
+    "name": "COMPANHIA PAULISTA DE SECURITIZAÇÃO"
+  },
+  {
+    "id": "11275560000175",
+    "name": "RECARGA PAY DO BRASIL"
+  },
+  {
+    "id": "11285104000106",
+    "name": "BIORC FINANCEIRA"
+  },
+  {
+    "id": "11417016000110",
+    "name": "SCANIA BANCO"
+  },
+  {
+    "id": "11476673000139",
+    "name": "BANCO RANDON"
+  },
+  {
+    "id": "11703662000144",
+    "name": "BANCO CONFIDENCE DE CAMBIO"
+  },
+  {
+    "id": "11716471000117",
+    "name": "TRX SECURITIZADORA S.A."
+  },
+  {
+    "id": "11758741000152",
+    "name": "BANCO PETRA"
+  },
+  {
+    "id": "11932017000101",
+    "name": "STANDARD CHARTERED BANK (BRASIL)"
+  },
+  {
+    "id": "11970623000103",
+    "name": "SENFF"
+  },
+  {
+    "id": "12130744000100",
+    "name": "TRUE SECURITIZADORA"
+  },
+  {
+    "id": "12139922000163",
+    "name": "OCTANTE SECURITIZADORA S.A."
+  },
+  {
+    "id": "12261588000116",
+    "name": "POLO CAPITAL SECURITIZADORA S.A."
+  },
+  {
+    "id": "12320349000190",
+    "name": "OURINVEST SECURITIZADORA"
+  },
+  {
+    "id": "12454299000133",
+    "name": "DESCONTANET SECURITIZADORA S/A"
+  },
+  {
+    "id": "12599971000189",
+    "name": "CREDITA"
+  },
+  {
+    "id": "12648266000124",
+    "name": "AMBIPAR PARTICIPACOES E EMPREENDIMENTOS S/A"
+  },
+  {
+    "id": "12865507000197",
+    "name": "BRK FINANCEIRA"
+  },
+  {
+    "id": "12979898000170",
+    "name": "FORTE SECURITIZADORA"
+  },
+  {
+    "id": "13009717000146",
+    "name": "BANCO DO ESTADO DE SERGIPE"
+  },
+  {
+    "id": "13059145000100",
+    "name": "BEXS BANCO DE CAMBIO"
+  },
+  {
+    "id": "13220493000117",
+    "name": "BR PARTNERS BANCO DE INVESTIMENTO"
+  },
+  {
+    "id": "13293225000125",
+    "name": "ÓRAMA"
+  },
+  {
+    "id": "13349677000181",
+    "name": "REIT SECURITIZADORA DE RECEBÍVEIS IMOBILIÁRIOS S.A"
+  },
+  {
+    "id": "13568149000113",
+    "name": "BOSSANOVA INVEST"
+  },
+  {
+    "id": "13660104000174",
+    "name": "BANCO AGIPLAN"
+  },
+  {
+    "id": "13720915000113",
+    "name": "BANCO WESTERN UNION DO BRASIL"
+  },
+  {
+    "id": "14264133000180",
+    "name": "ABIOYE EMPREENDIMENTOS E PARTICIPACOES S.A"
+  },
+  {
+    "id": "14388334000199",
+    "name": "PARANA BANCO"
+  },
+  {
+    "id": "14511781000193",
+    "name": "BARIGUI COMPANHIA HIPOTECARIA"
+  },
+  {
+    "id": "14796754000104",
+    "name": "ENGELHART CTP BRASIL S.A"
+  },
+  {
+    "id": "14796754001933",
+    "name": "ENGELHART CTP (BRASIL) S.A"
+  },
+  {
+    "id": "14876090000193",
+    "name": "GAIA AGRO SECURITIZADORA S.A."
+  },
+  {
+    "id": "15114366000169",
+    "name": "BANCO BOCOM BBM"
+  },
+  {
+    "id": "15173776000180",
+    "name": "BANCO CAPITAL"
+  },
+  {
+    "id": "15357060000133",
+    "name": "BANCO WOORI BANK DO BRASIL"
+  },
+  {
+    "id": "15581638000130",
+    "name": "FACTA FINANCEIRA"
+  },
+  {
+    "id": "15688041000190",
+    "name": "MBK SECURITIZADORA S/A"
+  },
+  {
+    "id": "16501555000157",
+    "name": "STONE PAGAMENTOS S.A."
+  },
+  {
+    "id": "17184037000110",
+    "name": "BANCO MERCANTIL DO BRASIL"
+  },
+  {
+    "id": "17192451000170",
+    "name": "BANCO ITAUCARD"
+  },
+  {
+    "id": "17298092000130",
+    "name": "BANCO ITAU BBA"
+  },
+  {
+    "id": "17351180000159",
+    "name": "BANCO TRIANGULO"
+  },
+  {
+    "id": "17453575000162",
+    "name": "ICBC DO BRASIL BANCO MULTIPLO"
+  },
+  {
+    "id": "17568683000180",
+    "name": "ISEC BRASIL SECURITIZADORA S.A."
+  },
+  {
+    "id": "18033552000161",
+    "name": "99PAY"
+  },
+  {
+    "id": "18236120000158",
+    "name": "NUBANK"
+  },
+  {
+    "id": "18282093000150",
+    "name": "COMPANHIA HIPOTECÁRIA PIRATINI - CHP"
+  },
+  {
+    "id": "18520834000193",
+    "name": "UBS BRASIL BANCO DE INVESTIMENTO"
+  },
+  {
+    "id": "18713739000106",
+    "name": "3Z PITANGUEIRAS EMPREENDIMENTOS IMOBILIÁRIOS"
+  },
+  {
+    "id": "18945670000146",
+    "name": "INTER DTVM"
+  },
+  {
+    "id": "19307785000178",
+    "name": "MS BANK BANCO DE CAMBIO"
+  },
+  {
+    "id": "19851496000135",
+    "name": "LOGOS COMPANHIA SECURITIZADORA S/A"
+  },
+  {
+    "id": "20451953000183",
+    "name": "BLUM COMPANHIA DE SECURITIZACAO DE CREDITOS"
+  },
+  {
+    "id": "20855875000182",
+    "name": "BANCO NEON"
+  },
+  {
+    "id": "21013359000173",
+    "name": "URBEME"
+  },
+  {
+    "id": "21067825000101",
+    "name": "BPG LOGISTICA I FII"
+  },
+  {
+    "id": "21314559000166",
+    "name": "MOVIDA PARTICIPACOES S.A."
+  },
+  {
+    "id": "21414457000112",
+    "name": "LEADS CIA. SECURITIZADORA"
+  },
+  {
+    "id": "21426815000107",
+    "name": "FOCUS IT CONSULTORIA LTDA"
+  },
+  {
+    "id": "22639377000128",
+    "name": "SINOSSERRA FINANCEIRA"
+  },
+  {
+    "id": "22875049000120",
+    "name": "ATLAS AGRO COMÉRCIO E EXPORTAÇÃO DE GRÃOS S.A"
+  },
+  {
+    "id": "22896431000110",
+    "name": "PICPAY SERVICOS S.A"
+  },
+  {
+    "id": "23373000000132",
+    "name": "VAMOS LOCACAO DE CAMINHOES, MAQUINAS E EQUIPAMENTOS S.A."
+  },
+  {
+    "id": "23496359000369",
+    "name": "CENTRAIS ELETRICAS DO PARA SA - CELPA"
+  },
+  {
+    "id": "23511655000120",
+    "name": "DEUTSCHE LEASING"
+  },
+  {
+    "id": "23522214000123",
+    "name": "COMMERZBANK BRASIL BANCO MULTIPLO"
+  },
+  {
+    "id": "23862762000100",
+    "name": "WILL FINANCEIRA S.A."
+  },
+  {
+    "id": "23903068000186",
+    "name": "BANCO KOMATSU DO BRASIL"
+  },
+  {
+    "id": "24176946000171",
+    "name": "WARREN"
+  },
+  {
+    "id": "24933830000130",
+    "name": "BBBANCO DE INVESTIMENTO"
+  },
+  {
+    "id": "25005683000109",
+    "name": "VERT COMPANHIA SECURITIZADORA"
+  },
+  {
+    "id": "26558385000109",
+    "name": "BINVEST"
+  },
+  {
+    "id": "26563270000102",
+    "name": "PRIMACREDI"
+  },
+  {
+    "id": "26609050000164",
+    "name": "TRAVESSIA SECURITIZADORA S.A"
+  },
+  {
+    "id": "26939247000161",
+    "name": "CONFERIR TECNOLOGIA S/A"
+  },
+  {
+    "id": "27098060000145",
+    "name": "BANCO DIGIO S.A"
+  },
+  {
+    "id": "27214112000100",
+    "name": "AL5 BANK"
+  },
+  {
+    "id": "27351731000138",
+    "name": "REALIZE CFI"
+  },
+  {
+    "id": "27406222000165",
+    "name": "DACASA FINANCEIRA"
+  },
+  {
+    "id": "27956690000103",
+    "name": "AUZZA SECURITIZADORA S.A"
+  },
+  {
+    "id": "28127603000178",
+    "name": "BANESTES BANCO DO ESTADO DO ESPIRITO SANTO"
+  },
+  {
+    "id": "28145829000100",
+    "name": "BANCO DE DESENVOLVIMENTO DO ESPÍRITO SANTO S/A"
+  },
+  {
+    "id": "28195667000106",
+    "name": "BANCO ABC BRASIL"
+  },
+  {
+    "id": "28472333000132",
+    "name": "MERCADO LIVRE CFI"
+  },
+  {
+    "id": "28650236000192",
+    "name": "GALAPAGOS CAPITAL DISTRIBUIDORA DE TÍTULOS E VALORES MOBILIÁRIOS S.A."
+  },
+  {
+    "id": "29030467000166",
+    "name": "SCOTIABANK BRASIL BANCO MULTIPLO"
+  },
+  {
+    "id": "29738313000123",
+    "name": "BITYBANK"
+  },
+  {
+    "id": "30306294000145",
+    "name": "BANCO BTG PACTUAL"
+  },
+  {
+    "id": "30306294000226",
+    "name": "BANCO BTG PACTUAL S.A"
+  },
+  {
+    "id": "30680829000143",
+    "name": "NU FINANCEIRA SA"
+  },
+  {
+    "id": "30715467000189",
+    "name": "BANCO BBC"
+  },
+  {
+    "id": "30723886000162",
+    "name": "BANCO MODAL"
+  },
+  {
+    "id": "31468139000198",
+    "name": "CASA DE PEDRA SECURITIZADORA DE CRÉDITOS S.A."
+  },
+  {
+    "id": "31597552000152",
+    "name": "BANCO CLASSICO"
+  },
+  {
+    "id": "31674712000110",
+    "name": "MB SECURITIZACAO E DISTRIBUICAO"
+  },
+  {
+    "id": "31872495000172",
+    "name": "C6 BANK"
+  },
+  {
+    "id": "31880826000116",
+    "name": "BANCO GUANABARA"
+  },
+  {
+    "id": "31895683000116",
+    "name": "BANCO INDUSTRIAL DO BRASIL"
+  },
+  {
+    "id": "31907982000123",
+    "name": "FILADELFIA SECURITIZADORA S/A"
+  },
+  {
+    "id": "32062580000138",
+    "name": "BANCO CREDIT SUISSE (BRASIL)"
+  },
+  {
+    "id": "33000167000101",
+    "name": "PETROLEO BRASILEIRO S A PETROBRAS"
+  },
+  {
+    "id": "33042151000161",
+    "name": "BANCO DE LA NACION ARGENTINA"
+  },
+  {
+    "id": "33042953000171",
+    "name": "CITIBANK N.A."
+  },
+  {
+    "id": "33132044000124",
+    "name": "BANCO CEDULA"
+  },
+  {
+    "id": "33147315000115",
+    "name": "BANCO BRADESCO BERJ"
+  },
+  {
+    "id": "33172537000198",
+    "name": "BANCO J.P. MORGAN"
+  },
+  {
+    "id": "33254319000100",
+    "name": "BANCO LOSANGO BANCO MULTIPLO"
+  },
+  {
+    "id": "33264668000103",
+    "name": "BANCO XP"
+  },
+  {
+    "id": "33264668000286",
+    "name": "BANCO XP SA"
+  },
+  {
+    "id": "33311713000125",
+    "name": "ITAU DTVM"
+  },
+  {
+    "id": "33349358000183",
+    "name": "BANCO CACIQUE"
+  },
+  {
+    "id": "33466988000138",
+    "name": "BANCO CAIXA GERAL BRASIL"
+  },
+  {
+    "id": "33479023000180",
+    "name": "BANCO CITIBANK"
+  },
+  {
+    "id": "33485541000106",
+    "name": "BANCO BOAVISTA INTERATLANTICO"
+  },
+  {
+    "id": "33588252000132",
+    "name": "BANCO INDUSCRED DE INVESTIMENTO"
+  },
+  {
+    "id": "33603457000140",
+    "name": "BANCO RODOBENS"
+  },
+  {
+    "id": "33603457000492",
+    "name": "RODOBENS S.A"
+  },
+  {
+    "id": "33644196000106",
+    "name": "BANCO FATOR"
+  },
+  {
+    "id": "33657248000189",
+    "name": "BNDES"
+  },
+  {
+    "id": "33753740000158",
+    "name": "BANIF BANCO DE INVESTIMENTO (BRASIL)"
+  },
+  {
+    "id": "33781963000129",
+    "name": "N26 TECNOLOGIA E SOLUÇÕES DE PAGAMENTOS LTDA"
+  },
+  {
+    "id": "33870163000184",
+    "name": "BANCO ALVORADA"
+  },
+  {
+    "id": "33884941000194",
+    "name": "BANIF"
+  },
+  {
+    "id": "33885724000119",
+    "name": "BANCO ITAU BMG CONSIGNADO"
+  },
+  {
+    "id": "33923798000100",
+    "name": "BANCO MAXIMA (MATRIZ)"
+  },
+  {
+    "id": "33923798000283",
+    "name": "BANCO MASTER"
+  },
+  {
+    "id": "33987793000133",
+    "name": "BANCO DE INVESTIMENTOS CREDIT SUISSE (BRASIL)"
+  },
+  {
+    "id": "34111187000112",
+    "name": "HAITONG BANCO DE INVESTIMENTO DO BRASIL"
+  },
+  {
+    "id": "34169557000172",
+    "name": "BANCO MERCANTIL DE INVESTIMENTOS"
+  },
+  {
+    "id": "34270520000136",
+    "name": "BANCO IBM"
+  },
+  {
+    "id": "34387176000160",
+    "name": "NOMAD FINTECH"
+  },
+  {
+    "id": "34752178000100",
+    "name": "FIT ASSESSORIA EM TI LTDA"
+  },
+  {
+    "id": "34878543000128",
+    "name": "CLARO PAY S/A"
+  },
+  {
+    "id": "34991938000132",
+    "name": "SIMPALA S.A. CREDITO, FINANCIAMENTO E INVESTIMENTO"
+  },
+  {
+    "id": "35082277000195",
+    "name": "BASE SECURITIZADORA DE CREDITOS IMOBILIARIOS S.A."
+  },
+  {
+    "id": "35551187000104",
+    "name": "PLANTAE AGROCRÉDITO"
+  },
+  {
+    "id": "36321990000107",
+    "name": "AGORACRED"
+  },
+  {
+    "id": "36583700000101",
+    "name": "QISTA"
+  },
+  {
+    "id": "36658769000149",
+    "name": "BANCO XCMG"
+  },
+  {
+    "id": "36740390000183",
+    "name": "KAVAK TECNOLOGIA E COMERCIO DE VEICULOS LTDA."
+  },
+  {
+    "id": "36947229000347",
+    "name": "COBUCCIO SA SOCIEDADE DE CREDITO FINANCIAMENTO E INVESTIMENTOS"
+  },
+  {
+    "id": "37122487000195",
+    "name": "CALCRED S/A"
+  },
+  {
+    "id": "37623907000117",
+    "name": "BBC LEASING"
+  },
+  {
+    "id": "37675914000162",
+    "name": "BITMART"
+  },
+  {
+    "id": "37679449000138",
+    "name": "MERCADO CRED SOC DE CRED, FINANC E INVEST"
+  },
+  {
+    "id": "37763917000158",
+    "name": "NAGRO SECURITIZADORA S/A"
+  },
+  {
+    "id": "38486817000194",
+    "name": "BDMG"
+  },
+  {
+    "id": "39606986000183",
+    "name": "CABALA SOLUÇÕES GOVERNAMENTAIS"
+  },
+  {
+    "id": "40186290000124",
+    "name": "AGROLEND"
+  },
+  {
+    "id": "40189323000190",
+    "name": "M3 LENDING"
+  },
+  {
+    "id": "40429946000192",
+    "name": "BANCO PORTO REAL DE INVESTIMENTOS"
+  },
+  {
+    "id": "40446476000175",
+    "name": "PLAYBANCO SECURITIZADORA S.A."
+  },
+  {
+    "id": "40457150000143",
+    "name": "TEDDY SECURITIZADORA SA"
+  },
+  {
+    "id": "41498340000171",
+    "name": "TENTOS S/A"
+  },
+  {
+    "id": "41513576000130",
+    "name": "HEBE'S LIFE SCIENCE"
+  },
+  {
+    "id": "41534746000162",
+    "name": "CERES SECURITIZADORA S/A"
+  },
+  {
+    "id": "41719223000190",
+    "name": "TRAVESSIA & DELTA SECURITIZADORA DE CREDITOS MERCANTIS S.A."
+  },
+  {
+    "id": "41727578000121",
+    "name": "UTILITY GESTORA DE RECURSOS LTDA."
+  },
+  {
+    "id": "41811375000119",
+    "name": "CANAL COMPANHIA DE SECURITIZACAO"
+  },
+  {
+    "id": "42081459000107",
+    "name": "OPERA CAPITAL SECURITIZADORA DE CREDITOS S.A."
+  },
+  {
+    "id": "42272526000170",
+    "name": "BNY MELLON BANCO"
+  },
+  {
+    "id": "42860938000121",
+    "name": "FIDC CREDITAS AUTO VII - FIDC CREDITAS AUTO VII"
+  },
+  {
+    "id": "43180355000112",
+    "name": "PERNAMBUCANAS FINANCIADORA S/A CFI"
+  },
+  {
+    "id": "43774196000184",
+    "name": "AGROLEND SOCIEDADE DE CREDITO, FINANCIAMENTO E INVESTIMENTO S.A."
+  },
+  {
+    "id": "43815158000122",
+    "name": "BTG PACTUAL CTVM S/A"
+  },
+  {
+    "id": "43818780000194",
+    "name": "DAYCOVAL LEASING BANCO MULTIPLO"
+  },
+  {
+    "id": "44189447000126",
+    "name": "BANCO DE LA PROVINCIA DE BUENOS AIRES"
+  },
+  {
+    "id": "44431743000191",
+    "name": "RP FINANCEIRA S.A"
+  },
+  {
+    "id": "45246410000155",
+    "name": "BANCO GENIAL S.A."
+  },
+  {
+    "id": "45283173000100",
+    "name": "BBVA BRASIL BANCO DE INVESTIMENTO"
+  },
+  {
+    "id": "46518205000164",
+    "name": "JPMORGAN CHASE BANK NATIONAL ASSOCIATION"
+  },
+  {
+    "id": "47965438000178",
+    "name": "EQI INVESTIMENTOS"
+  },
+  {
+    "id": "47980387000153",
+    "name": "GROWTH SECURITIZADORA S.A."
+  },
+  {
+    "id": "48169685000120",
+    "name": "EOS FUNDO DE INVESTIMENTO EM DIREITOS CREDITORIOS WH"
+  },
+  {
+    "id": "48238484000138",
+    "name": "KANASTRA SECURITIZADORA S.A."
+  },
+  {
+    "id": "48415978000140",
+    "name": "LEVERAGE COMPANHIA SECURITIZADORA"
+  },
+  {
+    "id": "48795256000169",
+    "name": "BANCO ANDBANK (BRASIL)"
+  },
+  {
+    "id": "49336860000190",
+    "name": "ING BANK N.V."
+  },
+  {
+    "id": "49494244000167",
+    "name": "MOVENS INTELLIGENCE & CAPITAL LTDA"
+  },
+  {
+    "id": "49669856000143",
+    "name": "VEST S.A."
+  },
+  {
+    "id": "49925225000148",
+    "name": "BANCO ITAULEASING"
+  },
+  {
+    "id": "50299488000178",
+    "name": "PEERBR RECEBIVEIS TOKEN S.A."
+  },
+  {
+    "id": "50585090000106",
+    "name": "BCV BANCO DE CREDITO E VAREJO"
+  },
+  {
+    "id": "50935576000119",
+    "name": "PLASCAR"
+  },
+  {
+    "id": "51319586000192",
+    "name": "ROCK SECURITIZADORA S.A."
+  },
+  {
+    "id": "51466860000156",
+    "name": "SÃO MARTINHO S.A"
+  },
+  {
+    "id": "51571299000175",
+    "name": "OPEA SPE 01 COMPANHIA SECURITIZADORA DE CREDITOS FINANCEIROS"
+  },
+  {
+    "id": "51938876000114",
+    "name": "BANCO DE LA REPUBLICA ORIENTAL DEL URUGUAY"
+  },
+  {
+    "id": "52890908000111",
+    "name": "ARTESANAL SECURITIZADORA DE CRÉDITOS S.A"
+  },
+  {
+    "id": "52922570000132",
+    "name": "Prana Securitizadora"
+  },
+  {
+    "id": "53074457000107",
+    "name": "VANTO BANK"
+  },
+  {
+    "id": "53505601000112",
+    "name": "STONE SOCIEDADE DE CREDITO, FINANCIAMENTO E INVESTIMENTO"
+  },
+  {
+    "id": "53518684000184",
+    "name": "HSBC BRASIL BANCO DE INVESTIMENTO"
+  },
+  {
+    "id": "54095386000191",
+    "name": "ROBBIN PAGAMENTOS LTDA"
+  },
+  {
+    "id": "54403563000150",
+    "name": "BANCO ARBI"
+  },
+  {
+    "id": "54414102000182",
+    "name": "TR BLOCK SECURITIZADORA S.A."
+  },
+  {
+    "id": "55085811000124",
+    "name": "ÉXES SECURITIZADORA S.A"
+  },
+  {
+    "id": "55230916000120",
+    "name": "INTESA SANPAOLO BRASIL BANCO MULTIPLO"
+  },
+  {
+    "id": "57839805000140",
+    "name": "BANCO TRICURY"
+  },
+  {
+    "id": "58017179000170",
+    "name": "BANCO VOLVO BRASIL"
+  },
+  {
+    "id": "58160789000128",
+    "name": "BANCO SAFRA"
+  },
+  {
+    "id": "58497702000102",
+    "name": "LETSBANK S.A."
+  },
+  {
+    "id": "58616418000108",
+    "name": "BANCO FIBRA"
+  },
+  {
+    "id": "59040134000189",
+    "name": "STARBRO SPORT TECH"
+  },
+  {
+    "id": "59109165000149",
+    "name": "BANCO VOLKSWAGEN"
+  },
+  {
+    "id": "59118133000100",
+    "name": "BANCO LUSO BRASILEIRO"
+  },
+  {
+    "id": "59274605000113",
+    "name": "BANCO GMAC"
+  },
+  {
+    "id": "59281253000123",
+    "name": "BTG PACTUAL DTVM"
+  },
+  {
+    "id": "59285411000113",
+    "name": "BANCO PAN"
+  },
+  {
+    "id": "59438325000101",
+    "name": "BANCO BRADESCO CARTOES"
+  },
+  {
+    "id": "59588111000103",
+    "name": "BANCO VOTORANTIM"
+  },
+  {
+    "id": "60114865000100",
+    "name": "BANCO AFINZ"
+  },
+  {
+    "id": "60394079000104",
+    "name": "BANCO ITAUBANK"
+  },
+  {
+    "id": "60444437000146",
+    "name": "LIGHT SERVICOS DE ELETRICIDADE"
+  },
+  {
+    "id": "60498557000126",
+    "name": "BANCO DE TOKYOMITSUBISHI UFJ BRASIL"
+  },
+  {
+    "id": "60518222000122",
+    "name": "BANCO SUMITOMO MITSUI BRASILEIRO"
+  },
+  {
+    "id": "60643228000121",
+    "name": "FIBRIA CELULOSE SA"
+  },
+  {
+    "id": "60701190000104",
+    "name": "ITAU UNIBANCO"
+  },
+  {
+    "id": "60746948000112",
+    "name": "BANCO BRADESCO"
+  },
+  {
+    "id": "60770336000165",
+    "name": "BANCO ALFA DE INVESTIMENTO"
+  },
+  {
+    "id": "60783503000102",
+    "name": "SAFRA CORRETORA DE VALORES E CÂMBIO LTDA"
+  },
+  {
+    "id": "60814191000157",
+    "name": "BANCO MERCEDESBENZ DO BRASIL"
+  },
+  {
+    "id": "60850229000147",
+    "name": "BANCO PECUNIA"
+  },
+  {
+    "id": "60872504000123",
+    "name": "ITAU UNIBANCO HOLDING"
+  },
+  {
+    "id": "60889128000180",
+    "name": "BANCO SOFISA"
+  },
+  {
+    "id": "61024352000171",
+    "name": "BANCO VOITER"
+  },
+  {
+    "id": "61033106000186",
+    "name": "BANCO BPN BRASIL"
+  },
+  {
+    "id": "61088183000133",
+    "name": "BANCO MIZUHO DO BRASIL"
+  },
+  {
+    "id": "61146577000109",
+    "name": "BANCO BARCLAYS"
+  },
+  {
+    "id": "61182408000116",
+    "name": "BANCO INVESTCRED UNIBANCO"
+  },
+  {
+    "id": "61186680000174",
+    "name": "BANCO BMG"
+  },
+  {
+    "id": "61190658000106",
+    "name": "BANCO ITAU VEICULOS"
+  },
+  {
+    "id": "61348538000186",
+    "name": "BANCO C6 CONSIGNADO S.A."
+  },
+  {
+    "id": "61533584000155",
+    "name": "BANCO SOCIETE GENERALE BRASIL"
+  },
+  {
+    "id": "61820817000109",
+    "name": "BANCO PAULISTA"
+  },
+  {
+    "id": "62073200000121",
+    "name": "BANK OF AMERICA MERRILL LYNCH BANCO MULTIPLO"
+  },
+  {
+    "id": "62141700000153",
+    "name": "ASSOCIACAO DE POUPANCA E EMPRESTIMO DE SAO PAULO EM LIQUIDACAO"
+  },
+  {
+    "id": "62144175000120",
+    "name": "BANCO PINE"
+  },
+  {
+    "id": "62169875000179",
+    "name": "NU INVEST"
+  },
+  {
+    "id": "62232889000190",
+    "name": "BANCO DAYCOVAL"
+  },
+  {
+    "id": "62237425000176",
+    "name": "BANCO STELLANTIS"
+  },
+  {
+    "id": "62307848000115",
+    "name": "BANCO RCI BRASIL"
+  },
+  {
+    "id": "62331228000111",
+    "name": "DEUTSCHE BANK BANCO ALEMAO"
+  },
+  {
+    "id": "62421979000129",
+    "name": "BANCO CIFRA"
+  },
+  {
+    "id": "65913436000117",
+    "name": "GUIDE INVESTIMENTOS S.A."
+  },
+  {
+    "id": "68900810000138",
+    "name": "BANCO RENDIMENTO"
+  },
+  {
+    "id": "71027866000134",
+    "name": "BANCO BONSUCESSO"
+  },
+  {
+    "id": "71371686000175",
+    "name": "BANCO OLE BONSUCESSO CONSIGNADO"
+  },
+  {
+    "id": "73178600000118",
+    "name": "CYRELA BRAZIL REALTY S.A. EMPREENDIMENTOS E PARTICIPACOES"
+  },
+  {
+    "id": "74014747000135",
+    "name": "AGORA CORRETORA DE TITULOS E VALORES MOBILIARIOS"
+  },
+  {
+    "id": "74828799000145",
+    "name": "NOVO BANCO CONTINENTAL BANCO MULTIPLO"
+  },
+  {
+    "id": "75647891000171",
+    "name": "BANCO CREDIT AGRICOLE BRASIL"
+  },
+  {
+    "id": "76543115000194",
+    "name": "BANCO SISTEMA"
+  },
+  {
+    "id": "78626983000163",
+    "name": "BANCO VR"
+  },
+  {
+    "id": "78632767000120",
+    "name": "OURIBANK SA"
+  },
+  {
+    "id": "80271455000180",
+    "name": "BANCO RNX S.A"
+  },
+  {
+    "id": "82639451000138",
+    "name": "VIACREDI"
+  },
+  {
+    "id": "87091716000120",
+    "name": "PROVINCIA GESTORA DE ATIVOS S/A"
+  },
+  {
+    "id": "90400888000142",
+    "name": "BANCO SANTANDER (BRASIL)"
+  },
+  {
+    "id": "90731688000172",
+    "name": "BANCO FORD"
+  },
+  {
+    "id": "91669747000192",
+    "name": "DM FINANCEIRA"
+  },
+  {
+    "id": "91830836000330",
+    "name": "OLFAR S/A - ALIMENTO E ENERGIA"
+  },
+  {
+    "id": "91884981000132",
+    "name": "BANCO JOHN DEERE"
+  },
+  {
+    "id": "92228410000102",
+    "name": "OMNI"
+  },
+  {
+    "id": "92702067000196",
+    "name": "BANCO DO ESTADO DO RIO GRANDE DO SUL"
+  },
+  {
+    "id": "92764489000196",
+    "name": "BOC BRASIL FINANCEIRA"
+  },
+  {
+    "id": "92816560000480",
+    "name": "BANCO REGIONAL DE DESENVOLVIMENTO DO EXTREMO SUL"
+  },
+  {
+    "id": "92874270000140",
+    "name": "BANCO DIGIMAIS"
+  },
+  {
+    "id": "92874270000220",
+    "name": "BANCO A J RENNER S/A"
+  },
+  {
+    "id": "92894922000108",
+    "name": "BANCO ORIGINAL"
+  },
+  {
+    "id": "96824594000124",
+    "name": "VOTORANTIM CIMENTOS BRASIL S.A."
+  }
+]
