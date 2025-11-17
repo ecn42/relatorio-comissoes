@@ -12,6 +12,15 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.oxml.ns import qn
 
+### Simple Authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("Please enter the password on the Home page first.")
+    st.write("Status: Não Autenticado")
+    st.stop()
+    
+  # prevent the rest of the page from running
+st.write("Autenticado")
+
 # Constants (keep from original)
 TITLE_COLOR = "#8C6239"
 FONT_NAME = "Montserrat"

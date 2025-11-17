@@ -43,6 +43,16 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+
+### Simple Authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("Please enter the password on the Home page first.")
+    st.write("Status: Não Autenticado")
+    st.stop()
+    
+  # prevent the rest of the page from running
+st.write("Autenticado")
+
 # ---------------------- Data helpers ----------------------
 
 

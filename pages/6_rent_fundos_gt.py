@@ -40,6 +40,16 @@ try:
 except Exception:
     stx_great_tables = None  # fallback HTML
 
+
+### Simple Authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("Please enter the password on the Home page first.")
+    st.write("Status: Não Autenticado")
+    st.stop()
+    
+  # prevent the rest of the page from running
+st.write("Autenticado")
+
 BASE_URL = "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS"
 FILE_PREFIX = "inf_diario_fi"
 START_YEAR = 2021

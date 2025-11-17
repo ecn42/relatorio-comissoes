@@ -2,6 +2,23 @@ import streamlit as st
 
 st.set_page_config(page_title="Relatórios", layout="wide")
 
+PASSWORD = st.secrets["PASSWORD"]  # ideally use st.secrets or env var instead of hardcoding
+
+st.title("Dashboard Ceres Wealth")
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    pwd = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if pwd == PASSWORD:
+            st.session_state["authenticated"] = True
+            st.success("Logged in. You can now open other pages.")
+        else:
+            st.error("Incorrect password")
+else:
+    st.success("You are already logged in.")
 
 def home():
     st.title("Dashboard de Relatórios")

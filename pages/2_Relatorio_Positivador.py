@@ -7,6 +7,16 @@ from datetime import datetime
 import calendar
 import unicodedata
 import os
+
+### Simple Authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("Please enter the password on the Home page first.")
+    st.write("Status: Não Autenticado")
+    st.stop()
+    
+  # prevent the rest of the page from running
+st.write("Autenticado")
+
 # ============================================================================
 # DATABASE AND UTILITY FUNCTIONS (from upload code)
 # ============================================================================

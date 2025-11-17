@@ -6,6 +6,15 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+### Simple Authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("Please enter the password on the Home page first.")
+    st.write("Status: Não Autenticado")
+    st.stop()
+    
+  # prevent the rest of the page from running
+st.write("Autenticado")
+
 # Ceres Wealth Color Scheme
 CERES_COLORS = [
     
