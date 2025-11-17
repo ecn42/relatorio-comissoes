@@ -2,7 +2,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Relatórios", layout="wide")
 
-PASSWORD = st.secrets["PASSWORD"]  # ideally use st.secrets or env var instead of hardcoding
+PASSWORD = st.secrets["auth"]["PASSWORD"]  # ideally use st.secrets or env var instead of hardcoding
 
 st.title("Dashboard Ceres Wealth")
 

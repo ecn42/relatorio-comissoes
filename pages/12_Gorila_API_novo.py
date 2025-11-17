@@ -28,7 +28,7 @@ st.write("Autenticado")
 
 def get_api_key() -> Optional[str]:
     if "GORILA_API_KEY" in st.secrets:
-        return st.secrets["GORILA_API_KEY"]
+        return st.secrets["apis"]["GORILA_API_KEY"]
     return os.getenv("GORILA_API_KEY")
 
 
