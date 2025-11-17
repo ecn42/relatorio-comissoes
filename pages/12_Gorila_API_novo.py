@@ -27,8 +27,11 @@ st.write("Autenticado")
 
 
 def get_api_key() -> Optional[str]:
-    if "GORILA_API_KEY" in st.secrets:
+    # 1. Try Streamlit secrets (nested under [apis])
+    if "apis" in st.secrets and "GORILA_API_KEY" in st.secrets["apis"]:
         return st.secrets["apis"]["GORILA_API_KEY"]
+
+    # 2. Fallback to environment variable (for local/dev)
     return os.getenv("GORILA_API_KEY")
 
 
