@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from datetime import date
+from datetime import date, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
 import re
 import io
@@ -10,6 +10,7 @@ import unicodedata
 import pandas as pd
 import requests
 import streamlit as st
+import sqlite3
 
 
 # -------------------------------
@@ -21,6 +22,21 @@ def get_api_key() -> Optional[str]:
     if "GORILA_API_KEY" in st.secrets:
         return st.secrets["GORILA_API_KEY"]
     return os.getenv("GORILA_API_KEY")
+
+
+def default_reference_date() -> date:
+    """
+    Return the date 3 working days before today.
+    Saturday and Sunday are considered non-working days.
+    """
+    today = date.today()
+    d = today
+    business_days = 0
+    while business_days < 3:
+        d = d - timedelta(days=1)
+        if d.weekday() < 5:  # Monday=0, Sunday=6
+            business_days += 1
+    return d
 
 
 # -------------------------------
@@ -63,9 +79,7 @@ class GorilaClient:
                 )
 
                 if r.status_code in retryable_status:
-                    last_err = Exception(
-                        f"HTTP {r.status_code}: {r.text[:200]}"
-                    )
+                    last_err = Exception(f"HTTP {r.status_code}: {r.text[:200]}")
                     wait = self.backoff_base * (2**attempt)
                     time.sleep(wait)
                     continue
@@ -82,9 +96,7 @@ class GorilaClient:
                 wait = self.backoff_base * (2**attempt)
                 time.sleep(wait)
 
-        raise RuntimeError(
-            f"Request failed after retries: {last_err}"
-        ) from last_err
+        raise RuntimeError(f"Request failed after retries: {last_err}") from last_err
 
     def _get(self, path_or_url: str, params: Dict = None) -> Dict:
         url = (
@@ -422,9 +434,7 @@ def map_issuer_name_from_json(
 # -------------------------------
 
 
-def _extract_security_name_from_raw(
-    raw_str: Optional[str],
-) -> Optional[str]:
+def _extract_security_name_from_raw(raw_str: Optional[str]) -> Optional[str]:
     if raw_str is None or raw_str == "":
         return None
     try:
@@ -533,9 +543,7 @@ def _last_ddmmyyyy_from_text(text: Optional[str]) -> Optional[str]:
     return matches[-1] if matches else None
 
 
-def _parse_cra_cri_name(
-    sec_name: Optional[str],
-) -> Dict[str, Optional[str]]:
+def _parse_cra_cri_name(sec_name: Optional[str]) -> Dict[str, Optional[str]]:
     out = {
         "parsed_bond_type": None,
         "parsed_company_name": None,
@@ -585,9 +593,7 @@ def add_cra_cri_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
         return df2
 
     sec_names = df2.loc[mask, "security_name"].astype("object")
-    fallback_names = df2.loc[mask, "raw"].apply(
-        _extract_security_name_from_raw
-    )
+    fallback_names = df2.loc[mask, "raw"].apply(_extract_security_name_from_raw)
     sec_names = sec_names.where(
         sec_names.notna() & (sec_names.str.strip() != ""), fallback_names
     )
@@ -606,9 +612,7 @@ def add_cra_cri_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
 # -------------------------------
 
 
-def _parse_indexer_from_sec_name(
-    sec_name: Optional[str],
-) -> Optional[str]:
+def _parse_indexer_from_sec_name(sec_name: Optional[str]) -> Optional[str]:
     if not sec_name:
         return None
     s = str(sec_name).upper().strip()
@@ -672,9 +676,7 @@ def add_cdb_lci_lca_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     sec_names = df2.loc[mask, "security_name"].astype("object")
-    fallback_names = df2.loc[mask, "raw"].apply(
-        _extract_security_name_from_raw
-    )
+    fallback_names = df2.loc[mask, "raw"].apply(_extract_security_name_from_raw)
     sec_names = sec_names.where(
         sec_names.notna() & (sec_names.str.strip() != ""), fallback_names
     )
@@ -690,9 +692,7 @@ def add_cdb_lci_lca_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
 # -------------------------------
 
 
-def _parse_treasury_sec_name(
-    sec_name: Optional[str],
-) -> Dict[str, Optional[str]]:
+def _parse_treasury_sec_name(sec_name: Optional[str]) -> Dict[str, Optional[str]]:
     out = {
         "parsed_bond_type": "TÍTULO PÚBLICO",
         "parsed_company_name": "TESOURO NACIONAL",
@@ -737,9 +737,7 @@ def add_treasury_local_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
         return df2
 
     sec_names = df2.loc[mask, "security_name"].astype("object")
-    fallback_names = df2.loc[mask, "raw"].apply(
-        _extract_security_name_from_raw
-    )
+    fallback_names = df2.loc[mask, "raw"].apply(_extract_security_name_from_raw)
     sec_names = sec_names.where(
         sec_names.notna() & (sec_names.str.strip() != ""), fallback_names
     )
@@ -826,9 +824,7 @@ def deb_find_header_index(lines: List[str]) -> int:
     for i, line in enumerate(lines):
         if line.count("\t") >= 10:
             return i
-    raise ValueError(
-        "Header line not found (no tab-delimited header detected)."
-    )
+    raise ValueError("Header line not found (no tab-delimited header detected).")
 
 
 def deb_parse_tsv_text_to_df(text: str) -> pd.DataFrame:
@@ -1097,6 +1093,36 @@ def _normalize_indexer_value(val: Optional[str]) -> Optional[str]:
 
 
 # -------------------------------
+# Debentures persistence (SQLite)
+# -------------------------------
+
+
+def deb_save_df_to_db(
+    df: pd.DataFrame, db_path: str, table_name: str = "debentures"
+) -> None:
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        df.to_sql(table_name, conn, if_exists="replace", index=False)
+
+
+def deb_load_df_from_db(
+    db_path: str, table_name: str = "debentures"
+) -> pd.DataFrame:
+    if not db_path or not os.path.exists(db_path):
+        return pd.DataFrame(columns=DEB_CANON_COLS)
+    try:
+        with sqlite3.connect(db_path) as conn:
+            df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+    except Exception:
+        return pd.DataFrame(columns=DEB_CANON_COLS)
+    # Ensure canonical columns present and ordered
+    for c in DEB_CANON_COLS:
+        if c not in df.columns:
+            df[c] = None
+    return df[DEB_CANON_COLS]
+
+
+# -------------------------------
 # Streamlit UI (raw + robust fetch)
 # -------------------------------
 
@@ -1115,13 +1141,6 @@ with st.sidebar:
 
     base_url = st.text_input("Base URL", value="https://core.gorila.com.br")
 
-    use_ref_date = st.toggle("Use reference date", value=False)
-    if use_ref_date:
-        ref_date_opt = st.date_input("Reference date", value=date.today())
-        ref_date_str = ref_date_opt.isoformat()
-    else:
-        ref_date_str = None
-
     issuer_json_path = st.text_input("Issuer JSON path", value="issuers.json")
 
 if not api_key:
@@ -1133,7 +1152,26 @@ if not api_key:
 
 client = GorilaClient(api_key=api_key, base_url=base_url)
 
+# -------------------------------
+# Reference date (outside sidebar)
+# -------------------------------
+
+st.header("Reference date")
+ref_col1, ref_col2 = st.columns(2)
+
+with ref_col1:
+    use_ref_date = st.checkbox("Use reference date", value=True)
+
+with ref_col2:
+    default_ref = default_reference_date()
+    ref_date_opt = st.date_input("Reference date", value=default_ref)
+
+ref_date_str = ref_date_opt.isoformat() if use_ref_date else None
+
+# -------------------------------
 # Portfolios
+# -------------------------------
+
 st.header("Portfolios")
 if st.button("Fetch portfolios"):
     try:
@@ -1211,32 +1249,60 @@ deb_url = st.text_input(
     "URL (padrão B3; pode manter)", value=DEBENTURES_URL, disabled=True
 )
 
-if st.button("Baixar Debêntures TSV", type="primary"):
-    try:
-        with st.spinner("Baixando conteúdo (TSV)..."):
-            text, headers, final_url = deb_download_text(deb_url)
+deb_db_path = st.text_input("Salvar/Carregar de (DB local)", value="df_debentures.db")
+st.session_state["deb_db_path"] = deb_db_path
+cols_deb = st.columns(2)
 
-        st.info(
-            f"Final URL: {final_url} | "
-            f"Content-Type: {headers.get('Content-Type','unknown')}"
-        )
+with cols_deb[0]:
+    if st.button("Carregar do DB local"):
+        try:
+            df_deb = deb_load_df_from_db(deb_db_path)
+            if df_deb.empty:
+                st.warning("DB local vazio ou ausente.")
+            else:
+                st.session_state["df_debentures"] = df_deb
+                st.success(
+                    f"Debêntures carregado do DB: "
+                    f"{df_deb.shape[0]} linhas × {df_deb.shape[1]} cols"
+                )
+                st.dataframe(df_deb, use_container_width=True)
+        except Exception as e:
+            st.error(f"Erro ao carregar DB local: {e}")
 
-        with st.expander("Prévia da resposta (primeiros ~2000 chars)"):
-            st.text(text[:2000])
+with cols_deb[1]:
+    if st.button("Baixar TSV e sobrescrever DB", type="primary"):
+        try:
+            with st.spinner("Baixando conteúdo (TSV)..."):
+                text, headers, final_url = deb_download_text(deb_url)
 
-        with st.spinner("Convertendo para DataFrame..."):
-            df_deb_full = deb_parse_tsv_text_to_df(text)
-            df_deb = deb_select_required_cols(df_deb_full)
+            st.info(
+                f"Final URL: {final_url} | "
+                f"Content-Type: {headers.get('Content-Type','unknown')}"
+            )
 
-        st.session_state["df_debentures"] = df_deb
-        st.success(
-            f"Debêntures carregado: {df_deb.shape[0]} linhas × "
-            f"{df_deb.shape[1]} cols"
-        )
-        st.dataframe(df_deb, use_container_width=True)
+            with st.expander("Prévia da resposta (primeiros ~2000 chars)"):
+                st.text(text[:2000])
 
-    except Exception as e:
-        st.error(f"Erro ao carregar Debêntures: {e}")
+            with st.spinner("Convertendo para DataFrame..."):
+                df_deb_full = deb_parse_tsv_text_to_df(text)
+                df_deb = deb_select_required_cols(df_deb_full)
+
+            st.session_state["df_debentures"] = df_deb
+            # Save/overwrite local DB
+            try:
+                deb_save_df_to_db(df_deb, deb_db_path)
+                st.info(f"DB salvo em: {deb_db_path} (tabela 'debentures').")
+            except Exception as e:
+                st.warning(f"Não foi possível salvar o DB local: {e}")
+
+            st.success(
+                f"Debêntures carregado: {df_deb.shape[0]} linhas × "
+                f"{df_deb.shape[1]} cols"
+            )
+            st.dataframe(df_deb, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Erro ao carregar Debêntures: {e}")
 
 if st.session_state.get("df_debentures") is not None:
     st.download_button(
@@ -1261,10 +1327,7 @@ portfolios_loaded = st.session_state.get("df_portfolios") is not None
 if use_all_portfolios_for_positions:
     if portfolios_loaded:
         selected_ids = (
-            st.session_state["df_portfolios"]["id"]
-            .dropna()
-            .astype(str)
-            .tolist()
+            st.session_state["df_portfolios"]["id"].dropna().astype(str).tolist()
         )
         st.caption(f"Selected all portfolios: {len(selected_ids)}")
     else:
@@ -1279,9 +1342,7 @@ else:
     else:
         st.info("Load portfolios to select via UI, or paste IDs below.")
 
-    manual_ids = st.text_input(
-        "Or paste portfolio IDs (comma-separated)", value=""
-    )
+    manual_ids = st.text_input("Or paste portfolio IDs (comma-separated)", value="")
     if manual_ids.strip():
         selected_ids += [s.strip() for s in manual_ids.split(",") if s.strip()]
 
@@ -1337,10 +1398,7 @@ pmv_selected_ids: List[str] = []
 if use_all_portfolios_for_pmv:
     if portfolios_loaded:
         pmv_selected_ids = (
-            st.session_state["df_portfolios"]["id"]
-            .dropna()
-            .astype(str)
-            .tolist()
+            st.session_state["df_portfolios"]["id"].dropna().astype(str).tolist()
         )
         st.caption(f"Selected all portfolios: {len(pmv_selected_ids)}")
     else:
@@ -1349,9 +1407,7 @@ else:
     if portfolios_loaded:
         df_port = st.session_state["df_portfolios"]
         st.caption("Select portfolios (PMV):")
-        options_pmv = (
-            df_port["id"] + " | " + df_port["name"].fillna("")
-        ).tolist()
+        options_pmv = (df_port["id"] + " | " + df_port["name"].fillna("")).tolist()
         selected_pmv = st.multiselect(
             "Portfolios (market values)", options=options_pmv, key="pmv_ms"
         )
@@ -1369,16 +1425,24 @@ if st.button("Fetch position market values"):
     if not pmv_selected_ids:
         st.warning("No portfolio IDs selected for market values.")
     else:
-        # Optional: ensure debentures df loaded (for enrichment)
+        # Ensure debentures df loaded (prefer local DB; fallback to download)
         if st.session_state.get("df_debentures") is None:
-            try:
-                text, _, _ = deb_download_text(DEBENTURES_URL)
-                df_deb_full = deb_parse_tsv_text_to_df(text)
-                st.session_state["df_debentures"] = deb_select_required_cols(
-                    df_deb_full
-                )
-            except Exception:
-                pass
+            deb_db_path_ss = st.session_state.get("deb_db_path", "df_debentures.db")
+            df_deb_local = deb_load_df_from_db(deb_db_path_ss)
+            if not df_deb_local.empty:
+                st.session_state["df_debentures"] = df_deb_local
+            else:
+                try:
+                    text, _, _ = deb_download_text(DEBENTURES_URL)
+                    df_deb_full = deb_parse_tsv_text_to_df(text)
+                    df_deb = deb_select_required_cols(df_deb_full)
+                    st.session_state["df_debentures"] = df_deb
+                    try:
+                        deb_save_df_to_db(df_deb, deb_db_path_ss)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
 
         errors: List[Tuple[str, str]] = []
         dfs: List[pd.DataFrame] = []
@@ -1414,9 +1478,7 @@ if st.button("Fetch position market values"):
             # Normalize indexer values ONLY AFTER df_pmv is ready/enriched
             if "indexer" not in df_pmv.columns:
                 df_pmv["indexer"] = None
-            df_pmv["indexer"] = df_pmv["indexer"].apply(
-                _normalize_indexer_value
-            )
+            df_pmv["indexer"] = df_pmv["indexer"].apply(_normalize_indexer_value)
 
         st.session_state["df_position_market_values"] = df_pmv
         st.dataframe(df_pmv, use_container_width=True)

@@ -28,6 +28,8 @@ cross_sell_clients.txts
 cda_data/
 data/
 data_cda_fi/
+defasado/
+assets/
 # Jupyter/IPython Notebook
 .ipynb_checkpoints/
 
