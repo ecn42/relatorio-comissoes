@@ -3,24 +3,21 @@ set -euo pipefail
 
 mkdir -p /app/.streamlit
 
-# Escape content for TOML strings
+# Escape for TOML double-quoted strings
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
-# Validate required env vars
+# Required env vars (keep names consistent with Cloud Run mappings)
 : "${PASSWORD:?Missing PASSWORD env var}"
-: "${GORILA_KEY:?Missing GORILA_API_KEY env var}"
-
+: "${GORILA_API_KEY:?Missing GORILA_API_KEY env var}"
 
 cat >/app/.streamlit/secrets.toml <<EOF
 [auth]
 PASSWORD = "$(esc "$PASSWORD")"
 
 [apis]
-GORILA_API_KEY = "$(esc "$GORILA_KEY")"
-
+GORILA_API_KEY = "$(esc "$GORILA_API_KEY")"
 EOF
 
-# Optional hardening:
 chmod 600 /app/.streamlit/secrets.toml
 
 exec streamlit run relatorio_comissoes.py --server.port=8080 --server.address=0.0.0.0
