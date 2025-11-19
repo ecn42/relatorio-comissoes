@@ -2,10 +2,11 @@ import streamlit as st
 
 st.set_page_config(page_title="Relatórios", layout="wide")
 
-PASSWORD = st.secrets["auth"]["PASSWORD"]  # ideally use st.secrets or env var instead of hardcoding
+PASSWORD = st.secrets["auth"]["PASSWORD"]  # use st.secrets or env var
 
 st.title("Dashboard Ceres Wealth")
 
+# Simple auth gate
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
@@ -20,32 +21,77 @@ if not st.session_state["authenticated"]:
 else:
     st.success("You are already logged in.")
 
+# ---------- PAGES (definitions first) ----------
+
+
 def home():
     st.title("Dashboard de Relatórios")
 
     st.write(
-        "Bem-vindo! Use o menu superior para acessar relatórios, "
-        "ferramentas, carteiras e integrações de dados."
+        "Bem-vindo! Abaixo está um resumo das seções e páginas disponíveis. "
+        "Use o menu superior para navegar."
     )
 
-    col1, col2 = st.columns(2)
+    # Estrutura do resumo (sem paths)
+    sections = {
+        "": [
+            {"title": "Home", "icon": ":material/home:", "default": True},
+        ],
+        "Legado (XP)": [
+            {"title": "Relatório Comissões", "icon": ":material/trending_up:"},
+            {"title": "Relatório Positivador", "icon": ":material/trending_up:"},
+        ],
+        "Ferramentas": [
+            {"title": "Estúdio de Gráficos", "icon": ":material/insert_chart:"},
+            {"title": "Comparador de Ações", "icon": ":material/bar_chart:"},
+        ],
+        "One Pager Fundos": [
+            {"title": "1. Baixar CDI", "icon": ":material/download:"},
+            {"title": "2. Carteira Fundos", "icon": ":material/account_balance_wallet:"},
+            {"title": "3. Rent. Fundos", "icon": ":material/trending_up:"},
+            {"title": "4. Gerar Excel One Pager", "icon": ":material/description:"},
+        ],
+        "Formatação": [
+            {"title": "Texto Carteira Ações", "icon": ":material/article:"},
+            {"title": "Texto Asset Allocation", "icon": ":material/file_download:"},
+            {"title": "Tabela Asset Allocation", "icon": ":material/table_chart:"},
+        ],
+        "Gorila/Relatórios de Risco": [
+            {"title": "Gorila API Novo", "icon": ":material/api:"},
+            {"title": "Relatório de Crédito", "icon": ":material/account_balance:"},
+        ],
+    }
 
-    with col1:
-        st.subheader("Relatórios")
-        st.markdown(
-            "- Relatório Comissões\n"
-            "- Relatório Positivador\n"
-            "- Relatório de Crédito"
-        )
+    # Renderiza SEÇÕES em colunas (cada coluna é uma seção)
+    # Ajuste n_cols conforme preferir (2 ou 3).
+    n_cols = 3
+    section_items = list(sections.items())
 
-    with col2:
-        st.subheader("Outras seções")
-        st.markdown(
-            "- Ferramentas auxiliares (CDI, Factsheet, etc.)\n"
-            "- Carteiras recomendadas e fundos\n"
-            "- APIs e dados externos"
-        )
+    # Quebra a lista de seções em linhas de n_cols colunas
+    for row_start in range(0, len(section_items), n_cols):
+        row = section_items[row_start : row_start + n_cols]
+        cols = st.columns(len(row))
+        for c, (section_name, items) in zip(cols, row):
+            with c:
+                # Título da seção
+                if section_name == "":
+                    st.subheader("Home e Início")
+                else:
+                    st.subheader(section_name)
 
+                # Lista das páginas da seção (subseções apenas como bullet list)
+                for it in items:
+                    icon = it.get("icon", "")
+                    title = it.get("title", "Sem título")
+                    c.markdown(f"- {icon} {title}")
+
+    st.info(
+        "Dica: Utilize o menu superior para abrir as páginas. "
+        "Este resumo é apenas informativo."
+    )
+
+
+# ---------- NAV SETUP (the real page map for navigation) ----------
 
 home_page = st.Page(
     home,
@@ -67,43 +113,40 @@ pages = {
             title="Relatório Positivador",
             icon=":material/trending_up:",
         ),
-
-    
     ],
     "Ferramentas": [
         st.Page(
-            "pages/3_Graph_Studio.py", 
+            "pages/3_Graph_Studio.py",
             title="Estúdio de Gráficos",
-            icon=":material/insert_chart:",),
-        
+            icon=":material/insert_chart:",
+        ),
         st.Page(
             "pages/4_Financial_Comparator_Plotly.py",
             title="Comparador de Ações",
             icon=":material/bar_chart:",
         ),
-        
     ],
     "One Pager Fundos": [
-        st.Page("pages/5_baixar_cdi.py", 
-                title="1. Baixar CDI",
-                icon=":material/download:"
-                ),
+        st.Page(
+            "pages/5_baixar_cdi.py",
+            title="1. Baixar CDI",
+            icon=":material/download:",
+        ),
         st.Page(
             "pages/11_carteira_fundos_FINAL.py",
             title="2. Carteira Fundos",
             icon=":material/account_balance_wallet:",
-            ),
-        st.Page("pages/6_rent_fundos_gt.py", 
-                title="3. Rent. Fundos",
-                icon=":material/trending_up:",
-                ),
-        
-        st.Page("pages/7_factsheet.py", 
-                title="4. Gerar Excel One Pager",
-                icon=":material/description:",
-                ),
-
-
+        ),
+        st.Page(
+            "pages/6_rent_fundos_gt.py",
+            title="3. Rent. Fundos",
+            icon=":material/trending_up:",
+        ),
+        st.Page(
+            "pages/7_factsheet.py",
+            title="4. Gerar Excel One Pager",
+            icon=":material/description:",
+        ),
     ],
     "Formatação": [
         st.Page(
@@ -111,7 +154,6 @@ pages = {
             title="Texto Carteira Ações",
             icon=":material/article:",
         ),
-
         st.Page(
             "pages/9_NEW_Portfolio_parser.py",
             title="Texto Asset Allocation",
@@ -119,24 +161,21 @@ pages = {
         ),
         st.Page(
             "pages/10_tabela_fornico.py",
-            title="Tabela Fórnico",
+            title="Tabela Asset Allocation",
             icon=":material/table_chart:",
         ),
-         
     ],
-    
     "Gorila/Relatórios de Risco": [
         st.Page(
             "pages/12_Gorila_API_novo.py",
             title="Gorila API Novo",
             icon=":material/api:",
         ),
-
         st.Page(
             "pages/14_RELATORIO_CREDITO.py",
             title="Relatório de Crédito",
-            icon=":material/account_balance:",  
-              ),
+            icon=":material/account_balance:",
+        ),
     ],
 }
 

@@ -17,22 +17,29 @@ if not st.session_state.get("authenticated", False):
     st.warning("Please enter the password on the Home page first.")
     st.write("Status: Não Autenticado")
     st.stop()
-    
-  # prevent the rest of the page from running
+
+# prevent the rest of the page from running
 st.write("Autenticado")
 
 # -------------------- Constants --------------------
 
-TITLE_COLOR = "#8C6239"
-FONT_NAME = "Montserrat"
+# Ceres Wealth style guide
+FONT_NAME = "Century Gothic"
+
+# Colors (Ceres Wealth palette)
+TITLE_COLOR = "#825120"  # header background (web tables)
+DEFAULT_ZEBRA_HEX = "#EFEFEF"  # default zebra color
+
+# RGB tuples for PPTX
+HEADER_BG_RGB = (0x82, 0x51, 0x20)  # #825120
 
 # A4 Size (vertical)
 SLIDE_WIDTH = Inches(8.27)
 SLIDE_HEIGHT = Inches(11.69)
 
-LIGHT_GRAY = RGBColor(0xF2, 0xF2, 0xF2)
+LIGHT_GRAY = RGBColor(0xEF, 0xEF, 0xEF)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-CERES_BRONZE = RGBColor(206, 170, 102)
+CERES_BRONZE = RGBColor(0xB6, 0x84, 0x4C)
 
 HDR_FONT_SIZE = 9
 BODY_FONT_SIZE = 8
@@ -44,9 +51,22 @@ MARGIN_IN = 0.5
 
 # -------------------- Utilities --------------------
 
+
 def hex_to_rgb(hex_str: str) -> RGBColor:
     h = hex_str.strip().lstrip("#")
     return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def hex_to_rgb_tuple(hex_str: str) -> Tuple[int, int, int]:
+    h = hex_str.strip().lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def hex_to_rgba_str(hex_str: str, alpha: float) -> str:
+    h = hex_str.strip().lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    a = min(max(alpha, 0.0), 1.0)
+    return f"rgba({r}, {g}, {b}, {a})"
 
 
 def normalize_text(text: str) -> str:
@@ -74,14 +94,14 @@ def extract_cnpj_pattern(text: str) -> Tuple[str, Optional[str]]:
     CNPJ pattern: XX.XXX.XXX/XXXX-XX
     """
     cnpj_match = re.search(
-        r'\b\d{1,2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b', text
+        r"\b\d{1,2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b", text
     )
     if cnpj_match:
         cnpj_part = cnpj_match.group(0)
-        text_part = text[:cnpj_match.start()].rstrip()
+        text_part = text[: cnpj_match.start()].rstrip()
         # Remove "CNPJ" text if it appears right before the CNPJ number
         text_part = re.sub(
-            r'\s*CNPJ\s*$', '', text_part, flags=re.IGNORECASE
+            r"\s*CNPJ\s*$", "", text_part, flags=re.IGNORECASE
         ).rstrip()
         return (text_part, cnpj_part)
     return (text, None)
@@ -167,7 +187,11 @@ def parse_new_portfolio_format(raw_text: str) -> Dict:
                 if s_lower == "resumo":
                     break
 
-                parts = [p.strip() for p in sep_pattern.split(raw) if p.strip()]
+                parts = [
+                    p.strip()
+                    for p in sep_pattern.split(raw)
+                    if p.strip()
+                ]
                 if len(parts) >= 2:
                     classe = parts[0]
                     pct_str = parts[1]
@@ -175,7 +199,9 @@ def parse_new_portfolio_format(raw_text: str) -> Dict:
                         pct_str = pct_str + "%"
                     try:
                         pct_float = float(
-                            pct_str.rstrip("%").replace(".", "").replace(",", ".")
+                            pct_str.rstrip("%")
+                            .replace(".", "")
+                            .replace(",", ".")
                         )
                     except Exception:
                         pct_float = None
@@ -187,7 +213,8 @@ def parse_new_portfolio_format(raw_text: str) -> Dict:
     # Extract Resumo
     resumo = extract_resumo(lines)
 
-    # Extract Holdings - robust logic for "Categoria  Ativo  %  Rent. 12M  %CDI"
+    # Extract Holdings - robust logic for
+    # "Categoria  Ativo  %  Rent. 12M  %CDI"
     holdings: List[Dict[str, str]] = []
     current_section = None
     i = 0
@@ -215,7 +242,11 @@ def parse_new_portfolio_format(raw_text: str) -> Dict:
             i += 1
             continue
 
-        parts = [p.strip() for p in re.split(r"\t+| {2,}", ln) if p.strip()]
+        parts = [
+            p.strip()
+            for p in re.split(r"\t+| {2,}", ln)
+            if p.strip()
+        ]
         # Expect 5 columns: Categoria, Ativo, %, Rent. 12M, %CDI
         if len(parts) >= 4:
             group = parts[0]
@@ -261,6 +292,7 @@ def parse_new_portfolio_format(raw_text: str) -> Dict:
 
 
 # -------------------- PPTX helpers --------------------
+
 
 def set_paragraph(
     paragraph,
@@ -323,7 +355,13 @@ def set_cell_fill_with_alpha(
         pass
 
 
-def set_cell_text_centered(cell, text: str, size: int, bold: bool = False):
+def set_cell_text_centered(
+    cell,
+    text: str,
+    size: int,
+    bold: bool = False,
+    font_color_hex: Optional[str] = None,
+):
     """Set cell text with center alignment and vertical center."""
     cell.text_frame.clear()
     cell.text_frame.word_wrap = True
@@ -336,7 +374,8 @@ def set_cell_text_centered(cell, text: str, size: int, bold: bool = False):
     run.font.name = FONT_NAME
     run.font.size = Pt(size)
     run.font.bold = bold
-    run.font.color.rgb = WHITE
+    color_hex = font_color_hex or "#000000"
+    run.font.color.rgb = hex_to_rgb(color_hex)
 
 
 def set_cell_text_with_cnpj(
@@ -345,6 +384,7 @@ def set_cell_text_with_cnpj(
     size: int,
     cnpj_size: int,
     bold: bool = False,
+    font_color_hex: Optional[str] = None,
 ):
     """
     Set cell text, making CNPJ portion smaller font if present.
@@ -360,6 +400,9 @@ def set_cell_text_with_cnpj(
     p = cell.text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
 
+    color_hex = font_color_hex or "#000000"
+    rgb = hex_to_rgb(color_hex)
+
     # Add main text (if it exists and is not just whitespace)
     if text_part and text_part.strip():
         run = p.add_run()
@@ -367,7 +410,7 @@ def set_cell_text_with_cnpj(
         run.font.name = FONT_NAME
         run.font.size = Pt(size)
         run.font.bold = bold
-        run.font.color.rgb = WHITE
+        run.font.color.rgb = rgb
 
     # Add CNPJ if present (always use smaller font)
     if cnpj_part:
@@ -382,7 +425,7 @@ def set_cell_text_with_cnpj(
         run.font.name = FONT_NAME
         run.font.size = Pt(cnpj_size)
         run.font.bold = False
-        run.font.color.rgb = WHITE
+        run.font.color.rgb = rgb
     elif not text_part or not text_part.strip():
         # Fallback: add original text if nothing was extracted
         run = p.add_run()
@@ -390,10 +433,11 @@ def set_cell_text_with_cnpj(
         run.font.name = FONT_NAME
         run.font.size = Pt(size)
         run.font.bold = bold
-        run.font.color.rgb = WHITE
+        run.font.color.rgb = rgb
 
 
 # --------- Borderless table theme ---------
+
 
 def apply_borderless_theme_to_table(table) -> None:
     """
@@ -412,8 +456,12 @@ def apply_borderless_theme_to_table(table) -> None:
             tcPr = tc.get_or_add_tcPr()
 
             # Remove all existing border line elements (lnL, lnR, lnT, lnB)
-            for border_tag in [qn("a:lnL"), qn("a:lnR"), qn("a:lnT"), 
-                               qn("a:lnB")]:
+            for border_tag in [
+                qn("a:lnL"),
+                qn("a:lnR"),
+                qn("a:lnT"),
+                qn("a:lnB"),
+            ]:
                 for border_elem in tcPr.findall(border_tag):
                     tcPr.remove(border_elem)
 
@@ -430,16 +478,20 @@ def apply_borderless_theme_to_table(table) -> None:
 
 
 def add_background(
-    slide, prs: Presentation,
-    bg_source: Optional[Union[str, io.BytesIO]] = None
+    slide,
+    prs: Presentation,
+    bg_source: Optional[Union[str, io.BytesIO]] = None,
 ):
     """Set slide background image (file path or file-like object)."""
     if bg_source is None:
         return
     try:
         slide.shapes.add_picture(
-            bg_source, Inches(0), Inches(0),
-            prs.slide_width, prs.slide_height
+            bg_source,
+            Inches(0),
+            Inches(0),
+            prs.slide_width,
+            prs.slide_height,
         )
     except Exception:
         pass
@@ -449,6 +501,7 @@ def add_cover_slide(
     prs: Presentation,
     title: str,
     bg_source: Optional[Union[str, io.BytesIO]] = None,
+    font_color_hex: str = "#000000",
 ):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
@@ -461,7 +514,8 @@ def add_cover_slide(
     height = Inches(1.8)
     tb = slide.shapes.add_textbox(left, top, width, height)
     p = tb.text_frame.paragraphs[0]
-    set_paragraph(p, title, 44, True, "#FFFFFF", PP_ALIGN.CENTER)
+    # Cover title uses chosen font color
+    set_paragraph(p, title, 44, True, font_color_hex, PP_ALIGN.CENTER)
 
 
 def add_portfolio_slide(
@@ -475,6 +529,9 @@ def add_portfolio_slide(
     title_top_offset: float,
     title_padding: float,
     bg_source: Optional[Union[str, io.BytesIO]] = None,
+    font_color_hex: str = "#000000",
+    zebra_color_hex: str = DEFAULT_ZEBRA_HEX,
+    zebra_alpha: float = 1.0,
 ):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
@@ -484,13 +541,16 @@ def add_portfolio_slide(
     margin = Inches(MARGIN_IN)
     content_w = prs.slide_width - 2 * margin
 
+    # Zebra color for PPTX
+    zebra_rgb = hex_to_rgb_tuple(zebra_color_hex)
+
     # Title
     title_top = Inches(title_top_offset)
     tb_title = slide.shapes.add_textbox(
         margin, title_top, content_w, Inches(0.7)
     )
     p = tb_title.text_frame.paragraphs[0]
-    set_paragraph(p, nome, title_font_size, True, "#FFFFFF")
+    set_paragraph(p, nome, title_font_size, True, font_color_hex)
 
     current_top = title_top + Inches(title_padding)
 
@@ -502,8 +562,7 @@ def add_portfolio_slide(
     hdr_h = Inches(HDR_ROW_H_IN)
     row_h = Inches(BODY_ROW_H_IN)
 
-    # ========== SIDE BY SIDE: Resumo (LEFT) + Composição (RIGHT)
-    # ==========
+    # ========== SIDE BY SIDE: Resumo (LEFT) + Composição (RIGHT) ==========
     if composicao or resumo:
         gap = Inches(0.15)
         content_w_emu = int(content_w)
@@ -520,14 +579,20 @@ def add_portfolio_slide(
                 margin, hdr_top, half_w, Inches(0.3)
             )
             p = tb_hdr_resumo.text_frame.paragraphs[0]
-            set_paragraph(p, "Resumo", 15, True, "#FFFFFF")
+            # Section subtitles use chosen font color
+            set_paragraph(
+                p,
+                "Resumo",
+                15,
+                True,
+                font_color_hex,
+            )
 
             resumo_rows = 1 + len(resumo)
             resumo_table_h = hdr_h + row_h * (resumo_rows - 1)
 
             resumo_shape = slide.shapes.add_table(
-                resumo_rows, 2, margin, tbl_top, half_w,
-                resumo_table_h
+                resumo_rows, 2, margin, tbl_top, half_w, resumo_table_h
             )
             resumo_table = resumo_shape.table
 
@@ -543,13 +608,15 @@ def add_portfolio_slide(
             resumo_table.columns[0].width = desc_w
             resumo_table.columns[1].width = val_w
 
-            # Header with 50% transparency
+            # Header with solid primary color, white font (style guide)
             for j, h in enumerate(["Métrica", "Valor"]):
                 cell = resumo_table.cell(0, j)
-                set_cell_fill_with_alpha(cell, (0x8C, 0x62, 0x39), 0.5)
-                set_cell_text_centered(cell, h, hdr_size, True)
+                set_cell_fill_with_alpha(cell, HEADER_BG_RGB, 1.0)
+                set_cell_text_centered(
+                    cell, h, hdr_size, True, "#FFFFFF"
+                )
 
-            # Rows: alternating transparent and bronze
+            # Rows: zebra color / white, font color from selector
             for i, (key, val) in enumerate(resumo.items(), start=1):
                 vals = [key, val]
                 is_even = i % 2 == 0
@@ -559,24 +626,14 @@ def add_portfolio_slide(
 
                     if is_even:
                         set_cell_fill_with_alpha(
-                            cell, (206, 170, 102), 0.5
+                            cell, zebra_rgb, zebra_alpha
                         )
                     else:
                         cell.fill.background()
 
-                    cell.text_frame.word_wrap = True
-                    cell.text_frame.vertical_anchor = (
-                        MSO_ANCHOR.MIDDLE
+                    set_cell_text_centered(
+                        cell, v, body_size, False, font_color_hex
                     )
-
-                    par = cell.text_frame.paragraphs[0]
-                    par.alignment = PP_ALIGN.CENTER
-
-                    run = par.add_run()
-                    run.text = v
-                    run.font.name = FONT_NAME
-                    run.font.size = Pt(body_size)
-                    run.font.color.rgb = WHITE
 
         # RIGHT: Composição
         if composicao:
@@ -587,15 +644,18 @@ def add_portfolio_slide(
             )
             p = tb_hdr_comp.text_frame.paragraphs[0]
             set_paragraph(
-                p, "Alocação por Classe", 15, True, "#FFFFFF"
+                p,
+                "Alocação por Classe",
+                15,
+                True,
+                font_color_hex,
             )
 
             comp_rows = 1 + len(composicao)
             comp_table_h = hdr_h + row_h * (comp_rows - 1)
 
             comp_shape = slide.shapes.add_table(
-                comp_rows, 2, comp_left, tbl_top, half_w,
-                comp_table_h
+                comp_rows, 2, comp_left, tbl_top, half_w, comp_table_h
             )
             comp_table = comp_shape.table
 
@@ -611,13 +671,15 @@ def add_portfolio_slide(
             comp_table.columns[0].width = classe_w
             comp_table.columns[1].width = peso_w
 
-            # Header with 50% transparency
+            # Header with solid primary color, white font
             for j, h in enumerate(["Classe", "Peso"]):
                 cell = comp_table.cell(0, j)
-                set_cell_fill_with_alpha(cell, (0x8C, 0x62, 0x39), 0.5)
-                set_cell_text_centered(cell, h, hdr_size, True)
+                set_cell_fill_with_alpha(cell, HEADER_BG_RGB, 1.0)
+                set_cell_text_centered(
+                    cell, h, hdr_size, True, "#FFFFFF"
+                )
 
-            # Rows: alternating transparent and bronze - ALL CENTER ALIGNED
+            # Rows: zebra color / white - ALL CENTER ALIGNED
             for i, (classe, _pct_float, pct_str) in enumerate(
                 composicao, start=1
             ):
@@ -629,30 +691,18 @@ def add_portfolio_slide(
 
                     if is_even:
                         set_cell_fill_with_alpha(
-                            cell, (206, 170, 102), 0.5
+                            cell, zebra_rgb, zebra_alpha
                         )
                     else:
                         cell.fill.background()
 
-                    cell.text_frame.word_wrap = True
-                    cell.text_frame.vertical_anchor = (
-                        MSO_ANCHOR.MIDDLE
+                    set_cell_text_centered(
+                        cell, val, body_size, False, font_color_hex
                     )
-
-                    par = cell.text_frame.paragraphs[0]
-                    par.alignment = PP_ALIGN.CENTER
-
-                    run = par.add_run()
-                    run.text = val
-                    run.font.name = FONT_NAME
-                    run.font.size = Pt(body_size)
-                    run.font.color.rgb = WHITE
 
         # Calculate max height of both side-by-side tables
         max_resumo_height = (
-            (hdr_h + row_h * len(resumo))
-            if resumo
-            else Inches(0)
+            (hdr_h + row_h * len(resumo)) if resumo else Inches(0)
         )
         max_comp_height = (
             (hdr_h + row_h * len(composicao))
@@ -664,9 +714,7 @@ def add_portfolio_slide(
         )
 
         # Update current_top for full-width Ativos below
-        current_top = (
-            tbl_top + max_side_by_side_height + Inches(0.4)
-        )
+        current_top = tbl_top + max_side_by_side_height + Inches(0.4)
 
     # ========== FULL WIDTH: Ativos ==========
     if rows:
@@ -674,20 +722,30 @@ def add_portfolio_slide(
         actual_content_w = 2.1 * half_w + gap
 
         tb_hdr_ativos = slide.shapes.add_textbox(
-            margin, current_top - Inches(0.32),
-            actual_content_w, Inches(0.3)
+            margin,
+            current_top - Inches(0.32),
+            actual_content_w,
+            Inches(0.3),
         )
         p = tb_hdr_ativos.text_frame.paragraphs[0]
         set_paragraph(
-            p, "Alocação", 15, True, "#FFFFFF"
+            p,
+            "Alocação",
+            15,
+            True,
+            font_color_hex,
         )
 
         pos_rows = 1 + len(rows)
         pos_table_h = hdr_h + row_h * (pos_rows - 1)
 
         pos_shape = slide.shapes.add_table(
-            pos_rows, 5, margin, current_top, actual_content_w,
-            pos_table_h
+            pos_rows,
+            5,
+            margin,
+            current_top,
+            actual_content_w,
+            pos_table_h,
         )
         pos_table = pos_shape.table
 
@@ -710,14 +768,16 @@ def add_portfolio_slide(
         for j, w in enumerate(col_widths):
             pos_table.columns[j].width = w
 
-        # Header with 50% transparency
+        # Header with solid primary color, white font
         headers = ["Grupo", "Ativo", "%", "Rent. 12M", "%CDI 12M"]
         for j, h in enumerate(headers):
             cell = pos_table.cell(0, j)
-            set_cell_fill_with_alpha(cell, (0x8C, 0x62, 0x39), 0.5)
-            set_cell_text_centered(cell, h, hdr_size, True)
+            set_cell_fill_with_alpha(cell, HEADER_BG_RGB, 1.0)
+            set_cell_text_centered(
+                cell, h, hdr_size, True, "#FFFFFF"
+            )
 
-        # Data rows - ALL CENTER ALIGNED
+        # Data rows - zebra color / white - ALL CENTER ALIGNED
         for i in range(1, pos_rows):
             if i <= len(rows):
                 r = rows[i - 1]
@@ -738,28 +798,25 @@ def add_portfolio_slide(
 
                 if is_even:
                     set_cell_fill_with_alpha(
-                        cell, (206, 170, 102), 0.5
+                        cell, zebra_rgb, zebra_alpha
                     )
                 else:
                     cell.fill.background()
 
-                cell.text_frame.word_wrap = True
-                cell.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-                par = cell.text_frame.paragraphs[0]
-                par.alignment = PP_ALIGN.CENTER
-
-                # Use CNPJ-aware text setting for Ativo column
                 if j == 1 and val:
+                    # Ativo column with possible CNPJ
                     set_cell_text_with_cnpj(
-                        cell, val, body_size, cnpj_size, False
+                        cell,
+                        val,
+                        body_size,
+                        cnpj_size,
+                        False,
+                        font_color_hex,
                     )
                 else:
-                    run = par.add_run()
-                    run.text = val
-                    run.font.name = FONT_NAME
-                    run.font.size = Pt(body_size)
-                    run.font.color.rgb = WHITE
+                    set_cell_text_centered(
+                        cell, val, body_size, False, font_color_hex
+                    )
 
 
 def build_pptx(
@@ -772,6 +829,9 @@ def build_pptx(
     title_top_offset: float,
     title_padding: float,
     bg_source: Optional[Union[str, io.BytesIO]] = None,
+    font_color_hex: str = "#000000",
+    zebra_color_hex: str = DEFAULT_ZEBRA_HEX,
+    zebra_alpha: float = 1.0,
 ) -> io.BytesIO:
     prs = Presentation()
 
@@ -779,7 +839,9 @@ def build_pptx(
     prs.slide_height = SLIDE_HEIGHT
 
     if nome_doc.strip():
-        add_cover_slide(prs, nome_doc.strip(), bg_source)
+        add_cover_slide(
+            prs, nome_doc.strip(), bg_source, font_color_hex
+        )
 
     for c in carteiras:
         add_portfolio_slide(
@@ -793,6 +855,9 @@ def build_pptx(
             title_top_offset,
             title_padding,
             bg_source,
+            font_color_hex,
+            zebra_color_hex,
+            zebra_alpha,
         )
 
     bio = io.BytesIO()
@@ -803,7 +868,12 @@ def build_pptx(
 
 # -------------------- Streamlit helpers --------------------
 
-def style_table(df: pd.DataFrame):
+
+def style_table(
+    df: pd.DataFrame, zebra_hex: str, zebra_alpha: float
+):
+    zebra_bg_css = hex_to_rgba_str(zebra_hex, zebra_alpha)
+
     styler = df.style.set_table_styles(
         [
             {
@@ -812,13 +882,29 @@ def style_table(df: pd.DataFrame):
                     ("background-color", TITLE_COLOR),
                     ("color", "white"),
                     ("font-weight", "bold"),
+                    ("font-family", "'Century Gothic', sans-serif"),
+                    ("border", "none"),
                 ],
-            }
+            },
+            {
+                "selector": "td",
+                "props": [
+                    ("font-family", "'Century Gothic', sans-serif"),
+                    ("border", "none"),
+                ],
+            },
+            {
+                "selector": "table",
+                "props": [
+                    ("border-collapse", "collapse"),
+                    ("border", "none"),
+                ],
+            },
         ]
     )
 
     def zebra(row):
-        color = "#F2F2F2" if row.name % 2 == 0 else "#FFFFFF"
+        color = zebra_bg_css if row.name % 2 == 0 else "#FFFFFF"
         return [f"background-color: {color}"] * len(row)
 
     return styler.apply(zebra, axis=1)
@@ -855,39 +941,86 @@ with cfg_col1:
     nome_doc = st.text_input("Nome do Documento (capa PPT)", value="")
 
 with cfg_col2:
+    # Guia: título principal 14
     title_font_size = st.slider(
-        "Tamanho título PPT", min_value=20, max_value=36,
-        value=28, step=1
+        "Tamanho título PPT",
+        min_value=10,
+        max_value=36,
+        value=13,
+        step=1,
     )
 
 with cfg_col3:
+    # Guia: subtítulos 10
     hdr_font_size = st.slider(
-        "Tamanho fonte headers", min_value=8, max_value=16,
-        value=9, step=1
+        "Tamanho fonte headers",
+        min_value=8,
+        max_value=16,
+        value=9,
+        step=1,
     )
 
 with cfg_col4:
+    # Guia: texto 10
     body_font_size = st.slider(
-        "Tamanho fonte corpo", min_value=7, max_value=14, value=8, step=1
+        "Tamanho fonte corpo",
+        min_value=7,
+        max_value=14,
+        value=8,
+        step=1,
     )
 
 with cfg_col5:
     cnpj_font_size = st.slider(
-        "Tamanho fonte CNPJ", min_value=5, max_value=10, value=7, step=1
+        "Tamanho fonte CNPJ",
+        min_value=5,
+        max_value=10,
+        value=6,
+        step=1,
     )
 
-title_pos_col1, title_pos_col2, title_pos_col3, title_pos_col4 = st.columns(4)
+# Color configuration (font + zebra)
+color_col1, color_col2, color_col3 = st.columns([1, 1, 2])
+
+with color_col1:
+    font_color_hex = st.color_picker(
+        "Cor da fonte PPTX", "#000000"
+    )
+
+with color_col2:
+    zebra_color_hex = st.color_picker(
+        "Cor zebra PPTX/Tabelas", DEFAULT_ZEBRA_HEX
+    )
+
+with color_col3:
+    zebra_alpha = st.slider(
+        "Transparência zebra (PPTX/Tabelas)",
+        min_value=0.0,
+        max_value=1.0,
+        value=1.0,
+        step=0.05,
+    )
+
+title_pos_col1, title_pos_col2, title_pos_col3, title_pos_col4 = st.columns(
+    4
+)
 
 with title_pos_col1:
     title_top_offset = st.slider(
-        "Posição título (in)", min_value=0.1, max_value=1.0,
-        value=0.5, step=0.1
+        "Posição título (in)",
+        min_value=0.1,
+        max_value=1.0,
+        value=0.5,
+        step=0.1,
     )
 
 with title_pos_col2:
     title_padding = st.slider(
-        "Padding título/tabelas (in)", min_value=0.3, max_value=2.0,
-        value=1.3, step=0.1
+        "Padding título/tabelas (in)",
+        min_value=0.3,
+        max_value=2.0,
+        value=1.0,
+        step=0.1,
     )
 
 bg_image = st.file_uploader(
@@ -927,6 +1060,7 @@ with col_btn[0]:
     if st.button("Adicionar à lista", type="primary"):
         if not texto.strip():
             st.warning("Cole o texto do portfólio.")
+            # keep font/zebra selections in state automatically via Streamlit
         else:
             try:
                 parsed = parse_new_portfolio_format(texto)
@@ -966,7 +1100,13 @@ else:
                     [(a, c_str) for a, _c, c_str in comp],
                     columns=["Classe", "Peso (%)"],
                 )
-                st.table(style_table(df_comp))
+                st.table(
+                    style_table(
+                        df_comp,
+                        zebra_color_hex,
+                        zebra_alpha,
+                    )
+                )
             else:
                 st.info("Sem composição.")
 
@@ -976,9 +1116,15 @@ else:
                 st.markdown("**Resumo**")
                 df_resumo = pd.DataFrame(
                     list(resumo.items()),
-                    columns=["Métrica", "Valor"]
+                    columns=["Métrica", "Valor"],
                 )
-                st.table(style_table(df_resumo))
+                st.table(
+                    style_table(
+                        df_resumo,
+                        zebra_color_hex,
+                        zebra_alpha,
+                    )
+                )
 
             # Holdings
             st.markdown("**Ativos da carteira**")
@@ -988,10 +1134,13 @@ else:
                     pd.DataFrame(
                         rows,
                         columns=[
-                            "grupo", "ativo", "peso", "ret12m", "cdi12m"
+                            "grupo",
+                            "ativo",
+                            "peso",
+                            "ret12m",
+                            "cdi12m",
                         ],
-                    )
-                    .rename(
+                    ).rename(
                         columns={
                             "grupo": "Grupo",
                             "ativo": "Ativo",
@@ -1026,6 +1175,9 @@ if st.session_state.carteiras:
             title_top_offset,
             title_padding,
             bg_source,
+            font_color_hex,
+            zebra_color_hex,
+            zebra_alpha,
         )
         st.download_button(
             label="Baixar PowerPoint (.pptx)",
