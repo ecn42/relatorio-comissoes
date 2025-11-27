@@ -44,6 +44,7 @@ def home():
         "Ferramentas": [
             {"title": "Estúdio de Gráficos", "icon": ":material/insert_chart:"},
             {"title": "Comparador de Ações", "icon": ":material/bar_chart:"},
+            {"title": "API 4intelligence", "icon": ":material/api:"},
         ],
         "One Pager Fundos": [
             {"title": "1. Baixar CDI", "icon": ":material/download:"},
@@ -125,6 +126,11 @@ pages = {
             title="Comparador de Ações",
             icon=":material/bar_chart:",
         ),
+        st.Page(
+            "pages/16_API_4int.py",
+            title="API 4intelligence",
+            icon=":material/api:",
+        ),
     ],
     "One Pager Fundos": [
         st.Page(
@@ -171,6 +177,13 @@ pages = {
             title="Gorila API Novo",
             icon=":material/api:",
         ),
+
+        st.Page(
+            "pages/17_Pictet_to_PMV.py",
+            title="Pictet → PMV Mapper",
+            icon=":material/sync_alt:",
+        ),
+        
         st.Page(
             "pages/14_RELATORIO_CREDITO.py",
             title="Relatório de Crédito",
