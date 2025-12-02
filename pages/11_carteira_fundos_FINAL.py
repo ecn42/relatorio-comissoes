@@ -13,6 +13,11 @@
 # fundos_meta. Added bulk processing helpers and UI. Added index on (cnpj, yyyymm).
 # New: Button to fill EMISSOR in carteira_fundos.db for Debêntures using a
 # mapping from df_debentures.db ("Codigo do Ativo" -> "Empresa").
+# New (Dec/2025):
+# - When showing "latest absent" month per CNPJ, also check the DB to report if
+#   it's up-to-date, needs update, or is missing.
+# - Bulk mode now logs per-fund feedback with progress, and skips heavy parsing
+#   if DB is already up-to-date for the target month (configurable).
 
 from __future__ import annotations
 
@@ -39,10 +44,9 @@ if not st.session_state.get("authenticated", False):
     st.warning("Please enter the password on the Home page first.")
     st.write("Status: Não Autenticado")
     st.stop()
-    
-  # prevent the rest of the page from running
-st.write("Autenticado")
 
+# prevent the rest of the page from running
+st.write("Autenticado")
 
 # ------------------------ Config and regexes ------------------------
 tab1, tab2, tab3 = st.tabs(
@@ -61,7 +65,9 @@ with tab1:
 
     def blc_pattern(yyyymm: str) -> re.Pattern:
         # cda_fi_BLC_[1..8]_YYYYMM.csv (possibly in a subfolder)
-        return re.compile(rf"(^|/)cda_fi_BLC_[1-8]_{yyyymm}\.csv$", re.IGNORECASE)
+        return re.compile(
+            rf"(^|/)cda_fi_BLC_[1-8]_{yyyymm}\.csv$", re.IGNORECASE
+        )
 
     # ------------------------ CSV limits (fix large-field error) ------------------
 
@@ -134,7 +140,9 @@ with tab1:
         headers = {"User-Agent": USER_AGENT}
         tmp = dest + ".part"
         try:
-            with requests.get(url, stream=True, headers=headers, timeout=120) as r:
+            with requests.get(
+                url, stream=True, headers=headers, timeout=120
+            ) as r:
                 r.raise_for_status()
                 with open(tmp, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1 << 20):
@@ -289,6 +297,20 @@ with tab1:
             return "(present in all synced months)"
         return f"{ym[:4]}-{ym[4:]}"
 
+    def ym_cmp(a: Optional[str], b: Optional[str]) -> int:
+        """
+        Compare YYYYMM strings; treat None as -infinity.
+        Returns -1, 0, 1 for a<b, a==b, a>b respectively.
+        """
+        if a is None and b is None:
+            return 0
+        if a is None:
+            return -1
+        if b is None:
+            return 1
+        ai, bi = int(a), int(b)
+        return -1 if ai < bi else (1 if ai > bi else 0)
+
     # ------------------------ BLC joining/filtering ------------------------
 
     def filter_df_by_cnpj(df: pd.DataFrame, cnpj: str) -> pd.DataFrame:
@@ -347,7 +369,8 @@ with tab1:
                         break
             if match:
                 row = {
-                    header[i]: (parts[i] if i < len(parts) else "") for i in range(n)
+                    header[i]: (parts[i] if i < len(parts) else "")
+                    for i in range(n)
                 }
                 row["_ARQUIVO"] = os.path.basename(filename)
                 out_rows.append(row)
@@ -356,7 +379,9 @@ with tab1:
             return pd.DataFrame()
         return pd.DataFrame(out_rows)
 
-    def read_blc_joined_for_cnpj_from_zip(zip_path: str, cnpj: str) -> pd.DataFrame:
+    def read_blc_joined_for_cnpj_from_zip(
+        zip_path: str, cnpj: str
+    ) -> pd.DataFrame:
         """
         Open cda_fi_BLC_1..8_YYYYMM.csv inside the ZIP, read robustly (tolerate
         malformed quoting and huge fields), filter by CNPJ while streaming,
@@ -549,6 +574,28 @@ with tab1:
         )
         conn.commit()
 
+    def get_meta_for_cnpj(
+        conn: sqlite3.Connection, cnpj: str
+    ) -> Optional[Dict[str, str]]:
+        """
+        Fetch fundos_meta row for a CNPJ. Returns dict or None.
+        Keys: last_month_yyyymm, last_updated_utc, denom_social, n_rows
+        """
+        cur = conn.cursor()
+        row = cur.execute(
+            "SELECT last_month_yyyymm, last_updated_utc, denom_social, n_rows "
+            "FROM fundos_meta WHERE cnpj=?",
+            (cnpj,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "last_month_yyyymm": row[0],
+            "last_updated_utc": row[1],
+            "denom_social": row[2],
+            "n_rows": str(row[3]),
+        }
+
     def upsert_blc_in_db(
         db_path: str, cnpj: str, ym: str, df: pd.DataFrame
     ) -> Tuple[str, Optional[str]]:
@@ -646,7 +693,9 @@ with tab1:
                 df_insert["yyyymm"] = ym
                 # Ensure PCT_CARTEIRA is str
                 if "PCT_CARTEIRA" in df_insert.columns:
-                    df_insert["PCT_CARTEIRA"] = df_insert["PCT_CARTEIRA"].astype(str)
+                    df_insert["PCT_CARTEIRA"] = df_insert["PCT_CARTEIRA"].astype(
+                        str
+                    )
                 # Fill NaN with empty str for TEXT columns
                 df_insert = df_insert.fillna("")
                 df_insert.to_sql(
@@ -658,7 +707,9 @@ with tab1:
                     chunksize=1000,
                 )
             except Exception as insert_err:
-                st.warning(f"to_sql failed: {insert_err}. Falling back to manual insert.")
+                st.warning(
+                    f"to_sql failed: {insert_err}. Falling back to manual insert."
+                )
                 # Fallback: manual insert
                 cur.execute("DELETE FROM blc_data WHERE cnpj=?", (cnpj,))
                 for _, row in df.iterrows():
@@ -723,6 +774,7 @@ with tab1:
         For a CNPJ, decide which month to process (latest absent or fallback),
         read/join BLC, compute PCT_CARTEIRA, and upsert into DB.
         Returns a result dict with status.
+        Early DB check prevents heavy parsing when already up-to-date.
         """
         result: Dict[str, object] = {
             "CNPJ": cnpj,
@@ -743,6 +795,18 @@ with tab1:
 
             if ym is None:
                 result["Action"] = "skipped_no_month"
+                return result
+
+            # Early DB check to skip heavy parsing if up-to-date
+            conn = sqlite3.connect(db_path)
+            ensure_db_schema(conn)
+            meta = get_meta_for_cnpj(conn, cnpj)
+            conn.close()
+            prev_ym = meta["last_month_yyyymm"] if meta else None
+            if prev_ym is not None and int(prev_ym) >= int(ym):
+                result["Action"] = "up_to_date"
+                result["PrevYM"] = prev_ym
+                result["YM"] = ym
                 return result
 
             if ym not in zip_paths_by_ym:
@@ -874,6 +938,19 @@ with tab1:
     if "checked_cnpjs" not in st.session_state:
         st.session_state.checked_cnpjs = []
 
+    # Helper for DB status label
+    def db_status_for(absent_ym: Optional[str], db_ym: Optional[str]) -> str:
+        if absent_ym is None:
+            return "No absent month (local)"
+        if db_ym is None:
+            return "Missing in DB (needs insert)"
+        cmpv = ym_cmp(db_ym, absent_ym)
+        if cmpv == 0:
+            return "Up-to-date (matches DB)"
+        if cmpv < 0:
+            return "Needs update (DB older)"
+        return "DB newer than target"
+
     if check_btn:
         cnpjs = parse_cnpj_input(cnpj_text)
         st.session_state.checked_cnpjs = cnpjs
@@ -909,6 +986,10 @@ with tab1:
                         list(cnpjs_by_month.keys()), key=int, reverse=True
                     )
 
+                    # DB lookup
+                    conn = sqlite3.connect(db_path)
+                    ensure_db_schema(conn)
+
                     absent_map = {}
                     rows = []
                     for cnpj in cnpjs:
@@ -916,13 +997,21 @@ with tab1:
                             cnpj, months_desc, cnpjs_by_month
                         )
                         absent_map[cnpj] = ym
+                        meta = get_meta_for_cnpj(conn, cnpj)
+                        db_ym = meta["last_month_yyyymm"] if meta else None
+                        status = db_status_for(ym, db_ym)
                         rows.append(
                             {
                                 "CNPJ": cnpj,
-                                "Latest month absent": ym_label(ym),
+                                "Latest absent (local)": ym_label(ym),
+                                "DB month (fundos_meta)": ym_label(db_ym)
+                                if db_ym
+                                else "-",
+                                "DB status": status,
                             }
                         )
 
+                    conn.close()
                     st.session_state.absent_map = absent_map
                     st.dataframe(pd.DataFrame(rows), use_container_width=True)
             except Exception as e:
@@ -946,6 +1035,18 @@ with tab1:
                     "absent month to inspect."
                 )
             else:
+                # Pre-check DB status for user feedback
+                conn = sqlite3.connect(db_path)
+                ensure_db_schema(conn)
+                meta = get_meta_for_cnpj(conn, selected_cnpj)
+                conn.close()
+                db_ym = meta["last_month_yyyymm"] if meta else None
+                if db_ym is not None and int(db_ym) >= int(ym):
+                    st.info(
+                        f"DB already has {ym_label(db_ym)} for {selected_cnpj} "
+                        f"(target absent: {ym_label(ym)}). Keeping DB snapshot."
+                    )
+
                 zip_name = f"cda_fi_{ym}.zip"
                 zip_path = os.path.join(dest_dir, zip_name)
                 if not os.path.isfile(zip_path):
@@ -1011,10 +1112,11 @@ with tab1:
         "Processa todos os CNPJs acima de uma vez. Para cada CNPJ, seleciona o "
         "mês mais recente em que está ausente no CONFID (entre os meses locais). "
         "Caso não haja mês ausente, você pode optar por pular ou usar um YYYYMM "
-        "específico (fallback)."
+        "específico (fallback). Agora mostra feedback por fundo e evita ler ZIP "
+        "quando o DB já está atualizado."
     )
 
-    col_bulk1, col_bulk2 = st.columns(2)
+    col_bulk1, col_bulk2, col_bulk3 = st.columns(3)
     with col_bulk1:
         only_absent = st.checkbox(
             "Processar somente quando houver mês ausente", value=True
@@ -1023,6 +1125,11 @@ with tab1:
         fallback_ym = st.text_input(
             "Fallback YYYYMM (opcional)", value="", placeholder="202501"
         ).strip()
+    with col_bulk3:
+        skip_uptodate = st.checkbox(
+            "Pular CNPJs já atualizados no DB", value=True
+        )
+
     if fallback_ym and not re.fullmatch(r"\d{6}", fallback_ym):
         st.warning("Fallback YYYYMM deve ser 6 dígitos. Ex.: 202501")
         fallback_ym = ""
@@ -1036,15 +1143,158 @@ with tab1:
         else:
             with st.spinner("Processando em lote..."):
                 try:
-                    df_res = bulk_process_cnpjs(
-                        cnpjs=cnpjs_bulk,
-                        db_path=db_path,
-                        dest_dir=dest_dir,
-                        k=int(k),
-                        only_absent=bool(only_absent),
-                        fallback_ym=(fallback_ym or None),
-                    )
+                    # Build month maps once
+                    (
+                        months_desc,
+                        cnpjs_by_month,
+                        zip_paths_by_ym,
+                    ) = build_cnpjs_by_month_from_local(dest_dir, int(k))
+
+                    # Prepare logging/progress
+                    progress = st.progress(0.0)
+                    log_container = st.container()
+
+                    results: List[Dict[str, object]] = []
+                    n = len(cnpjs_bulk)
+                    for i, cnpj in enumerate(cnpjs_bulk, start=1):
+                        # Determine target month
+                        ym = latest_absent_month_for_cnpj(
+                            cnpj, months_desc, cnpjs_by_month
+                        )
+                        if ym is None and not only_absent and fallback_ym:
+                            ym = fallback_ym
+
+                        # DB meta
+                        conn = sqlite3.connect(db_path)
+                        ensure_db_schema(conn)
+                        meta = get_meta_for_cnpj(conn, cnpj)
+                        conn.close()
+                        db_ym = meta["last_month_yyyymm"] if meta else None
+
+                        # Skip conditions
+                        if ym is None:
+                            res = {
+                                "CNPJ": cnpj,
+                                "YM": None,
+                                "Action": "skipped_no_absent"
+                                if only_absent
+                                else "skipped_no_month",
+                                "PrevYM": db_ym,
+                                "Rows": 0,
+                                "Error": None,
+                            }
+                            log_container.write(
+                                f"• {cnpj}: sem mês ausente local "
+                                f"(DB: {ym_label(db_ym)})."
+                            )
+                            results.append(res)
+                            progress.progress(i / n)
+                            continue
+
+                        if skip_uptodate and db_ym is not None and int(db_ym) >= int(
+                            ym
+                        ):
+                            res = {
+                                "CNPJ": cnpj,
+                                "YM": ym,
+                                "Action": "up_to_date",
+                                "PrevYM": db_ym,
+                                "Rows": 0,
+                                "Error": None,
+                            }
+                            log_container.write(
+                                f"• {cnpj}: já atualizado no DB "
+                                f"(DB {ym_label(db_ym)} >= alvo {ym_label(ym)}). "
+                                "Pulando."
+                            )
+                            results.append(res)
+                            progress.progress(i / n)
+                            continue
+
+                        # Process
+                        if ym not in zip_paths_by_ym:
+                            res = {
+                                "CNPJ": cnpj,
+                                "YM": ym,
+                                "Action": "error",
+                                "PrevYM": db_ym,
+                                "Rows": 0,
+                                "Error": f"ZIP ausente para {ym}.",
+                            }
+                            log_container.write(
+                                f"• {cnpj}: erro - ZIP ausente para {ym_label(ym)}."
+                            )
+                            results.append(res)
+                            progress.progress(i / n)
+                            continue
+
+                        try:
+                            zip_path = zip_paths_by_ym[ym]
+                            df_blc = read_blc_joined_for_cnpj_from_zip(
+                                zip_path, cnpj
+                            )
+                            df_blc = add_pct_carteira_by_vl_merc(df_blc)
+
+                            if df_blc.empty:
+                                res = {
+                                    "CNPJ": cnpj,
+                                    "YM": ym,
+                                    "Action": "no_rows",
+                                    "PrevYM": db_ym,
+                                    "Rows": 0,
+                                    "Error": None,
+                                }
+                                log_container.write(
+                                    f"• {cnpj}: sem linhas em BLC para "
+                                    f"{ym_label(ym)}."
+                                )
+                            else:
+                                action, prev = upsert_blc_in_db(
+                                    db_path, cnpj, ym, df_blc
+                                )
+                                res = {
+                                    "CNPJ": cnpj,
+                                    "YM": ym,
+                                    "Action": action,
+                                    "PrevYM": prev,
+                                    "Rows": int(len(df_blc)),
+                                    "Error": None,
+                                }
+                                if action == "inserted":
+                                    log_container.write(
+                                        f"• {cnpj}: inserido {ym_label(ym)} "
+                                        f"({len(df_blc)} linhas)."
+                                    )
+                                elif action == "updated":
+                                    log_container.write(
+                                        f"• {cnpj}: atualizado de "
+                                        f"{ym_label(prev)} para {ym_label(ym)} "
+                                        f"({len(df_blc)} linhas)."
+                                    )
+                                else:
+                                    log_container.write(
+                                        f"• {cnpj}: mantido (DB "
+                                        f"{ym_label(prev)} >= {ym_label(ym)})."
+                                    )
+                            results.append(res)
+                        except Exception as e:
+                            res = {
+                                "CNPJ": cnpj,
+                                "YM": ym,
+                                "Action": "error",
+                                "PrevYM": db_ym,
+                                "Rows": 0,
+                                "Error": str(e),
+                            }
+                            log_container.write(
+                                f"• {cnpj}: erro ao processar {ym_label(ym)} - {e}"
+                            )
+                            results.append(res)
+
+                        progress.progress(i / n)
+
                     st.success("Lote concluído.")
+                    df_res = pd.DataFrame(results)
                     if not df_res.empty:
                         st.dataframe(df_res, use_container_width=True, height=380)
                         st.download_button(
@@ -1053,6 +1303,13 @@ with tab1:
                             file_name="resultado_lote_cnpjs.csv",
                             mime="text/csv",
                         )
+                        # Simple summary
+                        summary = (
+                            df_res["Action"].value_counts().to_dict()
+                            if "Action" in df_res.columns
+                            else {}
+                        )
+                        st.write("Resumo por ação:", summary)
                     else:
                         st.info("Nenhum resultado.")
                 except Exception as e:

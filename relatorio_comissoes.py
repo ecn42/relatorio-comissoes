@@ -178,10 +178,17 @@ pages = {
             icon=":material/api:",
         ),
 
+        
         st.Page(
             "pages/17_Pictet_to_PMV.py",
             title="Pictet → PMV Mapper",
             icon=":material/sync_alt:",
+        ),
+
+        st.Page(
+            "pages/18_CUSTOM_ASSETS_MANUAL_PARSER.py",
+            title="Editar ativos CUSTOM",
+            icon=":material/edit:",
         ),
         
         st.Page(
@@ -189,6 +196,12 @@ pages = {
             title="Relatório de Crédito",
             icon=":material/account_balance:",
         ),
+
+        st.Page(
+            "pages/19_Gorila_API_RODRIGOCABRAL.py",
+            title="Dados API - Rodrigo Cabral",
+            icon=":material/api:",
+        )
     ],
 }
 

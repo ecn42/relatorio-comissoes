@@ -39,7 +39,7 @@ PALETTE_HEX = [
 ]
 
 TITLE_COLOR = "#8C6239"
-FONT_NAME = "Montserrat"  # must be installed on your machine for PPT
+FONT_NAME = "Century Gothic"  # must be installed on your machine for PPT
 
 LIGHT_GRAY = RGBColor(0xF2, 0xF2, 0xF2)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)

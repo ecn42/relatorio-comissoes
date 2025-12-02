@@ -15,7 +15,7 @@ import streamlit as st
 # -------------------------------
 # Streamlit page config
 # -------------------------------
-st.set_page_config(page_title="Gorila Loader (Raw+Issuers)", layout="wide")
+st.set_page_config(page_title="Gorila API - Rodrigo Cabral", layout="wide")
 
 # -------------------------------
 # Simple Authentication
@@ -26,6 +26,60 @@ if not st.session_state.get("authenticated", False):
     st.stop()
 
 st.write("Autenticado")
+
+# -------------------------------
+# Portfolio/Broker to Conta Mapping
+# -------------------------------
+
+PORTFOLIO_BROKER_CONTA_MAP = {
+    ("14b315dc-8298-414a-89d3-e128fd292add", "34904571000172"): "2538001",
+    ("14b315dc-8298-414a-89d3-e128fd292add", "90400888000142"): "290274117",
+    ("b974d0f2-74fc-45be-b2e5-bce4e4dcea0e", "39582666000130"): "2538003",
+    ("b974d0f2-74fc-45be-b2e5-bce4e4dcea0e", "OUTROS"): "2538002",
+    ("dc44f575-66e8-426a-862a-b3949f64a27b", "90400888000142"): "10075814",
+    ("dc44f575-66e8-426a-862a-b3949f64a27b", "60701190000104"): "6093",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "33264668000103"): "1020910999",
+    ("dc44f575-66e8-426a-862a-b3949f64a27b", "33264668000103"): "1020910",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "32062580000138"): "719431999",
+    ("dc44f575-66e8-426a-862a-b3949f64a27b", "32062580000138"): "719431",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "-"): "30435001",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "62285390000140"): "30435002",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "00360305000104"): "30435003",
+    ("dc44f575-66e8-426a-862a-b3949f64a27b", "62232889000190"): "30435004",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "33336454000197"): "30435005",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "57061997000107"): "30435006",
+    ("8ebea19c-1806-4141-80a3-b8c31a1f957e", "OUTROS"): "30435007",
+    ("e860e317-584f-43fe-8a0a-512a8660cf4a", "34904571000172"): "76001",
+    ("e617307e-908f-4284-8f69-6f962deedc7b", "34904571000172"): "368931",
+    ("2e41fcb9-5b28-403d-872f-213dd54f610f", "CHARLES"): "75013579",
+    ("2e41fcb9-5b28-403d-872f-213dd54f610f", "34904571000172"): "424471",
+}
+
+
+def add_conta_column(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add 'Conta' column to dataframe by matching portfolio_id and broker_id.
+    """
+    if df.empty:
+        return df
+    
+    df_copy = df.copy()
+    
+    # Create Conta column with NaN initially
+    df_copy["Conta"] = None
+    
+    # Apply mapping for each row
+    for idx, row in df_copy.iterrows():
+        portfolio_id = row.get("portfolio_id")
+        broker_id = row.get("broker_id")
+        
+        if pd.notna(portfolio_id) and pd.notna(broker_id):
+            key = (str(portfolio_id), str(broker_id))
+            if key in PORTFOLIO_BROKER_CONTA_MAP:
+                df_copy.at[idx, "Conta"] = PORTFOLIO_BROKER_CONTA_MAP[key]
+    
+    return df_copy
+
 
 # -------------------------------
 # Config / Secrets
@@ -1390,7 +1444,7 @@ def posdb_save_all(
 # Streamlit UI (raw + robust fetch)
 # -------------------------------
 
-st.title("Gorila CORE → Raw Data (with issuer JSON + mapping)")
+st.title("Gorila - Rodrigo Cabral")
 
 api_key = get_api_key()
 with st.sidebar:
@@ -1444,382 +1498,7 @@ with ref_col2:
 ref_date_str = ref_date_opt.isoformat() if use_ref_date else None
 
 # -------------------------------
-# Portfolios
-# -------------------------------
-
-st.header("Portfolios")
-if st.button("Fetch portfolios"):
-    try:
-        rows = [flatten_portfolio(p) for p in client.list_portfolios()]
-        df_port = pd.DataFrame(rows)
-        st.session_state["df_portfolios"] = df_port
-        st.dataframe(df_port, use_container_width=True)
-    except Exception as e:
-        st.error(f"Error fetching portfolios: {e}")
-
-if st.session_state.get("df_portfolios") is not None:
-    st.download_button(
-        label="Download portfolios (CSV)",
-        data=df_to_csv_bytes(st.session_state["df_portfolios"]),
-        file_name="portfolios.csv",
-        mime="text/csv;charset=utf-8",
-    )
-
-# Issuers
-st.header("Issuers")
-cols_iss = st.columns(2)
-with cols_iss[0]:
-    if st.button("Fetch issuers"):
-        try:
-            rows = [flatten_issuer(i) for i in client.list_issuers()]
-            df_iss = pd.DataFrame(rows)
-            st.session_state["df_issuers"] = df_iss
-            st.dataframe(df_iss, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error fetching issuers: {e}")
-
-with cols_iss[1]:
-    if st.button("Update issuer JSON from current issuer table"):
-        try:
-            if st.session_state.get("df_issuers") is None:
-                rows = [flatten_issuer(i) for i in client.list_issuers()]
-                st.session_state["df_issuers"] = pd.DataFrame(rows)
-            df_iss_curr = st.session_state["df_issuers"]
-
-            df_min = df_iss_curr[["id", "name"]].copy()
-            exist_cnt, added_cnt, final_cnt = (
-                update_issuer_json_from_df(issuer_json_path, df_min)
-            )
-            st.success(
-                f"Issuer JSON updated. Existing={exist_cnt}, "
-                f"added={added_cnt}, total={final_cnt}"
-            )
-            df_prev = load_issuer_json_df(issuer_json_path)
-            st.dataframe(df_prev, use_container_width=True, height=240)
-        except Exception as e:
-            st.error(f"Error updating issuer JSON: {e}")
-
-if st.session_state.get("df_issuers") is not None:
-    st.download_button(
-        label="Download issuers (CSV)",
-        data=df_to_csv_bytes(st.session_state["df_issuers"]),
-        file_name="issuers.csv",
-        mime="text/csv;charset=utf-8",
-    )
-
-st.download_button(
-    label="Download issuer JSON file",
-    data=issuer_json_bytes(issuer_json_path),
-    file_name=os.path.basename(issuer_json_path) or "issuers.json",
-    mime="application/json",
-)
-
-# -------------------------------
-# Brokers
-# -------------------------------
-
-st.header("Brokers")
-cols_bro = st.columns(2)
-with cols_bro[0]:
-    if st.button("Fetch brokers"):
-        try:
-            rows = [flatten_broker(b) for b in client.list_brokers()]
-            df_bro = pd.DataFrame(rows)
-            st.session_state["df_brokers"] = df_bro
-            st.success(f"Brokers fetched: {len(df_bro)}")
-            st.dataframe(df_bro, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error fetching brokers: {e}")
-
-with cols_bro[1]:
-    if st.session_state.get("df_brokers") is not None:
-        st.download_button(
-            label="Download brokers (CSV)",
-            data=df_to_csv_bytes(st.session_state["df_brokers"]),
-            file_name="brokers.csv",
-            mime="text/csv;charset=utf-8",
-        )
-
-# -------------------------------
-# Debentures (B3 TSV export) BEFORE PMV
-# -------------------------------
-
-st.header("Debentures (B3 TSV export)")
-st.caption("Baixa o TSV público e converte em DataFrame (colunas reduzidas).")
-deb_url = st.text_input(
-    "URL (padrão B3; pode manter)", value=DEBENTURES_URL, disabled=True
-)
-
-deb_db_path = st.text_input(
-    "Salvar/Carregar de (DB local)", value="df_debentures.db"
-)
-st.session_state["deb_db_path"] = deb_db_path
-cols_deb = st.columns(2)
-
-with cols_deb[0]:
-    if st.button("Carregar do DB local"):
-        try:
-            df_deb = deb_load_df_from_db(deb_db_path)
-            if df_deb.empty:
-                st.warning("DB local vazio ou ausente.")
-            else:
-                st.session_state["df_debentures"] = df_deb
-                st.success(
-                    "Debêntures carregado do DB: "
-                    f"{df_deb.shape[0]} linhas × {df_deb.shape[1]} cols"
-                )
-                st.dataframe(df_deb, use_container_width=True)
-        except Exception as e:
-            st.error(f"Erro ao carregar DB local: {e}")
-
-with cols_deb[1]:
-    if st.button("Baixar TSV e sobrescrever DB", type="primary"):
-        try:
-            with st.spinner("Baixando conteúdo (TSV)..."):
-                text, headers, final_url = deb_download_text(deb_url)
-
-            st.info(
-                f"Final URL: {final_url} | "
-                f"Content-Type: {headers.get('Content-Type','unknown')}"
-            )
-
-            with st.expander("Prévia da resposta (primeiros ~2000 chars)"):
-                st.text(text[:2000])
-
-            with st.spinner("Convertendo para DataFrame..."):
-                df_deb_full = deb_parse_tsv_text_to_df(text)
-                df_deb = deb_select_required_cols(df_deb_full)
-
-            st.session_state["df_debentures"] = df_deb
-            try:
-                deb_save_df_to_db(df_deb, deb_db_path)
-                st.info(
-                    f"DB salvo em: {deb_db_path} (tabela 'debentures')."
-                )
-            except Exception as e:
-                st.warning(f"Não foi possível salvar o DB local: {e}")
-
-            st.success(
-                "Debêntures carregado: "
-                f"{df_deb.shape[0]} linhas × {df_deb.shape[1]} cols"
-            )
-            st.dataframe(df_deb, use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Erro ao carregar Debêntures: {e}")
-
-if st.session_state.get("df_debentures") is not None:
-    st.download_button(
-        label="Download Debêntures (CSV)",
-        data=df_to_csv_bytes(st.session_state["df_debentures"]),
-        file_name="debentures.csv",
-        mime="text/csv;charset=utf-8",
-    )
-
-# -------------------------------
-# Positions
-# -------------------------------
-
-st.header("Positions")
-use_all_portfolios_for_positions = st.toggle(
-    "Use all portfolios for positions", value=True
-)
-
-selected_ids: List[str] = []
-portfolios_loaded = st.session_state.get("df_portfolios") is not None
-
-if use_all_portfolios_for_positions:
-    if portfolios_loaded:
-        selected_ids = (
-            st.session_state["df_portfolios"]["id"]
-            .dropna()
-            .astype(str)
-            .tolist()
-        )
-        st.caption(f"Selected all portfolios: {len(selected_ids)}")
-    else:
-        st.info("Load portfolios first to use the 'all portfolios' option.")
-else:
-    if portfolios_loaded:
-        df_port = st.session_state["df_portfolios"]
-        st.caption("Select portfolios:")
-        options = (df_port["id"] + " | " + df_port["name"].fillna("")).tolist()
-        selected = st.multiselect("Portfolios", options=options)
-        selected_ids = [s.split(" | ", 1)[0] for s in selected]
-    else:
-        st.info("Load portfolios to select via UI, or paste IDs below.")
-
-    manual_ids = st.text_input(
-        "Or paste portfolio IDs (comma-separated)", value=""
-    )
-    if manual_ids.strip():
-        selected_ids += [s.strip() for s in manual_ids.split(",") if s.strip()]
-
-if st.button("Fetch positions for selected portfolios"):
-    if not selected_ids:
-        st.warning("No portfolio IDs selected.")
-    else:
-        errors: List[Tuple[str, str]] = []
-        dfs: List[pd.DataFrame] = []
-        progress = st.progress(0.0)
-        total = len(selected_ids)
-
-        for idx, pid in enumerate(selected_ids, start=1):
-            try:
-                rows = [
-                    flatten_position(pid, p)
-                    for p in client.list_positions(pid, ref_date_str)
-                ]
-                dfs.append(pd.DataFrame(rows))
-            except Exception as e:
-                errors.append((pid, str(e)))
-            finally:
-                progress.progress(min(idx / total, 1.0))
-
-        df_pos = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-        st.session_state["df_positions"] = df_pos
-        st.dataframe(df_pos, use_container_width=True)
-
-        if errors:
-            st.warning(
-                "Some portfolios failed while fetching positions:\n"
-                + "\n".join([f"- {pid}: {msg}" for pid, msg in errors])
-            )
-
-if st.session_state.get("df_positions") is not None:
-    st.download_button(
-        label="Download positions (CSV)",
-        data=df_to_csv_bytes(st.session_state["df_positions"]),
-        file_name="positions.csv",
-        mime="text/csv;charset=utf-8",
-    )
-
-# -------------------------------
-# Position Market Values
-# -------------------------------
-
-st.header("Position Market Values")
-use_all_portfolios_for_pmv = st.toggle(
-    "Use all portfolios for market values", value=True
-)
-
-pmv_selected_ids: List[str] = []
-if use_all_portfolios_for_pmv:
-    if portfolios_loaded:
-        pmv_selected_ids = (
-            st.session_state["df_portfolios"]["id"]
-            .dropna()
-            .astype(str)
-            .tolist()
-        )
-        st.caption(f"Selected all portfolios: {len(pmv_selected_ids)}")
-    else:
-        st.info("Load portfolios first to use the 'all portfolios' option.")
-else:
-    if portfolios_loaded:
-        df_port = st.session_state["df_portfolios"]
-        st.caption("Select portfolios (PMV):")
-        options_pmv = (
-            df_port["id"] + " | " + df_port["name"].fillna("")
-        ).tolist()
-        selected_pmv = st.multiselect(
-            "Portfolios (market values)", options=options_pmv, key="pmv_ms"
-        )
-        pmv_selected_ids = [s.split(" | ", 1)[0] for s in selected_pmv]
-
-    manual_pmv_ids = st.text_input(
-        "Or paste portfolio IDs for PMV (comma-separated)", value=""
-    )
-    if manual_pmv_ids.strip():
-        pmv_selected_ids += [
-            s.strip() for s in manual_pmv_ids.split(",") if s.strip()
-        ]
-
-if st.button("Fetch position market values"):
-    if not pmv_selected_ids:
-        st.warning("No portfolio IDs selected for market values.")
-    else:
-        # Ensure debentures df loaded (prefer local DB; fallback to download)
-        if st.session_state.get("df_debentures") is None:
-            deb_db_path_ss = st.session_state.get(
-                "deb_db_path", "df_debentures.db"
-            )
-            df_deb_local = deb_load_df_from_db(deb_db_path_ss)
-            if not df_deb_local.empty:
-                st.session_state["df_debentures"] = df_deb_local
-            else:
-                try:
-                    text, _, _ = deb_download_text(DEBENTURES_URL)
-                    df_deb_full = deb_parse_tsv_text_to_df(text)
-                    df_deb = deb_select_required_cols(df_deb_full)
-                    st.session_state["df_debentures"] = df_deb
-                    try:
-                        deb_save_df_to_db(df_deb, deb_db_path_ss)
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-
-        errors: List[Tuple[str, str]] = []
-        dfs: List[pd.DataFrame] = []
-        progress = st.progress(0.0)
-        total = len(pmv_selected_ids)
-
-        for idx, pid in enumerate(pmv_selected_ids, start=1):
-            try:
-                rows = [
-                    flatten_position_market_value(pid, it)
-                    for it in client.list_position_market_values(
-                        pid, ref_date_str
-                    )
-                ]
-                dfs.append(pd.DataFrame(rows))
-            except Exception as e:
-                errors.append((pid, str(e)))
-            finally:
-                progress.progress(min(idx / total, 1.0))
-
-        df_pmv = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-
-        if not df_pmv.empty:
-            # Map issuers if available
-            df_pmv = map_issuer_name_from_json(df_pmv, issuer_json_path)
-            # Debentures parsing (uses df_debentures loaded earlier)
-            df_pmv = add_debentures_parsed_cols(df_pmv)
-            # Other instrument families
-            df_pmv = add_cra_cri_parsed_cols(df_pmv)
-            df_pmv = add_cdb_lci_lca_parsed_cols(df_pmv)
-            df_pmv = add_treasury_local_parsed_cols(df_pmv)
-
-            # Normalize indexer values after enrichment
-            if "indexer" not in df_pmv.columns:
-                df_pmv["indexer"] = None
-            df_pmv["indexer"] = df_pmv["indexer"].apply(
-                _normalize_indexer_value
-            )
-
-            # Ensure broker_id / broker_name from raw if missing
-            df_pmv = ensure_broker_cols_from_raw(df_pmv)
-
-        st.session_state["df_position_market_values"] = df_pmv
-        st.dataframe(df_pmv, use_container_width=True)
-
-        if errors:
-            st.warning(
-                "Some portfolios failed while fetching PMV:\n"
-                + "\n".join([f"- {pid}: {msg}" for pid, msg in errors])
-            )
-
-if st.session_state.get("df_position_market_values") is not None:
-    st.download_button(
-        label="Download position market values (CSV)",
-        data=df_to_csv_bytes(st.session_state["df_position_market_values"]),
-        file_name="position_market_values.csv",
-        mime="text/csv;charset=utf-8",
-    )
-
-# -------------------------------
-# RUN ALL (end-to-end) + Save to DB
+# RUN ALL (end-to-end)
 # -------------------------------
 
 st.header("Run All")
@@ -1827,10 +1506,7 @@ st.caption(
     "Runs: Portfolios → Issuers → Brokers → Update Issuer JSON → "
     "Positions → PMV (for ALL portfolios using the selected reference date). "
     "Debentures are NOT downloaded; only current in-memory data is used. "
-    "After finishing, the results are saved into gorila_positions.db "
-    "under the given reference date. If date already exists, you'll be "
-    "asked to overwrite or keep the existing snapshot. A consolidated "
-    "Excel workbook is also available, with Issuers on a separate sheet "
+    "A consolidated Excel workbook is also available, with Issuers on a separate sheet "
     "(id and name)."
 )
 
@@ -1906,7 +1582,7 @@ if st.button("Run All", type="primary"):
             "Positions fetched: "
             f"{df_pos_all.shape[0]} rows from {len(all_ids)} portfolios"
         )
-        st.dataframe(df_pos_all, use_container_width=True)
+        
 
         if errors_pos:
             st.warning(
@@ -1968,7 +1644,10 @@ if st.button("Run All", type="primary"):
             "PMV fetched and enriched: "
             f"{df_pmv_all.shape[0]} rows from {len(all_ids)} portfolios"
         )
-        st.dataframe(df_pmv_all, use_container_width=True)
+
+        # Add Conta column based on portfolio_id and broker_id mapping
+        df_pmv_all = add_conta_column(df_pmv_all)
+        
 
         if errors_pmv:
             st.warning(
@@ -1976,79 +1655,28 @@ if st.button("Run All", type="primary"):
                 + "\n".join([f"- {pid}: {msg}" for pid, msg in errors_pmv])
             )
 
-        # Determine the effective reference date key for saving
-        ref_key = ref_date_str
-        if not ref_key:
-            try:
-                uniq = (
-                    df_pmv_all["reference_date"]
-                    .dropna()
-                    .astype(str)
-                    .unique()
-                    .tolist()
-                )
-            except Exception:
-                uniq = []
-            if len(uniq) == 1:
-                ref_key = uniq[0]
-            else:
-                st.warning(
-                    "Cannot determine a unique reference date to save. "
-                    "Enable 'Use reference date' above or ensure PMV has a "
-                    "single reference_date."
-                )
-                ref_key = None
-
-        if ref_key:
-            # Check existing snapshot
-            exists_pos = posdb_refdate_exists(
-                positions_db_path, "positions", ref_key
-            )
-            exists_pmv = posdb_refdate_exists(
-                positions_db_path, "pmv", ref_key
-            )
-            already_exists = exists_pos or exists_pmv
-
-            # Persist or prompt
-            if not already_exists:
-                with st.spinner(
-                    f"Saving snapshot to {positions_db_path} for {ref_key}..."
-                ):
-                    posdb_save_all(
-                        positions_db_path,
-                        df_pos_all,
-                        df_pmv_all,
-                        ref_key,
-                        overwrite=False,
-                    )
-                st.success(
-                    f"Snapshot saved to {positions_db_path} "
-                    f"(date={ref_key})."
-                )
-            else:
-                st.session_state["posdb_prompt"] = True
-                st.session_state["posdb_ref_date"] = ref_key
-                st.session_state["posdb_db_path"] = positions_db_path
-                st.session_state["posdb_df_pos"] = df_pos_all
-                st.session_state["posdb_df_pmv"] = df_pmv_all
-
-                old_pos = posdb_count_for_date(
-                    positions_db_path, "positions", ref_key
-                )
-                old_pmv = posdb_count_for_date(
-                    positions_db_path, "pmv", ref_key
-                )
-                st.warning(
-                    f"A snapshot for {ref_key} already exists in "
-                    f"{positions_db_path}.\n"
-                    f"Existing rows: positions={old_pos}, pmv={old_pmv}.\n"
-                    "Choose below to Overwrite or Keep the old snapshot."
-                )
-
         # CSV (PMV) and consolidated XLSX workbook
+        # Filter PMV columns for CSV export
+        pmv_csv_columns = [
+            "portfolio_id",
+            "reference_date",
+            "security_type",
+            "asset_class",
+            "price_currency",
+            "market_value_amount",
+            "broker_id",
+            "broker_name",
+            "parsed_bond_type",
+            "indexer",
+            "parsed_company_name",
+            "parsed_maturity_date",
+            "Conta",
+        ]
+        df_pmv_for_csv = df_pmv_all[[col for col in pmv_csv_columns if col in df_pmv_all.columns]]
+
         st.download_button(
             label="Download PMV (CSV) - Run All",
-            data=df_to_csv_bytes(df_pmv_all),
+            data=df_to_csv_bytes(df_pmv_for_csv),
             file_name="position_market_values.csv",
             mime="text/csv;charset=utf-8",
         )
@@ -2079,72 +1707,3 @@ if st.button("Run All", type="primary"):
 
     except Exception as e:
         st.error(f"Run All failed: {e}")
-
-# -------------------------------
-# Overwrite/Keep prompt handler
-# -------------------------------
-
-if st.session_state.get("posdb_prompt"):
-    ref_key = st.session_state.get("posdb_ref_date")
-    db_path = st.session_state.get("posdb_db_path")
-    df_pos_all = st.session_state.get("posdb_df_pos")
-    df_pmv_all = st.session_state.get("posdb_df_pmv")
-
-    st.subheader("Existing snapshot detected")
-    st.info(
-        f"Reference date: {ref_key} | DB: {db_path}\n"
-        f"New data rows: positions="
-        f"{0 if df_pos_all is None else df_pos_all.shape[0]}, "
-        f"pmv={0 if df_pmv_all is None else df_pmv_all.shape[0]}"
-    )
-
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button(
-            f"Overwrite existing snapshot for {ref_key}",
-            key="btn_posdb_overwrite",
-            type="primary",
-        ):
-            try:
-                with st.spinner(
-                    f"Overwriting snapshot ({ref_key}) in {db_path}..."
-                ):
-                    posdb_save_all(
-                        db_path,
-                        df_pos_all,
-                        df_pmv_all,
-                        ref_key,
-                        overwrite=True,
-                    )
-                st.success(
-                    f"Snapshot overwritten for {ref_key} in {db_path}."
-                )
-            except Exception as e:
-                st.error(f"Failed to overwrite snapshot: {e}")
-            finally:
-                for k in [
-                    "posdb_prompt",
-                    "posdb_ref_date",
-                    "posdb_db_path",
-                    "posdb_df_pos",
-                    "posdb_df_pmv",
-                ]:
-                    st.session_state.pop(k, None)
-
-    with c2:
-        if st.button(
-            "Keep existing snapshot (do not save new one)",
-            key="btn_posdb_keep",
-        ):
-            st.info(
-                f"Keeping existing snapshot for {ref_key}. "
-                "New data was not saved."
-            )
-            for k in [
-                "posdb_prompt",
-                "posdb_ref_date",
-                "posdb_db_path",
-                "posdb_df_pos",
-                "posdb_df_pmv",
-            ]:
-                st.session_state.pop(k, None)

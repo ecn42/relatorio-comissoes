@@ -3,6 +3,7 @@ import re
 from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
+from pandas.io.formats.style import Styler
 import streamlit as st
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -704,7 +705,7 @@ def style_table(
     first_col_pct: float,
     subheader_extra: Optional[List[str]] = None,
     top_blacklist: Optional[List[str]] = None,
-) -> pd.io.formats.style.Styler:
+) -> Styler:
     zebra_bg_css = hex_to_rgba_str(zebra_hex, zebra_alpha)
     subsection_bg_css = hex_to_rgba_str(TITLE_COLOR, SECTION_LIGHT_ALPHA)
 
