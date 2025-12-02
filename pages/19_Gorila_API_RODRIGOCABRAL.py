@@ -56,6 +56,18 @@ PORTFOLIO_BROKER_CONTA_MAP = {
 }
 
 
+# Asset Class Mapping
+ASSET_CLASS_MAP = {
+    "FIXED_INCOME": "Renda Fixa",
+    "MULTIMARKET": "Multimercado",
+    "STOCKS": "Renda Variável",
+    "OFFSHORE": "Offshore",
+    "CASH": "Caixa",
+    "TANGIBLE": "Imobiliário",
+    "CURRENCY": "Outros",
+}
+
+
 def add_conta_column(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add 'Conta' column to dataframe by matching portfolio_id and broker_id.
@@ -1648,6 +1660,12 @@ if st.button("Run All", type="primary"):
         # Add Conta column based on portfolio_id and broker_id mapping
         df_pmv_all = add_conta_column(df_pmv_all)
         
+        # Map asset_class values to Portuguese names
+        if "asset_class" in df_pmv_all.columns:
+            df_pmv_all["asset_class"] = df_pmv_all["asset_class"].map(
+                lambda x: ASSET_CLASS_MAP.get(x, x) if pd.notna(x) else x
+            )
+        
 
         if errors_pmv:
             st.warning(
@@ -1678,6 +1696,15 @@ if st.button("Run All", type="primary"):
             label="Download PMV (CSV) - Run All",
             data=df_to_csv_bytes(df_pmv_for_csv),
             file_name="position_market_values.csv",
+            mime="text/csv;charset=utf-8",
+        )
+
+        # Download CSV without BTG PACTUAL DTVM
+        df_pmv_sem_btg = df_pmv_for_csv[df_pmv_for_csv.get("broker_name", "") != "BTG PACTUAL DTVM"]
+        st.download_button(
+            label="Download CSV sem BTG",
+            data=df_to_csv_bytes(df_pmv_sem_btg),
+            file_name="position_market_values_sem_btg.csv",
             mime="text/csv;charset=utf-8",
         )
 
