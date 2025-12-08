@@ -106,3 +106,4 @@ great_tables
 pillow
 python-pptx
 python-dotenv
+playwright

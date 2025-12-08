@@ -291,24 +291,109 @@ def get_alloc_donut(df_blc: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_top_positions(df_blc: pd.DataFrame) -> pd.DataFrame:
+    """
+    TOP 10 posições:
+    - First column uses TP_APLIC (if missing, falls back to TP_ATIVO).
+    - Second column (EMISSOR) is chosen by TP_* rules:
+        DS_ATIVO for:
+          AÇÃO ORDINÁRIA, AÇÃO PREFERENCIAL, BDR NÃO PATROCINADO, BDR NÍVEL I,
+          BDR NÍVEL II, BDR NÍVEL III, CERTIFICADO DE DEPÓSITO DE AÇÕES,
+          CONTRATO FUTURO, OPÇÃO DE COMPRA, OPÇÃO DE VENDA, OUTROS
+        NM_FUNDO_CLASSE_SUBCLASSE_COTA for:
+          FI IMOBILIÁRIO, FIDC, FUNDOS DE INVESTIMENTO E DE COTAS
+        FUNDOS DE ÍNDICE: prefer DS_ATIVO; else NM_FUNDO_CLASSE_SUBCLASSE_COTA.
+      - For TP_* not on the list: use EMISSOR; if missing, fallback to DS_ATIVO.
+    Returns columns ["TP_APLIC", "EMISSOR", "PCT"].
+    """
     if df_blc.empty or "PCT_CARTEIRA" not in df_blc.columns:
-        return pd.DataFrame(columns=["ATIVO", "EMISSOR", "PCT"])
+        return pd.DataFrame(columns=["TP_APLIC", "EMISSOR", "PCT"])
+
     work = df_blc.copy()
-    if "EMISSOR" not in work.columns:
-        work["EMISSOR"] = work.get("EMISSOR_LIGADO", "N/A")
-    if "TP_ATIVO" not in work.columns:
+
+    # Ensure grouping and rules columns exist
+    if "TP_APLIC" not in work.columns and "TP_ATIVO" not in work.columns:
+        work["TP_APLIC"] = "N/A"
         work["TP_ATIVO"] = "N/A"
-    work["PCT"] = work["PCT_CARTEIRA"]
+    elif "TP_APLIC" not in work.columns:
+        work["TP_APLIC"] = work.get("TP_ATIVO", "N/A")
+    elif "TP_ATIVO" not in work.columns:
+        work["TP_ATIVO"] = work.get("TP_APLIC", "N/A")
+
+    work["PCT"] = pd.to_numeric(work["PCT_CARTEIRA"], errors="coerce").fillna(0.0)
+
+    # Sets to drive the source of the "name" (2nd column)
+    ds_types = {
+        "AÇÃO ORDINÁRIA",
+        "AÇÃO PREFERENCIAL",
+        "BDR NÃO PATROCINADO",
+        "BDR NÍVEL I",
+        "BDR NÍVEL II",
+        "BDR NÍVEL III",
+        "CERTIFICADO DE DEPÓSITO DE AÇÕES",
+        "CONTRATO FUTURO",
+        "OPÇÃO DE COMPRA",
+        "OPÇÃO DE VENDA",
+        "OUTROS",
+    }
+    nm_types = {
+        "FI IMOBILIÁRIO",
+        "FIDC",
+        "FUNDO DE INVESTIMENTO E DE COTAS",
+    }
+    special_fundos_indice = "FUNDOS DE ÍNDICE"
+
+    def _has_value(v: object) -> bool:
+        return (v is not None) and (not pd.isna(v)) and (str(v).strip() != "")
+
+    # Use TP_ATIVO for deciding the source column; if absent, fallback to TP_APLIC
+    rules_col = "TP_ATIVO" if "TP_ATIVO" in work.columns else "TP_APLIC"
+
+    def _pick_name(row: pd.Series) -> str:
+        tp_raw = row.get(rules_col, "")
+        tp = ("" if pd.isna(tp_raw) else str(tp_raw)).upper().strip()
+
+        ds = row.get("DS_ATIVO", None)
+        nm = row.get("NM_FUNDO_CLASSE_SUBCLASSE_COTA", None)
+
+        em = row.get("EMISSOR", None)
+        if not _has_value(em):
+            em = row.get("EMISSOR_LIGADO", em)
+
+        if tp in ds_types:
+            return str(ds).strip() if _has_value(ds) else (
+                str(em).strip() if _has_value(em) else "N/A"
+            )
+        if tp in nm_types:
+            return str(nm).strip() if _has_value(nm) else (
+                str(em).strip() if _has_value(em) else "N/A"
+            )
+        if tp == special_fundos_indice:
+            if _has_value(ds):
+                return str(ds).strip()
+            if _has_value(nm):
+                return str(nm).strip()
+            return str(em).strip() if _has_value(em) else "N/A"
+
+        # Default: use EMISSOR; if missing, fallback to DS_ATIVO
+        if _has_value(em):
+            return str(em).strip()
+        return str(ds).strip() if _has_value(ds) else "N/A"
+
+    # Construct display "EMISSOR" per rules above
+    work["EMISSOR"] = work.apply(_pick_name, axis=1)
+
+    group_col = "TP_APLIC" if "TP_APLIC" in work.columns else "TP_ATIVO"
+
     grp = (
-        work.groupby(["TP_ATIVO", "EMISSOR"])["PCT"]
+        work.groupby([group_col, "EMISSOR"], as_index=False)["PCT"]
         .sum()
-        .reset_index()
         .sort_values("PCT", ascending=False)
         .head(10)
     )
-    grp = grp.rename(columns={"TP_ATIVO": "ATIVO"})
-    return grp.reset_index(drop=True)
 
+    # Ensure first column is named TP_APLIC in the output
+    grp = grp.rename(columns={group_col: "TP_APLIC"})
+    return grp.reset_index(drop=True)
 
 def load_blc_snapshot(conn_path: str, cnpj: str) -> Tuple[pd.DataFrame, str, str]:
     conn = ensure_conn(conn_path)

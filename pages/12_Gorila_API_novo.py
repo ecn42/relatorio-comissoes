@@ -333,6 +333,7 @@ def dataframes_to_excel_bytes(sheets: Dict[str, pd.DataFrame]) -> bytes:
     Build an XLSX workbook with multiple sheets.
     Ensures 'issuers' sheet has only id and name.
     """
+
     def _prep_df(name: str, df_in: pd.DataFrame) -> pd.DataFrame:
         if df_in is None or df_in.empty:
             return pd.DataFrame()
@@ -717,7 +718,9 @@ def add_cra_cri_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
         return df2
 
     sec_names = df2.loc[mask, "security_name"].astype("object")
-    fallback_names = df2.loc[mask, "raw"].apply(_extract_security_name_from_raw)
+    fallback_names = df2.loc[mask, "raw"].apply(
+        _extract_security_name_from_raw
+    )
     sec_names = sec_names.where(
         sec_names.notna() & (sec_names.str.strip() != ""), fallback_names
     )
@@ -838,12 +841,38 @@ def add_cdb_lci_lca_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
     }
     df2.loc[mask, "parsed_bond_type"] = stype.map(type_map)
 
-    broker_names = df2.loc[mask, "raw"].apply(_extract_broker_name_from_raw)
-    df2.loc[mask, "parsed_company_name"] = broker_names
-
-    descs = df2.loc[mask, "raw"].apply(
-        _extract_security_description_from_raw
+    # parsed_company_name should be the issuer for CDB, LCI, LCA.
+    # Use issuer_name_from_json if available; fallback to broker name.
+    mask_cdb_lci_lca = stype.isin(
+        [
+            "CORPORATE_BONDS_CDB",
+            "CORPORATE_BONDS_LCI",
+            "CORPORATE_BONDS_LCA",
+        ]
     )
+    issuer_names = df2.get(
+        "issuer_name_from_json",
+        pd.Series(index=df2.index, dtype="object"),
+    )
+    issuer_sel = issuer_names.loc[mask_cdb_lci_lca].astype("object")
+    fallback_broker = df2.loc[mask_cdb_lci_lca, "raw"].apply(
+        _extract_broker_name_from_raw
+    )
+    issuer_or_broker = issuer_sel.where(
+        issuer_sel.notna() & (issuer_sel.astype(str).str.strip() != ""),
+        fallback_broker,
+    )
+    df2.loc[mask_cdb_lci_lca, "parsed_company_name"] = issuer_or_broker
+
+    # For remaining types (LIG/LCD/LC), keep the old broker-based behavior
+    mask_other = mask & (~mask_cdb_lci_lca)
+    if mask_other.any():
+        broker_names_other = df2.loc[mask_other, "raw"].apply(
+            _extract_broker_name_from_raw
+        )
+        df2.loc[mask_other, "parsed_company_name"] = broker_names_other
+
+    descs = df2.loc[mask, "raw"].apply(_extract_security_description_from_raw)
     maturity_tokens = descs.apply(_last_ddmmyyyy_from_text)
     df2.loc[mask, "parsed_maturity"] = maturity_tokens
     df2.loc[mask, "parsed_maturity_date"] = maturity_tokens.apply(
@@ -851,7 +880,9 @@ def add_cdb_lci_lca_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     sec_names = df2.loc[mask, "security_name"].astype("object")
-    fallback_names = df2.loc[mask, "raw"].apply(_extract_security_name_from_raw)
+    fallback_names = df2.loc[mask, "raw"].apply(
+        _extract_security_name_from_raw
+    )
     sec_names = sec_names.where(
         sec_names.notna() & (sec_names.str.strip() != ""), fallback_names
     )
@@ -923,7 +954,9 @@ def add_treasury_local_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
         return df2
 
     sec_names = df2.loc[mask, "security_name"].astype("object")
-    fallback_names = df2.loc[mask, "raw"].apply(_extract_security_name_from_raw)
+    fallback_names = df2.loc[mask, "raw"].apply(
+        _extract_security_name_from_raw
+    )
     sec_names = sec_names.where(
         sec_names.notna() & (sec_names.str.strip() != ""), fallback_names
     )
@@ -1186,7 +1219,9 @@ def add_debentures_parsed_cols(df: pd.DataFrame) -> pd.DataFrame:
     isin_to_indice = deb_isin["indice"].to_dict()
 
     sec_names = df2.loc[mask, "security_name"].astype("object")
-    fallback_names = df2.loc[mask, "raw"].apply(_extract_security_name_from_raw)
+    fallback_names = df2.loc[mask, "raw"].apply(
+        _extract_security_name_from_raw
+    )
     sec_names = sec_names.where(
         sec_names.notna() & (sec_names.str.strip() != ""), fallback_names
     )
@@ -1376,13 +1411,21 @@ def posdb_save_all(
             posdb_delete_date(conn, "pmv", ref_date)
 
         if df_pos is not None and not df_pos.empty:
-            df_pos.to_sql(
-                "positions", conn, if_exists="append", index=False
-            )
+            df_pos.to_sql("positions", conn, if_exists="append", index=False)
             posdb_ensure_index(conn, "positions", "reference_date")
 
         if df_pmv is not None and not df_pmv.empty:
-            df_pmv.to_sql("pmv", conn, if_exists="append", index=False)
+            # Keep DB schema unchanged: drop UI-only columns not present
+            # in the current pmv table (e.g., broker_id, broker_name).
+            cols_to_drop = [
+                c
+                for c in ["broker_id", "broker_name"]
+                if c in df_pmv.columns
+            ]
+            df_pmv_db = (
+                df_pmv.drop(columns=cols_to_drop) if cols_to_drop else df_pmv
+            )
+            df_pmv_db.to_sql("pmv", conn, if_exists="append", index=False)
             posdb_ensure_index(conn, "pmv", "reference_date")
 
 
@@ -1404,18 +1447,14 @@ with st.sidebar:
     if not api_key and local_key_input:
         api_key = local_key_input
 
-    base_url = st.text_input(
-        "Base URL", value="https://core.gorila.com.br"
-    )
+    base_url = st.text_input("Base URL", value="https://core.gorila.com.br")
 
-    issuer_json_path = st.text_input(
-        "Issuer JSON path", value="issuers.json"
-    )
+    issuer_json_path = st.text_input("Issuer JSON path", value="issuers.json")
 
     positions_db_path = st.text_input(
         "Positions DB path",
         value="gorila_positions.db",
-        help="Where to store positions/PMV snapshots per reference date.",
+        help=("Where to store positions/PMV snapshots per reference date."),
     )
 
 if not api_key:
@@ -1487,8 +1526,8 @@ with cols_iss[1]:
             df_iss_curr = st.session_state["df_issuers"]
 
             df_min = df_iss_curr[["id", "name"]].copy()
-            exist_cnt, added_cnt, final_cnt = (
-                update_issuer_json_from_df(issuer_json_path, df_min)
+            exist_cnt, added_cnt, final_cnt = update_issuer_json_from_df(
+                issuer_json_path, df_min
             )
             st.success(
                 f"Issuer JSON updated. Existing={exist_cnt}, "
@@ -1593,9 +1632,7 @@ with cols_deb[1]:
             st.session_state["df_debentures"] = df_deb
             try:
                 deb_save_df_to_db(df_deb, deb_db_path)
-                st.info(
-                    f"DB salvo em: {deb_db_path} (tabela 'debentures')."
-                )
+                st.info(f"DB salvo em: {deb_db_path} (tabela 'debentures').")
             except Exception as e:
                 st.warning(f"Não foi possível salvar o DB local: {e}")
 
@@ -1885,9 +1922,7 @@ if st.button("Run All", type="primary"):
                 try:
                     rows = [
                         flatten_position(pid, p)
-                        for p in client.list_positions(
-                            pid, ref_date_str
-                        )
+                        for p in client.list_positions(pid, ref_date_str)
                     ]
                     dfs_pos.append(pd.DataFrame(rows))
                 except Exception as e:
@@ -2004,9 +2039,7 @@ if st.button("Run All", type="primary"):
             exists_pos = posdb_refdate_exists(
                 positions_db_path, "positions", ref_key
             )
-            exists_pmv = posdb_refdate_exists(
-                positions_db_path, "pmv", ref_key
-            )
+            exists_pmv = posdb_refdate_exists(positions_db_path, "pmv", ref_key)
             already_exists = exists_pos or exists_pmv
 
             # Persist or prompt

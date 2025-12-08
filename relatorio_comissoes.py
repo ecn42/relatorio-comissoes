@@ -153,6 +153,12 @@ pages = {
             title="4. Gerar Excel One Pager",
             icon=":material/description:",
         ),
+
+        st.Page(
+            "pages/20_TESTE_ONEPAGER_HTML.py",
+            title="5. Gerar HTML/PDF",
+            icon=":material/html:",
+        )
     ],
     "Formatação": [
         st.Page(
@@ -201,7 +207,9 @@ pages = {
             "pages/19_Gorila_API_RODRIGOCABRAL.py",
             title="Dados API - Rodrigo Cabral",
             icon=":material/api:",
-        )
+        ),
+        
+
     ],
 }
 

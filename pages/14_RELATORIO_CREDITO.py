@@ -34,6 +34,15 @@
 #     (fit to A4).
 #   • Country exposure: charts removed; use table in dashboard and report.
 #   • Added CSV downloads for PL and PL em Renda Fixa (European format).
+#
+# - Customization (Dec/2025):
+#   • Exclude Instituições S1 da análise de concentração (mas manter no PL em
+#     Renda Fixa)
+#   • Gráfico (Relatório): % do PL em Renda Fixa alocado em Risco Soberano e
+#     Instituições S1 — formato BARRA
+#   • Removido Stress Testing (seção)
+#   • Adicionadas seções 1 (Objetivo) e 2 (Metodologia) no início do relatório
+#   • Tabelas do relatório centralizadas (não ocupar 100% da largura)
 
 import base64
 import json
@@ -46,6 +55,7 @@ from io import BytesIO
 from contextlib import closing
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
+import unicodedata  # Para matching acento-insensível das S1
 
 import numpy as np
 import pandas as pd
@@ -53,11 +63,11 @@ import plotly.express as px
 import streamlit as st
 from jinja2 import Template
 
-# Matplotlib for static donuts in report (robust for Word/PDF)
+# Matplotlib para imagens estáticas no relatório (robusto para Word/PDF)
 try:
     import matplotlib
 
-    matplotlib.use("Agg")  # headless backend for servers
+    matplotlib.use("Agg")  # backend headless
     import matplotlib.pyplot as plt
 
     HAS_MPL = True
@@ -65,7 +75,7 @@ except Exception:
     HAS_MPL = False
 
 try:
-    import pdfkit  # Optional (wkhtmltopdf must be installed)
+    import pdfkit  # Opcional (wkhtmltopdf deve estar instalado)
 
     HAS_PDFKIT = True
 except Exception:
@@ -79,7 +89,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Simple Authentication
+# Autenticação simples
 if not st.session_state.get("authenticated", False):
     st.warning("Please enter the password on the Home page first.")
     st.write("Status: Não Autenticado")
@@ -122,7 +132,7 @@ PUBLIC_BOND_TYPES = {
     "TREASURY_LOCAL_LTN",
 }
 
-# Security-type aliases/tokens that denote funds in different datasets
+# Tipos que denotam fundos
 FUND_TYPES = {"FUNDQUOTE"}
 FUND_TYPE_ALIASES = {
     "FUND",
@@ -134,8 +144,6 @@ FUND_TYPE_ALIASES = {
     "FUND_UNITS",
     "FUND_UNITHOLDING",
 }
-
-# Tokens to detect funds in asset class/category strings or names
 FUND_TOKENS = {
     "FUND",
     "FUNDO",
@@ -153,16 +161,51 @@ FUND_TOKENS = {
 
 IGNORE_IN_LIMITS_AS_TESOURO = {"TESOURO NACIONAL"}
 
-# Default policy thresholds (editable in sidebar)
+# NEW: Lista S1 (em CAIXA ALTA, conforme solicitado)
+S1_Institutions = {
+    "BANCO SANTANDER (BRASIL)",
+    "CAIXA ECONOMICA FEDERAL",
+    "ITAU UNIBANCO",
+    "BANCO BTG PACTUAL",
+    "BTG PACTUAL DTVM",
+    "BCO BTG PACTUAL",
+}
+# Alias em CAIXA ALTA
+S1_INSTITUTIONS = set(S1_Institutions)
+
+
+def _normalize_no_accents_upper(s: Optional[str]) -> str:
+    if s is None:
+        return ""
+    s = str(s)
+    norm = unicodedata.normalize("NFKD", s)
+    no_acc = "".join(c for c in norm if not unicodedata.combining(c))
+    return no_acc.upper().strip()
+
+
+S1_TOKENS_NORM = {_normalize_no_accents_upper(x) for x in S1_INSTITUTIONS}
+
+
+def is_s1_from_parsed_company(name: Optional[str]) -> bool:
+    if not isinstance(name, str) or not name.strip():
+        return False
+    u = _normalize_no_accents_upper(name)
+    for tok in S1_TOKENS_NORM:
+        if tok in u:
+            return True
+    return False
+
+
+# Limites padrão (editáveis)
 DEFAULT_LIMITS = {
-    "max_single_issuer": 0.05,
-    "max_top10_issuers": 0.25,
+    "max_single_issuer": 0.15,
+    "max_top10_issuers": 0.50,
     "max_prefixed": 0.10,
-    "max_maturity_over_3y": 0.45,
+    "max_maturity_over_5y": 0.45,  # > 5 anos
     "min_sovereign_or_aaa": 0.80,
 }
 
-# ---------------------------- Color Palette ---------------------------- #
+# ---------------------------- Paleta de Cores ---------------------------- #
 
 PALETA_CORES = [
     "#013220",
@@ -179,10 +222,7 @@ PALETA_CORES = [
 
 def read_portfolio_csv(uploaded_file) -> pd.DataFrame:
     """
-    Robust reader for pipe-like CSV:
-    - Detects delimiter, fallback '|' if needed.
-    - Drops empty edge columns.
-    - Strips columns names.
+    Leitor robusto para CSV com delimitador variável.
     """
     if uploaded_file is None:
         return pd.DataFrame()
@@ -244,7 +284,7 @@ def _sqlite_table_columns(conn: sqlite3.Connection, table: str) -> List[str]:
 
 def detect_tables_with_reference_date(conn: sqlite3.Connection) -> List[str]:
     """
-    Returns tables that contain a 'reference_date' column (case-insensitive).
+    Retorna tabelas com coluna 'reference_date'.
     """
     tables = _sqlite_list_tables(conn)
     out = []
@@ -255,11 +295,9 @@ def detect_tables_with_reference_date(conn: sqlite3.Connection) -> List[str]:
     return out
 
 
-def list_unique_reference_dates(
-    conn: sqlite3.Connection, table: str
-) -> List[str]:
+def list_unique_reference_dates(conn: sqlite3.Connection, table: str) -> List[str]:
     """
-    Returns the raw distinct reference_date values from the table.
+    Retorna valores distintos de reference_date.
     """
     q = f"""
         SELECT DISTINCT reference_date
@@ -284,7 +322,7 @@ def list_unique_reference_dates(
 
 def read_positions_from_db_path(db_path: str, table: str) -> pd.DataFrame:
     """
-    Reads entire table from a local SQLite DB into a DataFrame.
+    Lê tabela do SQLite para DataFrame.
     """
     with sqlite3.connect(db_path) as conn:
         df = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
@@ -341,8 +379,7 @@ def to_date_safe(x: str) -> Optional[datetime]:
         except Exception:
             pass
     m2 = re.search(
-        r"\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[/ -](\d{2,4})\b",
-        s.lower(),
+        r"\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[/ -](\d{2,4})\b", s.lower()
     )
     if m2:
         mon_txt = m2.group(1)
@@ -414,7 +451,7 @@ def _normalize_text_for_fund_detection(s: str) -> str:
 
 def is_fund_row(row: pd.Series) -> bool:
     """
-    Heuristics to classify funds.
+    Heurísticas para classificar fundos.
     """
     t = _normalize_text_for_fund_detection(row.get("security_type", ""))
     if t in FUND_TYPES or t in FUND_TYPE_ALIASES:
@@ -504,9 +541,7 @@ def indexer_bucket(row: pd.Series) -> str:
 
 
 def parse_maturity(row: pd.Series) -> Optional[datetime]:
-    mtxt = first_nonempty(
-        row.get("parsed_maturity_date"), row.get("parsed_maturity")
-    )
+    mtxt = first_nonempty(row.get("parsed_maturity_date"), row.get("parsed_maturity"))
     d = to_date_safe(mtxt) if mtxt else None
     if d:
         return d
@@ -612,8 +647,7 @@ def currency_from_row(row: pd.Series) -> str:
 
 def country_from_row(row: pd.Series) -> str:
     """
-    Country risk is sourced EXCLUSIVELY and DIRECTLY from 'country_risk'.
-    No normalization, no fallback.
+    País de risco vem EXCLUSIVAMENTE de 'country_risk'.
     """
     return row.get("country_risk")
 
@@ -640,13 +674,9 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         df["security_description"] = sec.apply(lambda s: s.get("description"))
         df["security_currency"] = sec.apply(lambda s: s.get("currency"))
         df["security_type_raw"] = sec.apply(lambda s: s.get("type"))
-        df["security_asset_class_raw"] = sec.apply(
-            lambda s: s.get("assetClass")
-        )
+        df["security_asset_class_raw"] = sec.apply(lambda s: s.get("assetClass"))
         df["security_issuer_raw"] = sec.apply(lambda s: s.get("issuer"))
-        df["security_market_value_raw"] = sec.apply(
-            lambda s: s.get("marketValue")
-        )
+        df["security_market_value_raw"] = sec.apply(lambda s: s.get("marketValue"))
 
     if "security_type" not in df.columns:
         if "security_type_raw" in df.columns:
@@ -663,11 +693,15 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df["indexer_bucket"] = df.apply(indexer_bucket, axis=1)
     df["maturity_date"] = df.apply(parse_maturity, axis=1)
 
+    # Garantir parsed_company_name
+    if "parsed_company_name" not in df.columns:
+        df["parsed_company_name"] = None
+
     issuers = df.apply(issuer_from_row, axis=1, result_type="expand")
     df["issuer_cnpj"] = issuers[0]
     df["issuer_name_norm"] = issuers[1].fillna("DESCONHECIDO")
 
-    # Reference date: ONLY from 'reference_date' column
+    # reference_date exclusivamente
     if "reference_date" in df.columns:
         df["reference_dt"] = df["reference_date"].apply(to_date_safe)
     else:
@@ -675,12 +709,12 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     df = assign_market_value(df)
 
-    # Flags (fund, credit, treasury) — fund overrides credit/treasury
+    # Flags
     df["is_fund"] = df.apply(is_fund_row, axis=1)
     df["is_credit"] = df.apply(is_credit_row, axis=1)
     df["is_treasury"] = df.apply(is_treasury_row, axis=1)
 
-    # Issuer bucket for concentration: prefer parsed_company_name, fallback
+    # Bucket emissor
     def issuer_bucket_name(row: pd.Series) -> str:
         if bool(row.get("is_treasury", False)):
             return "TESOURO NACIONAL"
@@ -691,11 +725,11 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     df["issuer_bucket"] = df.apply(issuer_bucket_name, axis=1)
 
-    # Currency and Country buckets
+    # Moeda e País
     df["currency_code"] = df.apply(currency_from_row, axis=1)
     df["country_bucket"] = df.apply(country_from_row, axis=1)
 
-    # Fund bucket (name) for dashboard
+    # Bucket de fundo (nome)
     def fund_bucket_name(row: pd.Series) -> Optional[str]:
         if not bool(row.get("is_fund", False)):
             return None
@@ -714,6 +748,10 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     df["fund_bucket"] = df.apply(fund_bucket_name, axis=1)
+
+    # NEW: Flag S1 via parsed_company_name
+    df["is_s1"] = df["parsed_company_name"].apply(is_s1_from_parsed_company)
+
     return df
 
 
@@ -728,8 +766,6 @@ def compute_sovereign_or_aaa_share(
 ) -> Tuple[float, pd.DataFrame]:
     """
     Share de Soberano/AAA relativo a denom_total.
-    Soberano: issuer_bucket == TESOURO NACIONAL.
-    AAA: via ratings_map (issuer_cnpj/issuer_name).
     """
     if denom_total <= 0:
         return 0.0, pd.DataFrame()
@@ -783,15 +819,12 @@ def compute_concentration_by_bucket(
 ) -> Dict[str, object]:
     """
     Concentração por bucket (ex.: emissor via parsed_company_name),
-    excluindo nomes no exclude_set (ex.: Tesouro).
-    Retorna shares e tabela agregada.
+    excluindo nomes no exclude_set (ex.: Tesouro, S1).
     """
     if exclude_set is None:
         exclude_set = set()
     ex = df_subset.loc[~df_subset[bucket_col].isin(exclude_set)].copy()
-    by = ex.groupby(bucket_col, dropna=False)["mv"].sum().sort_values(
-        ascending=False
-    )
+    by = ex.groupby(bucket_col, dropna=False)["mv"].sum().sort_values(ascending=False)
     largest_mv = float(by.iloc[0]) if len(by) > 0 else 0.0
     top10_mv = float(by.head(10).sum()) if len(by) > 0 else 0.0
     largest_share = pct(largest_mv, denom_total)
@@ -817,19 +850,20 @@ def compute_factor_risk_shares(
     return out
 
 
-def compute_maturity_share_over_3y(
+def compute_maturity_share_over_5y(
     credit_df: pd.DataFrame, ref_date: datetime, denom_total: float
 ) -> Tuple[float, pd.DataFrame]:
-    three_years = ref_date + timedelta(days=int(365.25 * 3))
+    """
+    Share de vencimentos > 5 anos relativo a denom_total (crédito privado).
+    """
+    five_years = ref_date + timedelta(days=int(365.25 * 5))
     if credit_df.empty:
         return 0.0, credit_df
     tmp = credit_df.copy()
-    tmp["over_3y"] = tmp["maturity_date"].map(
-        lambda d: d is not None and d > three_years
-    )
-    over_mv = tmp.loc[tmp["over_3y"], "mv"].sum()
+    tmp["over_5y"] = tmp["maturity_date"].map(lambda d: d is not None and d > five_years)
+    over_mv = tmp.loc[tmp["over_5y"], "mv"].sum()
     share = pct(over_mv, denom_total)
-    return share, tmp[["issuer_bucket", "maturity_date", "mv", "over_3y"]]
+    return share, tmp[["issuer_bucket", "maturity_date", "mv", "over_5y"]]
 
 
 def maturity_bucket_for_date(
@@ -857,8 +891,6 @@ def compute_maturity_buckets_exposure(
 ) -> pd.DataFrame:
     """
     Buckets de vencimento para crédito: <1, <3, <5, +5.
-    Retorna DF com colunas:
-    bucket, mv_credit, share_base, share_pl
     """
     if credit_df.empty:
         data = {
@@ -888,15 +920,6 @@ def compute_maturity_buckets_exposure(
     return out
 
 
-def stress_loss_pct(
-    df_credit: pd.DataFrame, denom_total: float, pd_shock: float, lgd: float
-) -> float:
-    if denom_total <= 0:
-        return 0.0
-    credit_ead = df_credit["mv"].sum()
-    return pct(credit_ead, denom_total) * pd_shock * lgd
-
-
 def status_tag(ok: bool) -> str:
     return "em conformidade" if ok else "fora do limite"
 
@@ -909,18 +932,13 @@ def exposure_table_by_bucket(
     bucket_col: str,
 ) -> pd.DataFrame:
     """
-    Produz tabela de exposição por bucket para PL e PL em Renda Fixa.
-    Retorna DataFrame com colunas:
-    [bucket, mv_base, share_base, mv_pl, share_pl]
-    Ordenado por share_base desc.
+    Exposição por bucket para PL e PL em Renda Fixa.
     """
     base = df_base.groupby(bucket_col, dropna=False)["mv"].sum().rename("mv_base")
     pl = df_pl.groupby(bucket_col, dropna=False)["mv"].sum().rename("mv_pl")
     exp = pd.concat([base, pl], axis=1).fillna(0.0).reset_index()
     exp.columns = [bucket_col, "mv_base", "mv_pl"]
-    exp["share_base"] = exp["mv_base"].apply(
-        lambda v: pct(float(v), float(base_total))
-    )
+    exp["share_base"] = exp["mv_base"].apply(lambda v: pct(float(v), float(base_total)))
     exp["share_pl"] = exp["mv_pl"].apply(lambda v: pct(float(v), float(pl_total)))
     exp = exp.sort_values(["share_base", "share_pl"], ascending=False)
     return exp
@@ -930,8 +948,7 @@ def top_list_from_exposure(
     exp_df: pd.DataFrame, bucket_col: str, top_n: int = 5
 ) -> List[Dict[str, str]]:
     """
-    Constrói lista (para o relatório) com top_n buckets + 'Outros' agregado.
-    Formata percentuais como strings.
+    Lista top_n buckets + 'Outros' agregado (para relatório).
     """
     rows = []
     df_sorted = exp_df.copy()
@@ -960,7 +977,7 @@ def top_list_from_exposure(
     return rows
 
 
-# ---------------------------- Template ---------------------------- #
+# ---------------------------- Template (HTML Report) ---------------------------- #
 
 REPORT_HTML = """
 <!DOCTYPE html>
@@ -983,7 +1000,7 @@ REPORT_HTML = """
     .bad { color: #b00020; font-weight: bold; }
     .section { margin: 8px 0 14px 0; }
     ul { margin: 4px 0 6px 16px; }
-    table { border-collapse: collapse; width: 100%; }
+    table { border-collapse: collapse; margin: 0 auto; }
     th, td {
       border-bottom: 1px solid #ddd;
       padding: 4px 6px;
@@ -991,11 +1008,6 @@ REPORT_HTML = """
       font-size: 12px;
     }
     .muted { color: #666; }
-    .figure-note {
-      margin-top: 4px; color: #666; font-size: 9px;
-    }
-
-    /* Centralizar as imagens (donuts) no relatório */
     .imgcell {
       width: 33%;
       vertical-align: top;
@@ -1003,20 +1015,23 @@ REPORT_HTML = """
       text-align: center;
       display: inline-block;
     }
+    .imgcell-wide { width: 66%; }
     .imgcell img {
-      max-width: 60%;
+      max-width: 80%;
       height: auto;
       display: block;
       margin: 0 auto;
     }
     .nodata { color: #666; font-style: italic; padding: 8px 0 0 0; }
 
-    /* Compact tables that fit on A4 */
+    /* Tabelas compactas, centralizadas e não em largura total */
     table.tbl-small {
       table-layout: fixed;
-      width: 100%;
+      width: 80%;
+      max-width: 900px;
       font-size: 10px;
       page-break-inside: avoid;
+      margin: 0 auto;
     }
     table.tbl-small th, table.tbl-small td {
       padding: 3px 4px;
@@ -1043,8 +1058,8 @@ REPORT_HTML = """
   <div class="section">
     <h2>1. Objetivo</h2>
     Este relatório apresenta a avaliação e o monitoramento do risco de crédito
-    das carteiras administradas pela {{ manager_name }}, em conformidade com
-    as diretrizes da CVM, Bacen e melhores práticas.
+    das carteiras administradas pela {{ manager_name }}, em conformidade com as
+    diretrizes da CVM, Bacen e melhores práticas.
   </div>
 
   <div class="section">
@@ -1080,13 +1095,18 @@ REPORT_HTML = """
       </li>
     </ul>
     <div class="small muted">
-      Nota: "AAA" depende de arquivo de ratings opcional. Soberano =
-      Tesouro Nacional.
+      Nota: "AAA" depende de arquivo de ratings opcional. Soberano = Tesouro Nacional.
     </div>
     {% else %}
     <h3>3.1 Exposição por Classe</h3>
     <div class="small muted">Seção de Rating desativada.</div>
     {% endif %}
+
+    <h4>Risco Soberano e Instituições S1 (% do PL em Renda Fixa)</h4>
+    <div class="imgcell imgcell-wide">{{ bar_sov_s1 | safe }}</div>
+    <div class="small muted">
+      Base: PL em Renda Fixa (Crédito + Tesouro). S1 identificadas via parsed_company_name.
+    </div>
   </div>
 
   <div class="section">
@@ -1094,7 +1114,7 @@ REPORT_HTML = """
     <ul>
       <li>
         Máximo {{ max_single_issuer_pct }} do PL em Renda Fixa em emissor único
-        (Tesouro excluído). Atual: {{ largest_issuer_share_base }}
+        (Tesouro e Instituições S1 excluídos). Atual: {{ largest_issuer_share_base }}
         do PL em Renda Fixa ({{ largest_issuer_share_pl }} do PL)
         <span class="{{ 'ok' if ok_single else 'bad' }}">
           ({{ conf_single }})
@@ -1102,14 +1122,13 @@ REPORT_HTML = """
       </li>
       <li>
         Máximo {{ max_top10_issuers_pct }} do PL em Renda Fixa nos 10 maiores emissores
-        (Tesouro excluído). Atual: {{ top10_issuers_share_base }}
+        (Tesouro e Instituições S1 excluídos). Atual: {{ top10_issuers_share_base }}
         do PL em Renda Fixa ({{ top10_issuers_share_pl }} do PL)
         <span class="{{ 'ok' if ok_top10 else 'bad' }}">
           ({{ conf_top10 }})
         </span>
       </li>
     </ul>
-
 
     <h4>3.2.A BRL</h4>
     {% if has_brl %}
@@ -1198,22 +1217,19 @@ REPORT_HTML = """
 
   <div class="section">
     <h3>3.4 Concentração por Vencimento</h3>
-
     <div class="imgcell">{{ donut_maturity_base | safe }}</div>
-
     <div style="margin-top:6px;">
-      Limite: máximo {{ max_maturity_over_3y_pct }} do PL em Renda Fixa em vencimentos
-      &gt; 3 anos. Atual: {{ over3y_pct_base }} do PL em Renda Fixa
-      ({{ over3y_pct_pl }} do PL)
-      <span class="{{ 'ok' if ok_over3y else 'bad' }}">
-        ({{ conf_over3y }})
+      Limite: máximo {{ max_maturity_over_5y_pct }} do PL em Renda Fixa em vencimentos
+      &gt; 5 anos. Atual: {{ over5y_pct_base }} do PL em Renda Fixa
+      ({{ over5y_pct_pl }} do PL)
+      <span class="{{ 'ok' if ok_over5y else 'bad' }}">
+        ({{ conf_over5y }})
       </span>
     </div>
   </div>
 
   <div class="section">
     <h3>3.5 Exposição por País de Risco</h3>
-
     {% if country_rows %}
       <table class="tbl-small">
         <thead>
@@ -1246,7 +1262,6 @@ REPORT_HTML = """
 
   <div class="section">
     <h3>3.7 Exposição por Tipo de Título</h3>
-
     <div class="imgcell">{{ donut_bondtype_brl | safe }}</div>
     <div class="imgcell">{{ donut_bondtype_usd | safe }}</div>
   </div>
@@ -1262,23 +1277,7 @@ REPORT_HTML = """
   </div>
 
   <div class="section">
-    <h2>5. Stress Testing</h2>
-    <ul>
-      <li>
-        Crise de Liquidez: PD = {{ st1_pd }}, LGD = {{ st1_lgd }}.
-        Perda potencial: {{ st1_loss_base }} do PL em Renda Fixa
-        ({{ st1_loss_pl }} do PL)
-      </li>
-      <li>
-        Recessão: PD = {{ st2_pd }}, LGD = {{ st2_lgd }}.
-        Perda potencial: {{ st2_loss_base }} do PL em Renda Fixa
-        ({{ st2_loss_pl }} do PL)
-      </li>
-    </ul>
-  </div>
-
-  <div class="section">
-    <h2>6. Conformidade Regulatória</h2>
+    <h2>5. Conformidade Regulatória</h2>
     <ul>
       <li>CVM: Instrução CVM nº 555/2014; Resolução CVM nº 50/21.</li>
       <li>Bacen: Circular nº 3.930/2019.</li>
@@ -1287,24 +1286,17 @@ REPORT_HTML = """
   </div>
 
   <div class="section">
-    <h2>7. Conclusões</h2>
+    <h2>6. Conclusões</h2>
     <ul>
-      <li>
-        Os níveis de risco de crédito são compatíveis com o perfil
-        estabelecido.
-      </li>
-      <li>
-        Não foram identificadas exposições que comprometam a estabilidade
-        financeira das carteiras.
-      </li>
-      <li>
-        As políticas de risco são seguidas com monitoramento contínuo.
-      </li>
+      <li>Os níveis de risco de crédito são compatíveis com o perfil estabelecido.</li>
+      <li>Não foram identificadas exposições que comprometam a estabilidade
+          financeira das carteiras.</li>
+      <li>As políticas de risco são seguidas com monitoramento contínuo.</li>
     </ul>
   </div>
 
   <div class="section">
-    <h2>8. Recomendações</h2>
+    <h2>7. Recomendações</h2>
     <ul>
       <li>Revisões trimestrais das métricas e limites.</li>
       <li>Treinamentos periódicos da equipe de risco.</li>
@@ -1374,9 +1366,7 @@ else:
                     )
                 else:
                     db_table_selected = "pmv_plus_gorila"
-                    raw_dates = list_unique_reference_dates(
-                        conn, db_table_selected
-                    )
+                    raw_dates = list_unique_reference_dates(conn, db_table_selected)
                     pairs = []
                     for s in raw_dates:
                         d = to_date_safe(s)
@@ -1416,7 +1406,7 @@ else:
 st.sidebar.header("Filtros")
 portfolio_id = st.sidebar.text_input("portfolio_id (opcional)", value="")
 
-# Reference date filter
+# Filtro de data de referência
 if data_source == "CSV":
     ref_date_filter = st.sidebar.text_input(
         "Data de referência (opcional, dd/mm/aaaa)", value=""
@@ -1451,30 +1441,13 @@ max_prefixed = st.sidebar.number_input(
     value=DEFAULT_LIMITS["max_prefixed"],
     step=0.01,
 )
-max_over3y = st.sidebar.number_input(
-    "Máx vencimentos > 3 anos (PL em Renda Fixa)",
+max_over5y = st.sidebar.number_input(
+    "Máx vencimentos > 5 anos (PL em Renda Fixa)",
     min_value=0.0,
     max_value=1.0,
-    value=DEFAULT_LIMITS["max_maturity_over_3y"],
+    value=DEFAULT_LIMITS["max_maturity_over_5y"],
     step=0.01,
 )
-min_aaa = st.sidebar.number_input(
-    "Mín Soberano/AAA (PL em Renda Fixa)",
-    min_value=0.0,
-    max_value=1.0,
-    value=DEFAULT_LIMITS["min_sovereign_or_aaa"],
-    step=0.01,
-)
-
-st.sidebar.header("Stress Tests")
-st1_pd = st.sidebar.number_input(
-    "Cenário 1 PD (Crise Liquidez)", 0.0, 1.0, 0.05, 0.01
-)
-st1_lgd = st.sidebar.number_input("Cenário 1 LGD", 0.0, 1.0, 0.40, 0.05)
-st2_pd = st.sidebar.number_input(
-    "Cenário 2 PD (Recessão)", 0.0, 1.0, 0.10, 0.01
-)
-st2_lgd = st.sidebar.number_input("Cenário 2 LGD", 0.0, 1.0, 0.50, 0.05)
 
 st.sidebar.header("Cabeçalho do Relatório")
 manager_name = st.sidebar.text_input(
@@ -1483,7 +1456,7 @@ manager_name = st.sidebar.text_input(
 manager_cnpj = st.sidebar.text_input("CNPJ", value="40.962.925/0001-38")
 responsible_name = st.sidebar.text_input("Responsável", value="Brenno Melo")
 
-# ---------------------------- NEW: Graph Controls -------------------- #
+# ---------------------------- Controles de Gráficos -------------------- #
 
 st.sidebar.header("Gráficos do Relatório (Donuts)")
 donut_size_in = st.sidebar.slider(
@@ -1503,18 +1476,10 @@ donut_font_size = st.sidebar.slider(
     "Tamanho da fonte interna", min_value=4, max_value=14, value=6, step=1
 )
 donut_top_n = st.sidebar.slider(
-    "Top N categorias (demais = 'Outros')",
-    min_value=3,
-    max_value=10,
-    value=6,
-    step=1,
+    "Top N categorias (demais = 'Outros')", min_value=3, max_value=10, value=6, step=1
 )
 donut_min_pct_label = st.sidebar.slider(
-    "Ocultar rótulos abaixo de (%)",
-    min_value=0.0,
-    max_value=10.0,
-    value=1.0,
-    step=0.5,
+    "Ocultar rótulos abaixo de (%)", min_value=0.0, max_value=10.0, value=1.0, step=0.5
 )
 donut_decimals = st.sidebar.slider(
     "Decimais nos %", min_value=0, max_value=2, value=1, step=1
@@ -1525,7 +1490,7 @@ DONUT_CFG = {
     "dpi": donut_dpi,
     "ring_width": donut_ring_width,
     "font_size": donut_font_size,
-    "min_label_pct": donut_min_pct_label / 100.0,  # convert to [0-1]
+    "min_label_pct": donut_min_pct_label / 100.0,  # [0-1]
     "decimals": donut_decimals,
 }
 
@@ -1554,7 +1519,7 @@ else:
         )
         st.stop()
 
-# Load data
+# Carregar dados
 if data_source == "CSV":
     df_raw = read_portfolio_csv(csv_file)
 else:
@@ -1571,9 +1536,7 @@ if portfolio_id and "portfolio_id" in df.columns:
 if ref_date_filter:
     try:
         dt_filter = datetime.strptime(ref_date_filter, "%d/%m/%Y")
-        df = df.loc[
-            df["reference_dt"].notna() & (df["reference_dt"] == dt_filter)
-        ].copy()
+        df = df.loc[df["reference_dt"].notna() & (df["reference_dt"] == dt_filter)].copy()
     except Exception:
         st.warning("Data inválida. Use dd/mm/aaaa.")
         st.stop()
@@ -1582,7 +1545,7 @@ if df.empty:
     st.warning("Após filtros, nenhum dado disponível.")
     st.stop()
 
-# Load ratings map if provided
+# Ratings opcional
 ratings_file = st.sidebar.file_uploader(
     "Opcional: ratings.csv (issuer_cnpj, issuer_name, rating_bucket)",
     type=["csv"],
@@ -1591,7 +1554,7 @@ ratings_df = None
 if ratings_file:
     ratings_df = pd.read_csv(ratings_file, dtype=str, keep_default_na=False)
 
-# Metrics: PL total, Crédito, Tesouro, PL em Renda Fixa
+# Métricas principais
 pl_total = compute_nav(df)
 
 credit_df = df.loc[df["is_credit"]].copy()
@@ -1604,7 +1567,7 @@ pl_treasury = float(treasury_df["mv"].sum())
 pl_funds = float(funds_df["mv"].sum())
 base_total = float(base_df["mv"].sum())
 
-# Currency sub-bases for BRL and USD
+# Sub-bases por moeda
 base_df_brl = base_df.loc[base_df["currency_code"] == "BRL"].copy()
 base_df_usd = base_df.loc[base_df["currency_code"] == "USD"].copy()
 base_total_brl = float(base_df_brl["mv"].sum())
@@ -1613,7 +1576,7 @@ base_total_usd = float(base_df_usd["mv"].sum())
 pl_total_brl = compute_nav(df.loc[df["currency_code"] == "BRL"])
 pl_total_usd = compute_nav(df.loc[df["currency_code"] == "USD"])
 
-# Reference period label
+# Período de referência
 ref_dates = df["reference_dt"].dropna().sort_values().unique()
 if len(ref_dates) > 0:
     ref_dt = pd.to_datetime(ref_dates[-1]).to_pydatetime()
@@ -1621,89 +1584,72 @@ else:
     ref_dt = datetime.today()
 period_label = ref_dt.strftime("%B de %Y").title()
 
-# Rating share (relative to PL em Renda Fixa and PL)
+# Rating share (relativo ao PL em Renda Fixa e PL)
 if show_ratings_section:
-    aaa_share_base, _ = compute_sovereign_or_aaa_share(
-        base_df, base_total, ratings_df
-    )
+    aaa_share_base, _ = compute_sovereign_or_aaa_share(base_df, base_total, ratings_df)
     aaa_share_pl, _ = compute_sovereign_or_aaa_share(df, pl_total, ratings_df)
-    ok_aaa = aaa_share_base >= min_aaa if base_total > 0 else True
+    ok_aaa = (
+        aaa_share_base >= DEFAULT_LIMITS["min_sovereign_or_aaa"]
+        if base_total > 0
+        else True
+    )
 else:
     aaa_share_base, aaa_share_pl, ok_aaa = 0.0, 0.0, True
 
-# Concentration by issuer_bucket (parsed_company_name), ex-Tesouro (overall)
+# Excluir Tesouro + S1 da análise de concentração
+s1_bucket_names = set(
+    base_df.loc[base_df["is_s1"], "issuer_bucket"].dropna().astype(str).unique().tolist()
+)
+EXCLUDE_IN_LIMITS = set(IGNORE_IN_LIMITS_AS_TESOURO) | s1_bucket_names
+
+# Concentração por emissor (overall, BRL, USD)
 conc_base = compute_concentration_by_bucket(
-    base_df,
-    base_total,
-    bucket_col="issuer_bucket",
-    exclude_set=IGNORE_IN_LIMITS_AS_TESOURO,
+    base_df, base_total, bucket_col="issuer_bucket", exclude_set=EXCLUDE_IN_LIMITS
 )
 largest_share_pl = pct(conc_base["largest_mv"], pl_total)
 top10_share_pl = pct(conc_base["top10_mv"], pl_total)
 
-# Concentration by issuer_bucket for BRL and USD (for report 3.2 tables)
 if base_total_brl > 0:
     conc_brl = compute_concentration_by_bucket(
-        base_df_brl,
-        base_total_brl,
-        bucket_col="issuer_bucket",
-        exclude_set=IGNORE_IN_LIMITS_AS_TESOURO,
+        base_df_brl, base_total_brl, bucket_col="issuer_bucket", exclude_set=EXCLUDE_IN_LIMITS
     )
 else:
-    conc_brl = {
-        "largest_share": 0.0,
-        "top10_share": 0.0,
-        "table": pd.Series(dtype=float),
-    }
+    conc_brl = {"largest_share": 0.0, "top10_share": 0.0, "table": pd.Series(dtype=float)}
 
 if base_total_usd > 0:
     conc_usd = compute_concentration_by_bucket(
-        base_df_usd,
-        base_total_usd,
-        bucket_col="issuer_bucket",
-        exclude_set=IGNORE_IN_LIMITS_AS_TESOURO,
+        base_df_usd, base_total_usd, bucket_col="issuer_bucket", exclude_set=EXCLUDE_IN_LIMITS
     )
 else:
-    conc_usd = {
-        "largest_share": 0.0,
-        "top10_share": 0.0,
-        "table": pd.Series(dtype=float),
-    }
+    conc_usd = {"largest_share": 0.0, "top10_share": 0.0, "table": pd.Series(dtype=float)}
 
-# Factor risk shares
+# Fator de risco
 factor_shares_base = compute_factor_risk_shares(base_df, base_total)
-factor_shares_pl = compute_factor_risk_shares(
-    df, pl_total
-)  # info only (not graphed)
+factor_shares_pl = compute_factor_risk_shares(df, pl_total)  # info extra
 factor_shares_brl = compute_factor_risk_shares(base_df_brl, base_total_brl)
 factor_shares_usd = compute_factor_risk_shares(base_df_usd, base_total_usd)
 
-# Maturity >3y: numerator = crédito, denominators = PL em Renda Fixa and PL
-over3y_share_base, over3y_table = compute_maturity_share_over_3y(
+# Vencimentos
+over5y_share_base, over5y_table = compute_maturity_share_over_5y(
     credit_df, ref_dt, base_total
 )
-over3y_share_pl, _ = compute_maturity_share_over_3y(credit_df, ref_dt, pl_total)
+over5y_share_pl, _ = compute_maturity_share_over_5y(credit_df, ref_dt, pl_total)
+mat_buckets_df = compute_maturity_buckets_exposure(credit_df, ref_dt, base_total, pl_total)
 
-# New: maturity buckets (credit only) vs PL em Renda Fixa and PL
-mat_buckets_df = compute_maturity_buckets_exposure(
-    credit_df, ref_dt, base_total, pl_total
-)
+# Checks de conformidade
+max_single_issuer = float(max_single_issuer)
+max_top10_issuers = float(max_top10_issuers)
+max_prefixed = float(max_prefixed)
+max_over5y = float(max_over5y)
 
-# Compliance checks (vs PL em Renda Fixa)
 ok_single = conc_base["largest_share"] <= max_single_issuer
 ok_top10 = conc_base["top10_share"] <= max_top10_issuers
 ok_prefixed = factor_shares_base.get("PRÉ", 0.0) <= max_prefixed
-ok_over3y = over3y_share_base <= max_over3y
+ok_over5y = over5y_share_base <= max_over5y
 
-# Stress tests (% do PL em Renda Fixa e % do PL)
-st1_loss_base = stress_loss_pct(credit_df, base_total, st1_pd, st1_lgd)
-st2_loss_base = stress_loss_pct(credit_df, base_total, st2_pd, st2_lgd)
-st1_loss_pl = stress_loss_pct(credit_df, pl_total, st1_pd, st1_lgd)
-st2_loss_pl = stress_loss_pct(credit_df, pl_total, st2_pd, st2_lgd)
+# ---------------------------- Exposições (Novas) ---------------------------- #
 
-# ---------------------------- New Exposures ---------------------------- #
-
-# Country risk exposure (uses raw country_risk)
+# País (tabela)
 country_exp_table = exposure_table_by_bucket(
     df_pl=df,
     df_base=base_df,
@@ -1715,7 +1661,7 @@ country_top_list = top_list_from_exposure(
     country_exp_table, bucket_col="country_bucket", top_n=5
 )
 
-# Currency exposure
+# Moeda
 currency_exp_table = exposure_table_by_bucket(
     df_pl=df,
     df_base=base_df,
@@ -1727,7 +1673,7 @@ currency_top_list = top_list_from_exposure(
     currency_exp_table, bucket_col="currency_code", top_n=5
 )
 
-# parsed_bond_type exposure overall and by BRL/USD (exactly as in the column)
+# Tipo de Título (parsed_bond_type)
 if "parsed_bond_type" in df.columns:
     bond_type_exp_table = exposure_table_by_bucket(
         df_pl=df,
@@ -1759,13 +1705,10 @@ else:
     bond_type_exp_table_usd = pd.DataFrame()
     bond_type_top_list = []
 
-# ---------------------------- Charts (Dashboard) -------------------------- #
+# ---------------------------- Gráficos (Dashboard) -------------------------- #
+
 
 def center_chart(fig):
-    """
-    Centraliza um gráfico (Plotly) usando colunas.
-    Ajuste as proporções [1, 8, 1] se quiser mais/menos largura.
-    """
     c_left, c_mid, c_right = st.columns([1, 8, 1])
     with c_mid:
         st.plotly_chart(fig, use_container_width=True)
@@ -1804,13 +1747,7 @@ df["class_bucket"] = np.select(
     default="Outros",
 )
 by_class = df.groupby("class_bucket")["mv"].sum().reset_index()
-fig1 = px.pie(
-    by_class,
-    names="class_bucket",
-    values="mv",
-    title="Patrimônio por Classe",
-    hole=0.2,
-)
+fig1 = px.pie(by_class, names="class_bucket", values="mv", title="Patrimônio por Classe", hole=0.2)
 fig1.update_layout(
     font=dict(size=9),
     legend_font_size=9,
@@ -1860,7 +1797,7 @@ if not funds_df.empty:
 else:
     st.info("Sem posições classificadas como Fundos.")
 
-# Factor Risk – split BRL and USD
+# Fator de Risco – BRL
 st.markdown("Concentração por Fator de Risco (% do PL em Renda Fixa) – BRL")
 factor_plot_brl = pd.DataFrame(
     {
@@ -1886,6 +1823,7 @@ fig2_brl.update_traces(texttemplate="%{text}", textfont_size=9)
 fig2_brl.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
 center_chart(fig2_brl)
 
+# Fator de Risco – USD
 st.markdown("Concentração por Fator de Risco (% do PL em Renda Fixa) – USD")
 factor_plot_usd = pd.DataFrame(
     {
@@ -1912,32 +1850,32 @@ fig2_usd.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
 center_chart(fig2_usd)
 
 st.markdown(
-    "Concentração por Emissor (parsed_company_name) – PL em Renda Fixa; Tesouro excluído"
+    "Concentração por Emissor (parsed_company_name) – PL em Renda Fixa; Tesouro e S1 excluídos"
 )
 issuer_table = conc_base["table"].reset_index()
 issuer_table.columns = ["Emissor (parsed_company_name)", "Valor (R$)"]
 issuer_table["% do PL em Renda Fixa"] = issuer_table["Valor (R$)"].apply(
     lambda x: pct(x, base_total)
 )
-issuer_table["% do PL"] = issuer_table["Valor (R$)"].apply(
-    lambda x: pct(x, pl_total)
-)
+issuer_table["% do PL"] = issuer_table["Valor (R$)"].apply(lambda x: pct(x, pl_total))
 st.dataframe(
     issuer_table.assign(
         **{
-            "Valor (R$)": issuer_table["Valor (R$)"].map(
-                lambda v: f"{v:,.2f}"
-                .replace(",", "X")
-                .replace(".", ",")
-                .replace("X", ".")
+            "Valor (R$)": issuer_table["Valor (R$)"]
+            .map(lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        }
+    )
+    .assign(
+        **{
+            "% do PL em Renda Fixa": issuer_table["% do PL em Renda Fixa"].map(
+                as_pct_str
             ),
-            "% do PL em Renda Fixa": issuer_table["% do PL em Renda Fixa"].map(as_pct_str),
             "% do PL": issuer_table["% do PL"].map(as_pct_str),
         }
     )
 )
 
-# Country Risk Exposure (TABLE instead of chart)
+# País (tabela - dashboard)
 st.markdown("Exposição por País de Risco (% do PL em Renda Fixa)")
 if not country_exp_table.empty:
     top_n = 10
@@ -1952,7 +1890,7 @@ if not country_exp_table.empty:
 else:
     st.info("Sem dados para exposição por país.")
 
-# Currency Exposure (charts only)
+# Moeda - dashboard
 st.markdown("Exposição Cambial (% do PL em Renda Fixa)")
 if not currency_exp_table.empty:
     top_n = 10
@@ -1972,14 +1910,12 @@ if not currency_exp_table.empty:
         text=plot_curr["Percentual"].map(lambda v: f"{v:.2f}%"),
         color_discrete_sequence=PALETA_CORES,
     )
-    fig_curr.update_layout(
-        font=dict(size=9), showlegend=False, height=dash_height
-    )
+    fig_curr.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
     center_chart(fig_curr)
 else:
     st.info("Sem dados para exposição cambial.")
 
-# parsed_bond_type Exposure – split BRL and USD
+# Tipo de Título – BRL
 st.markdown("Exposição por Tipo de Título – % do PL em Renda Fixa BRL")
 if "parsed_bond_type" in df.columns:
     if not bond_type_exp_table_brl.empty and base_total_brl > 0:
@@ -2000,14 +1936,15 @@ if "parsed_bond_type" in df.columns:
             text=plot_bt_brl["Percentual"].map(lambda v: f"{v:.2f}%"),
             color_discrete_sequence=PALETA_CORES,
         )
-        fig_bt_brl.update_layout(
-            font=dict(size=9), showlegend=False, height=dash_height
-        )
+        fig_bt_brl.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
         center_chart(fig_bt_brl)
     else:
         st.info("Sem dados agregados de tipos em BRL.")
 
-    st.markdown("Exposição por Tipo de Título (parsed_bond_type) – % do PL em Renda Fixa USD")
+    # Tipo de Título – USD
+    st.markdown(
+        "Exposição por Tipo de Título (parsed_bond_type) – % do PL em Renda Fixa USD"
+    )
     if not bond_type_exp_table_usd.empty and base_total_usd > 0:
         top_bt_usd = bond_type_exp_table_usd.head(top_n).copy()
         plot_bt_usd = pd.DataFrame(
@@ -2025,9 +1962,7 @@ if "parsed_bond_type" in df.columns:
             text=plot_bt_usd["Percentual"].map(lambda v: f"{v:.2f}%"),
             color_discrete_sequence=PALETA_CORES,
         )
-        fig_bt_usd.update_layout(
-            font=dict(size=9), showlegend=False, height=dash_height
-        )
+        fig_bt_usd.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
         center_chart(fig_bt_usd)
     else:
         st.info("Sem dados agregados de tipos em USD.")
@@ -2037,7 +1972,7 @@ else:
         "Seção de 'Tipo de Título' e debug desabilitada."
     )
 
-# Maturities buckets (credit only) – charts only
+# Vencimentos (gráfico - dashboard)
 st.markdown("Vencimentos (Crédito Privado) – Buckets (% do PL em Renda Fixa)")
 mat_plot = pd.DataFrame(
     {
@@ -2059,37 +1994,40 @@ fig_m.update_traces(texttemplate="%{text}", textfont_size=9)
 fig_m.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
 center_chart(fig_m)
 
-# Optional: scatter distribution
+# Scatter de vencimentos (opcional)
 st.markdown("Distribuição de Vencimentos (pontos)")
 if not credit_df.empty:
     cred_plot = credit_df.copy()
     cred_plot["Maturity"] = cred_plot["maturity_date"]
     cred_plot["Issuer"] = cred_plot["issuer_bucket"]
-    cred_plot["Valor"] = cred_plot["mv"]
-    cred_plot = cred_plot.loc[cred_plot["Maturity"].notna()]
-    if not cred_plot.empty:
+    cred_plot["Valor"] = pd.to_numeric(cred_plot["mv"], errors="coerce")
+    cred_plot = cred_plot.loc[cred_plot["Maturity"].notna()].copy()
+    cred_plot["Valor"] = (
+        cred_plot["Valor"].replace([np.inf, -np.inf], np.nan).fillna(0.0).clip(lower=0.0)
+    )
+    cred_plot_nz = cred_plot.loc[cred_plot["Valor"] > 0.0].copy()
+    if not cred_plot_nz.empty:
         fig3 = px.scatter(
-            cred_plot,
+            cred_plot_nz,
             x="Maturity",
             y="Valor",
             color="Issuer",
             size="Valor",
             title="Distribuição de Vencimentos",
+            size_max=30,
         )
-        fig3.update_layout(
-            font=dict(size=9), colorway=PALETA_CORES, height=dash_height
-        )
+        fig3.update_layout(font=dict(size=9), colorway=PALETA_CORES, height=dash_height)
         center_chart(fig3)
     else:
-        st.info("Sem datas de vencimento parseadas em crédito.")
+        st.info("Sem valores válidos para o gráfico de pontos (size).")
 else:
     st.info("Sem crédito privado para plotar.")
 
-# ------------------- Report Donuts (Static PNG) -------------------- #
+# ------------------- Gráficos Estáticos (Relatório) -------------------- #
 
 
 def _img_html_from_matplotlib(fig, dpi: int) -> str:
-    """Convert a Matplotlib figure to base64 PNG <img> HTML (white bg)."""
+    """Converte figura Matplotlib para <img> base64 PNG (fundo branco)."""
     if not HAS_MPL or fig is None:
         return '<div class="nodata">Gráfico indisponível.</div>'
     buf = BytesIO()
@@ -2119,10 +2057,7 @@ def _build_donut_figure(
     min_label_pct: float,
     decimals: int,
 ) -> Optional["plt.Figure"]:
-    """
-    Build a donut chart (white background) with tiny white text labels
-    and percentages INSIDE each wedge.
-    """
+    """Donut com rótulos brancos dentro das fatias."""
     if not HAS_MPL:
         return None
     pairs = [(l, float(v)) for l, v in zip(labels, values) if float(v) > 0]
@@ -2269,22 +2204,65 @@ def _donut_img_html_from_factor_shares(
     return _img_html_from_matplotlib(fig, dpi=cfg["dpi"])
 
 
+# NEW: Barra para Soberano + S1 (% do PL em Renda Fixa)
+def _bar_img_html_sov_s1(
+    base_df: pd.DataFrame, base_total: float, cfg: Dict[str, float]
+) -> str:
+    if base_total <= 0 or not HAS_MPL:
+        return '<div class="nodata">Sem dados.</div>'
+    sov_mv = float(
+        base_df.loc[base_df["issuer_bucket"] == "TESOURO NACIONAL", "mv"].sum()
+    )
+    s1_mv = float(base_df.loc[base_df["is_s1"], "mv"].sum())
+    sov_share = pct(sov_mv, base_total) * 100.0
+    s1_share = pct(s1_mv, base_total) * 100.0
+    other_share = max(0.0, 100.0 - sov_share - s1_share)
+
+    labels = ["Soberano (Tesouro)", "Instituições S1", "Outros"]
+    values = [sov_share, s1_share, other_share]
+    colors = [PALETA_CORES[0], PALETA_CORES[1], PALETA_CORES[2]]
+
+    # Figura mais larga para rótulos
+    fig, ax = plt.subplots(figsize=(cfg["size_in"] * 1.6, cfg["size_in"]), dpi=cfg["dpi"])
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    bars = ax.bar(labels, values, color=colors)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("% do PL em Renda Fixa", fontsize=9)
+    ax.set_title("Soberano e Instituições S1 – % do PL em Renda Fixa", fontsize=10)
+
+    for bar, v in zip(bars, values):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 1.0,
+            f"{v:.{int(cfg['decimals'])}f}%",
+            ha="center",
+            va="bottom",
+            fontsize=max(8, int(cfg["font_size"])),
+            color="#222",
+            fontweight="bold",
+        )
+
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+
+    return _img_html_from_matplotlib(fig, dpi=cfg["dpi"])
+
+
 # ---------------------------- CSV Export Helper ---------------------------- #
 
 
 def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     """
-    Export to CSV with European format; protect id-like columns as strings.
+    Exporta CSV em formato europeu; protege colunas id-like como strings.
     """
     df_copy = df.copy()
 
-    # Protect id-like columns (avoid scientific notation)
     protect_re = re.compile(r"(taxid|cnpj|cpf|codigo|cetip|isin|id$)", re.I)
     for col in df_copy.columns:
         if protect_re.search(col):
-            df_copy[col] = df_copy[col].apply(
-                lambda x: "" if pd.isna(x) else str(x)
-            )
+            df_copy[col] = df_copy[col].apply(lambda x: "" if pd.isna(x) else str(x))
 
     numeric_cols = df_copy.select_dtypes(include=["number"]).columns
     for col in numeric_cols:
@@ -2297,7 +2275,7 @@ def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     return csv_str.encode("utf-8-sig")
 
 
-# ---------------------------- Report Rendering ---------------------------- #
+# ---------------------------- Render do Relatório ---------------------------- #
 
 
 def brl(v: float) -> str:
@@ -2305,7 +2283,7 @@ def brl(v: float) -> str:
 
 
 def render_report_html() -> str:
-    # Maturity rows kept for context (not directly shown as table)
+    # Linhas de maturidade para contexto
     order = ["<1 ano", "Entre 1 e 3 anos", "Entre 3 e 5 anos", "+5 anos"]
     mat_rows = []
     for b in order:
@@ -2314,12 +2292,12 @@ def render_report_html() -> str:
         pl_pct = as_pct_str(float(row["share_pl"].sum()))
         mat_rows.append({"name": b, "base_pct": base_pct, "pl_pct": pl_pct})
 
-    # Donuts: Maturity (PL em Renda Fixa only)
+    # Donut: Vencimento (base)
     donut_maturity_base = _donut_img_html_from_maturity(
         mat_buckets_df, "share_base", "Vencimentos – % do PL em Renda Fixa", DONUT_CFG
     )
 
-    # Donuts: Moeda (PL em Renda Fixa only)
+    # Donut: Moeda
     donut_currency_base = _donut_img_html_from_exposure_table(
         currency_exp_table,
         "currency_code",
@@ -2329,7 +2307,7 @@ def render_report_html() -> str:
         cfg=DONUT_CFG,
     )
 
-    # Donuts: Tipo de Título (PL em Renda Fixa BRL/USD)
+    # Donut: Tipo (BRL/USD)
     if "parsed_bond_type" in df.columns and not bond_type_exp_table_brl.empty:
         donut_bondtype_brl = _donut_img_html_from_exposure_table(
             bond_type_exp_table_brl,
@@ -2354,7 +2332,7 @@ def render_report_html() -> str:
     else:
         donut_bondtype_usd = '<div class="nodata">Sem dados.</div>'
 
-    # Donuts: Fator de Risco (PL em Renda Fixa BRL/USD)
+    # Donut: Fator de Risco (BRL/USD)
     donut_factor_brl = _donut_img_html_from_factor_shares(
         factor_shares_brl, "Fator de Risco – BRL (% PL em Renda Fixa BRL)", DONUT_CFG
     )
@@ -2362,7 +2340,7 @@ def render_report_html() -> str:
         factor_shares_usd, "Fator de Risco – USD (% PL em Renda Fixa USD)", DONUT_CFG
     )
 
-    # Build issuer Top-10 tables for BRL/USD (exclude Tesouro)
+    # Tabelas Top-10 emissores por BRL/USD (ex Tesouro e S1)
     issuer_brl_rows = []
     issuer_usd_rows = []
     if base_total_brl > 0:
@@ -2373,9 +2351,7 @@ def render_report_html() -> str:
             base_total=base_total_brl,
             bucket_col="issuer_bucket",
         )
-        exp_brl = exp_brl.loc[
-            ~exp_brl["issuer_bucket"].isin(IGNORE_IN_LIMITS_AS_TESOURO)
-        ]
+        exp_brl = exp_brl.loc[~exp_brl["issuer_bucket"].isin(EXCLUDE_IN_LIMITS)]
         top_brl = exp_brl.head(10)
         issuer_brl_rows = [
             {
@@ -2393,9 +2369,7 @@ def render_report_html() -> str:
             base_total=base_total_usd,
             bucket_col="issuer_bucket",
         )
-        exp_usd = exp_usd.loc[
-            ~exp_usd["issuer_bucket"].isin(IGNORE_IN_LIMITS_AS_TESOURO)
-        ]
+        exp_usd = exp_usd.loc[~exp_usd["issuer_bucket"].isin(EXCLUDE_IN_LIMITS)]
         top_usd = exp_usd.head(10)
         issuer_usd_rows = [
             {
@@ -2405,7 +2379,7 @@ def render_report_html() -> str:
             for _, r in top_usd.iterrows()
         ]
 
-    # Country table rows (Top-10 + Outros)
+    # País (Top-10 + Outros)
     country_rows = []
     if not country_exp_table.empty:
         top_ctry = country_exp_table.head(10).copy()
@@ -2418,11 +2392,9 @@ def render_report_html() -> str:
                 }
             )
         if rest_base > 0:
-            country_rows.append(
-                {"name": "Outros", "base_pct": as_pct_str(rest_base)}
-            )
+            country_rows.append({"name": "Outros", "base_pct": as_pct_str(rest_base)})
 
-    # BRL/USD limit statuses
+    # BRL/USD statuses
     has_brl = base_total_brl > 0
     has_usd = base_total_usd > 0
     if has_brl:
@@ -2447,6 +2419,9 @@ def render_report_html() -> str:
         largest_usd = "—"
         top10_usd = "—"
 
+    # NEW: Barra Soberano + S1
+    bar_sov_s1 = _bar_img_html_sov_s1(base_df, base_total, DONUT_CFG)
+
     t = Template(REPORT_HTML)
     html = t.render(
         manager_name=manager_name,
@@ -2460,7 +2435,7 @@ def render_report_html() -> str:
         credit_share_base=as_pct_str(pct(pl_credit, base_total)),
         credit_share_pl=as_pct_str(pct(pl_credit, pl_total)),
         show_ratings_section=show_ratings_section,
-        min_aaa_pct=as_pct_str(min_aaa),
+        min_aaa_pct=as_pct_str(DEFAULT_LIMITS["min_sovereign_or_aaa"]),
         aaa_share_base_pct=as_pct_str(aaa_share_base),
         aaa_share_pl_pct=as_pct_str(aaa_share_pl),
         ok_aaa=ok_aaa,
@@ -2475,33 +2450,11 @@ def render_report_html() -> str:
         top10_issuers_share_pl=as_pct_str(top10_share_pl),
         ok_top10=ok_top10,
         conf_top10=status_tag(ok_top10),
-        max_prefixed_pct=as_pct_str(max_prefixed),
-        prefixed_pct_base=as_pct_str(factor_shares_base.get("PRÉ", 0.0)),
-        prefixed_pct_pl=as_pct_str(factor_shares_pl.get("PRÉ", 0.0)),
-        cdi_pct_base=as_pct_str(factor_shares_base.get("CDI", 0.0)),
-        cdi_pct_pl=as_pct_str(factor_shares_pl.get("CDI", 0.0)),
-        ipca_pct_base=as_pct_str(factor_shares_base.get("IPCA", 0.0)),
-        ipca_pct_pl=as_pct_str(factor_shares_pl.get("IPCA", 0.0)),
-        outros_pct_base=as_pct_str(factor_shares_base.get("OUTROS", 0.0)),
-        outros_pct_pl=as_pct_str(factor_shares_pl.get("OUTROS", 0.0)),
-        ok_prefixed=ok_prefixed,
-        conf_prefixed=status_tag(ok_prefixed),
-        max_maturity_over_3y_pct=as_pct_str(max_over3y),
-        over3y_pct_base=as_pct_str(over3y_share_base),
-        over3y_pct_pl=as_pct_str(over3y_share_pl),
-        ok_over3y=ok_over3y,
-        conf_over3y=status_tag(ok_over3y),
+        max_maturity_over_5y_pct=as_pct_str(max_over5y),
+        over5y_pct_base=as_pct_str(over5y_share_base),
+        over5y_pct_pl=as_pct_str(over5y_share_pl),
         default_rate="0.00%",
         events_html=events_text,
-        st1_pd=as_pct_str(st1_pd),
-        st1_lgd=as_pct_str(st1_lgd),
-        st1_loss_base=as_pct_str(st1_loss_base),
-        st1_loss_pl=as_pct_str(st1_loss_pl),
-        st2_pd=as_pct_str(st2_pd),
-        st2_lgd=as_pct_str(st2_lgd),
-        st2_loss_base=as_pct_str(st2_loss_base),
-        st2_loss_pl=as_pct_str(st2_loss_pl),
-        # Lists and images for sections
         country_top=country_top_list,
         currency_top=currency_top_list,
         bond_type_top=bond_type_top_list,
@@ -2512,7 +2465,6 @@ def render_report_html() -> str:
         donut_bondtype_usd=donut_bondtype_usd,
         donut_factor_brl=donut_factor_brl,
         donut_factor_usd=donut_factor_usd,
-        # New issuer tables per currency
         has_brl=has_brl,
         has_usd=has_usd,
         issuer_brl_rows=issuer_brl_rows,
@@ -2529,8 +2481,8 @@ def render_report_html() -> str:
         ok_top10_usd=ok_top10_usd,
         conf_single_usd=status_tag(ok_single_usd),
         conf_top10_usd=status_tag(ok_top10_usd),
-        # Country table rows
         country_rows=country_rows,
+        bar_sov_s1=bar_sov_s1,
     )
     return html
 
@@ -2538,7 +2490,7 @@ def render_report_html() -> str:
 st.subheader("Exportar Relatório")
 if not HAS_MPL:
     st.warning(
-        "Matplotlib não está instalado. Os gráficos donut no relatório "
+        "Matplotlib não está instalado. Os gráficos estáticos no relatório "
         "serão substituídos por placeholders de texto."
     )
 
@@ -2552,7 +2504,6 @@ st.download_button(
 
 if HAS_PDFKIT:
     if st.button("Gerar PDF (requer wkhtmltopdf instalado)"):
-
         try:
             pdf_bytes = pdfkit.from_string(html_report, False)
             st.download_button(
@@ -2594,16 +2545,13 @@ st.download_button(
 st.caption(
     "Observação: limites e cálculos usam o PL em Renda Fixa (Crédito + Tesouro). "
     "Os percentuais versus PL são exibidos como informação adicional. "
-    "A concentração por emissor usa parsed_company_name. Ao usar o banco "
-    "SQLite local, a tabela fixa é 'pmv_plus_gorila' e as datas de referência "
-    "únicas são listadas para seleção. A referência de data usa "
-    "exclusivamente 'reference_date'. Fundos (incluindo 'Fixed income fund') "
-    "não entram em Crédito mesmo se security_type indicar 'BONDS'. País de "
-    "risco vem diretamente da coluna 'country_risk'. O dashboard e o "
-    "relatório incluem exposições por Moeda, Vencimento (buckets) e Tipo de "
-    "Título. Fator de Risco e Tipo de Título possuem análises separadas para "
-    "BRL e USD. Donuts do relatório têm fundo branco, rótulos e percentuais "
-    "brancos dentro das fatias (fonte pequena configurável). As tabelas de "
-    "Top-10 emissores por BRL/USD e a tabela de País foram otimizadas para "
-    "cabimento em folha A4. Arquivos CSV podem ser baixados para PL ou PL em Renda Fixa."
+    "A concentração por emissor usa parsed_company_name e EXCLUI Tesouro e "
+    "Instituições S1. Ao usar o banco SQLite local, a tabela fixa é "
+    "'pmv_plus_gorila' e as datas de referência únicas são listadas para seleção. "
+    "A referência de data usa exclusivamente 'reference_date'. Fundos (incluindo "
+    "'Fixed income fund') não entram em Crédito mesmo se security_type indicar "
+    "'BONDS'. País de risco vem diretamente da coluna 'country_risk'. "
+    "O relatório inclui gráficos estáticos para Moeda, Vencimento, Tipo de Título, "
+    "Fator de Risco BRL/USD e um gráfico de barras para Soberano e S1. "
+    "As tabelas do relatório são centralizadas e não ocupam 100% da largura."
 )
