@@ -73,135 +73,39 @@ TEXT_DARK = "#333333"
 # Provided mapping. We key by cleaned original_cnpj (digits only).
 FUND_MAPPING_RAW = [
     {
-        "original_name": "BTG CDB Plus FIRF",
-        "original_cnpj": "27.717.359/0001-30",
-        "master_cnpj": "27.717.359/0001-30",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Safra DI Master FIRF Referenciado DI LP",
-        "original_cnpj": "02.536.364/0001-16",
-        "master_cnpj": "02.536.364/0001-16",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Porto Seguro FIRF Referenciado DI CP",
-        "original_cnpj": "18.719.154/0001-01",
-        "master_cnpj": "18.719.154/0001-01",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "BNP Paribas Match DI FIRF RL",
-        "original_cnpj": "09.636.393/0001-07",
-        "master_cnpj": "09.636.393/0001-07",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Daycoval Classic FIRF CP",
-        "original_cnpj": "10.783.480/0001-68",
-        "master_cnpj": "53.802.999/0001-59",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Mapfre RF FI",
-        "original_cnpj": "07.906.349/0001-36",
-        "master_cnpj": "07.906.349/0001-36",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "SulAmérica Exclusive FIRF CP",
-        "original_cnpj": "04.839.017/0001-98",
-        "master_cnpj": "04.839.017/0001-98",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Bradesco Sky DI FICFIRFRef",
-        "original_cnpj": "04.831.907/0001-53",
-        "master_cnpj": "32.312.120/0001-10",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Western Credito Bancario Plus FIRF",
-        "original_cnpj": "49.983.964/0001-96",
-        "master_cnpj": "49.983.964/0001-96",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "VINLAND RF ATIVO FICFI LP",
-        "original_cnpj": "34.687.428/0001-76",
-        "master_cnpj": "34.687.399/0001-42",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Safra Agilité FIRF CP",
-        "original_cnpj": "12.796.232/0001-87",
-        "master_cnpj": "12.796.232/0001-87",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "SulAmerica Excellence FIRF LP",
-        "original_cnpj": "04.899.128/0001-90",
-        "master_cnpj": "04.899.128/0001-90",
-        "graph": "CDI",
-    },
-    {
         "original_name": "ABSOLUTE ATENAS P FICFIRF",
         "original_cnpj": "47.612.663/0001-20",
-        "master_cnpj": "47.612.663/0001-20",
+        "master_cnpj": "47.628.822/0001-85",
         "graph": "CDI",
     },
     {
-        "original_name": "AZ Quest Luce FIC FIF RF CP LP",
-        "original_cnpj": "23.556.185/0001-10",
-        "master_cnpj": "23.556.204/0001-09",
+        "original_name": "ABSOLUTE ATENAS PREV FICFIRF",
+        "original_cnpj": "47.564.734/0001-67",
+        "master_cnpj": "47.612.777/0001-70",
         "graph": "CDI",
     },
     {
-        "original_name": "Western Asset Total Credit FIF RF CP",
-        "original_cnpj": "28.320.857/0001-08",
-        "master_cnpj": "28.320.857/0001-08",
+        "original_name": "Absolute Creta P FICFIRF CrPr",
+        "original_cnpj": "47.628.957/0001-40",
+        "master_cnpj": "47.628.918/0001-43",
         "graph": "CDI",
     },
     {
-        "original_name": "Riza Lotus FIF RF - Referenciada DI CP RL",
-        "original_cnpj": "36.498.670/0001-27",
-        "master_cnpj": "36.498.670/0001-27",
+        "original_name": "ABSOLUTE DELFOS FICFIRF LP CrPr",
+        "original_cnpj": "52.324.414/0001-70",
+        "master_cnpj": "52.324.362/0001-31",
         "graph": "CDI",
     },
     {
-        "original_name": "Solis Antares FIC FIDC",
-        "original_cnpj": "13.054.728/0001-48",
-        "master_cnpj": "13.054.656/0001-39",
+        "original_name": "Absolute Delfos Prev FICFIRF CrPr RL Access",
+        "original_cnpj": "57.370.727/0001-88",
+        "master_cnpj": "49.558.667/0001-01",
         "graph": "CDI",
     },
     {
-        "original_name": "Bradesco Zupo FIC FIRF LP CP",
-        "original_cnpj": "34.109.809/0001-78",
-        "master_cnpj": "32.388.077/0001-77",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Legacy Capital Compound Deb Inc Infra CDI FIRF CP",
-        "original_cnpj": "50.891.130/0001-30",
-        "master_cnpj": "50.891.130/0001-30",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Vinland Incentivado Debêntures Infra Ativo FIF RF CP",
-        "original_cnpj": "50.862.124/0001-54",
-        "master_cnpj": "50.862.124/0001-54",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Sparta Debêntures Incentivadas",
-        "original_cnpj": "39.959.025/0001-52",
-        "master_cnpj": "39.723.106/0001-59",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "BTG Debentures Incentivadas Infra CDI FICFIRF",
-        "original_cnpj": "30.934.757/0001-13",
-        "master_cnpj": "31.094.141/0001-44",
+        "original_name": "Absolute Hidra CDI Incentivado Infra FICFIRF CrPr",
+        "original_cnpj": "47.612.737/0001-29",
+        "master_cnpj": "47.628.885/0001-31",
         "graph": "CDI",
     },
     {
@@ -217,123 +121,87 @@ FUND_MAPPING_RAW = [
         "graph": "CDI",
     },
     {
-        "original_name": "Ibiuna Credit Deb Inc Infra RF Subclasse",
-        "original_cnpj": "54.518.925/0001-58",
-        "master_cnpj": "54.518.925/0001-58",
+        "original_name": "ABSOLUTE OLIMPIA FICFIM CrPr",
+        "original_cnpj": "48.986.106/0001-32",
+        "master_cnpj": "48.986.296/0001-98",
         "graph": "CDI",
     },
     {
-        "original_name": "Kinea IPCA Dinâmico II FIF RF RL",
-        "original_cnpj": "39.586.858/0001-15",
-        "master_cnpj": "39.586.858/0001-15",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "BTG Pactual Tesouro IPCA Curto FIRF",
-        "original_cnpj": "07.539.298/0001-51",
-        "master_cnpj": "07.539.298/0001-51",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Sparta Top Inflação FIC FIF RF CP LP",
-        "original_cnpj": "38.026.926/0001-29",
-        "master_cnpj": "38.026.869/0001-88",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "KAPITALO K10 FIC FIM",
-        "original_cnpj": "43.984.537/0001-46",
-        "master_cnpj": "29.726.133/0001-21",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Kinea Chronos FIM RL",
-        "original_cnpj": "21.624.757/0001-26",
-        "master_cnpj": "21.624.757/0001-26",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Vinland Macro FICFIM",
-        "original_cnpj": "29.148.660/0001-04",
-        "master_cnpj": "28.581.119/0001-14",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Legacy Capital  FIC FIM",
-        "original_cnpj": "30.338.679/0001-94",
-        "master_cnpj": "33.150.614/0001-09",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Real Investor FIC de FIF Multimercado",
-        "original_cnpj": "28.911.549/0001-57",
-        "master_cnpj": "42.870.882/0001-96",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Itaú Hedge Plus Multimercado FIF",
-        "original_cnpj": "29.993.583/0001-80",
-        "master_cnpj": "11.419.627/0001-06",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Itaú Optimus Titan FIF Mult",
-        "original_cnpj": "35.727.276/0001-50",
-        "master_cnpj": "40.671.799/0001-62",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Kinea Atlas FIM",
-        "original_cnpj": "29.762.315/0001-58",
-        "master_cnpj": "29.762.315/0001-58",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "Vinland Macro Plus FICFIM",
-        "original_cnpj": "47.212.318/0001-08",
-        "master_cnpj": "28.692.461/0001-91",
-        "graph": "CDI",
-    },
-    {
-        "original_name": "WHG Global Long Biased USD FIC FIA",
-        "original_cnpj": "41.423.887/0001-08",
-        "master_cnpj": "41.255.006/0001-97",
+        "original_name": "Absolute Pace Long Biased FICFIA",
+        "original_cnpj": "32.073.525/0001-43",
+        "master_cnpj": "32.071.783/0001-90",
         "graph": "IBOV",
     },
     {
-        "original_name": "SPX Patriot FIC FIA",
-        "original_cnpj": "15.334.585/0001-53",
-        "master_cnpj": "15.350.712/0001-08",
-        "graph": "IBOV",
-    },
-    {
-        "original_name": "Real Investor FIC FIA BDR Nível I",
-        "original_cnpj": "10.500.884/0001-05",
-        "master_cnpj": "36.352.539/0001-57",
-        "graph": "IBOV",
-    },
-    {
-        "original_name": "Constellation Inovação FIF em Cotas de FIA",
-        "original_cnpj": "36.352.596/0001-36",
-        "master_cnpj": "42.870.670/0001-09",
-        "graph": "IBOV",
-    },
-    {
-        "original_name": "Hashdex 100 Nasdaq Crypto Index FIM",
-        "original_cnpj": "33.736.845/0001-07",
-        "master_cnpj": "38.314.708/0001-90",
+        "original_name": "Artesanal Credito Privado 30 FICFIM",
+        "original_cnpj": "45.830.738/0001-14",
+        "master_cnpj": "45.830.738/0001-14",
         "graph": "CDI",
     },
     {
-        "original_name": "ABSOLUTE ATENAS PREV FICFIRF",
-        "original_cnpj": "47.564.734/0001-67",
-        "master_cnpj": "47.612.777/0001-70",
+        "original_name": "Artesanal Credito Privado 90 FICFIDC RL",
+        "original_cnpj": "20.441.301/0001-68",
+        "master_cnpj": "20.441.301/0001-68",
         "graph": "CDI",
     },
     {
-        "original_name": "ITAU HIGH YIELD PREV FICFIRF CPLP",
-        "original_cnpj": "42.827.330/0001-03",
-        "master_cnpj": "42.814.813/0001-65",
+        "original_name": "Artesanal Renda Fixa FIRF",
+        "original_cnpj": "24.773.832/0001-09",
+        "master_cnpj": "24.773.832/0001-09",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "AZ Quest Luce FIC FIF RF CP LP",
+        "original_cnpj": "23.556.185/0001-10",
+        "master_cnpj": "23.556.204/0001-09",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "AZ Quest Valore FIRF CrPr",
+        "original_cnpj": "19.782.311/0001-88",
+        "master_cnpj": "19.782.311/0001-88",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "BNP Paribas Match DI FIRF RL",
+        "original_cnpj": "09.636.393/0001-07",
+        "master_cnpj": "09.636.393/0001-07",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "BNP Paribas Targus FIC FIRF CrPr",
+        "original_cnpj": "05.862.906/0001-39",
+        "master_cnpj": "12.107.669/0001-66",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Bradesco Debentures Incentivadas Infra CDI FICFIRF",
+        "original_cnpj": "32.388.012/0001-21",
+        "master_cnpj": "32.388.012/0001-21",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Bradesco Sky DI FICFIRFRef",
+        "original_cnpj": "04.831.907/0001-53",
+        "master_cnpj": "32.312.120/0001-10",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Bradesco Ultra FICFIRF CrPr LP",
+        "original_cnpj": "37.532.786/0001-06",
+        "master_cnpj": "30.392.659/0001-00",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Bradesco Zupo FIC FIRF LP CP",
+        "original_cnpj": "34.109.809/0001-78",
+        "master_cnpj": "32.388.077/0001-77",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "BTG CDB Plus FIRF",
+        "original_cnpj": "27.717.359/0001-30",
+        "master_cnpj": "27.717.359/0001-30",
         "graph": "CDI",
     },
     {
@@ -343,15 +211,201 @@ FUND_MAPPING_RAW = [
         "graph": "CDI",
     },
     {
-        "original_name": "Riza Lotus Prev FICFIRF CrP",
-        "original_cnpj": "56.954.063/0001-31",
-        "master_cnpj": "45.646.230/0001-60",
+        "original_name": "BTG Cred Corp FICFIRF CrPr",
+        "original_cnpj": "14.171.644/0001-57",
+        "master_cnpj": "14.557.317/0001-38",
         "graph": "CDI",
     },
     {
-        "original_name": "Kinea Alpes Prev FICFIRF CP RL",
-        "original_cnpj": "55.019.754/0001-85",
-        "master_cnpj": "41.756.159/0001-18",
+        "original_name": "BTG Cred Corp Plus FIM CrPr",
+        "original_cnpj": "33.599.991/0001-20",
+        "master_cnpj": "33.599.991/0001-20",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "BTG Debentures Incentivadas Infra CDI FICFIRF",
+        "original_cnpj": "30.934.757/0001-13",
+        "master_cnpj": "31.094.141/0001-44",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "BTG Multigestor Global Equities BRL FIA IE",
+        "original_cnpj": "41.287.933/0001-99",
+        "master_cnpj": "41.287.933/0001-99",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "BTG Pactual Tesouro IPCA Curto FIRF",
+        "original_cnpj": "07.539.298/0001-51",
+        "master_cnpj": "07.539.298/0001-51",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "BTG Reference Ouro USD FICFIM",
+        "original_cnpj": "36.727.910/0001-18",
+        "master_cnpj": "34.979.818/0001-10",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "BTG S&P 500 BRL FIM",
+        "original_cnpj": "36.499.594/0001-74",
+        "master_cnpj": "36.499.594/0001-74",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "BTG Yield DI FIRF Ref CrPr",
+        "original_cnpj": "00.840.011/0001-80",
+        "master_cnpj": "00.840.011/0001-80",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Constellation Inovação FIF em Cotas de FIA",
+        "original_cnpj": "36.352.596/0001-36",
+        "master_cnpj": "42.870.670/0001-09",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "Daycoval Classic FIRF CP",
+        "original_cnpj": "10.783.480/0001-68",
+        "master_cnpj": "53.802.999/0001-59",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Galloway Latam Bonds BRL FIM CrPr IE",
+        "original_cnpj": "21.732.619/0001-60",
+        "master_cnpj": "21.732.619/0001-60",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Genoa Arpa FICFIM",
+        "original_cnpj": "37.495.383/0001-26",
+        "master_cnpj": "37.487.877/0001-69",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "GENOA CAPITAL CRUISE BTG PREV FICFIM",
+        "original_cnpj": "42.535.251/0001-10",
+        "master_cnpj": "41.575.755/0001-00",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Genoa Capital Vestas B FICFIM",
+        "original_cnpj": "49.240.295/0001-62",
+        "master_cnpj": "48.966.484/0001-54",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "GENOA RADAR FICFIM ACCESS",
+        "original_cnpj": "37.287.419/0001-86",
+        "master_cnpj": "35.828.652/0001-01",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "GENOA SAGRES FICFIM",
+        "original_cnpj": "51.012.457/0001-57",
+        "master_cnpj": "51.012.134/0001-63",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Hashdex 100 Nasdaq Crypto Index FIM",
+        "original_cnpj": "33.736.845/0001-07",
+        "master_cnpj": "38.314.708/0001-90",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Ibiuna Credit Deb Inc Infra RF Subclasse",
+        "original_cnpj": "54.518.925/0001-58",
+        "master_cnpj": "54.518.925/0001-58",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Investo Previdencia Global FIM",
+        "original_cnpj": "61.928.582/0001-65",
+        "master_cnpj": "61.928.582/0001-65",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "IP PARTICIPACOES FICFIA BDR NI",
+        "original_cnpj": "29.544.764/0001-20",
+        "master_cnpj": "11.435.298/0001-89",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "Itau Action Debentures Incentivadas Infra Dist FICFIRF CrPr LP",
+        "original_cnpj": "42.826.922/0001-00",
+        "master_cnpj": "42.378.579/0001-70",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Itau Artax Dist FICFIM RL",
+        "original_cnpj": "44.983.745/0001-93",
+        "master_cnpj": "42.717.511/0001-79",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Itau Debentures Incentivadas Infra CDI Dist FICFIRF CrPr",
+        "original_cnpj": "45.512.145/0001-00",
+        "master_cnpj": "42.411.555/0001-76",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Itau Global Dinamico RF Dist BTG Prev FICFI LP",
+        "original_cnpj": "50.235.964/0001-97",
+        "master_cnpj": "39.566.756/0001-38",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Itau Global Dinamico Ultra Dist FIM RL",
+        "original_cnpj": "52.026.419/0001-16",
+        "master_cnpj": "42.332.169/0001-99",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Itaú Hedge Plus Multimercado FIF",
+        "original_cnpj": "29.993.583/0001-80",
+        "master_cnpj": "11.419.627/0001-06",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "ITAU HIGH YIELD PREV FICFIRF CPLP",
+        "original_cnpj": "42.827.330/0001-03",
+        "master_cnpj": "42.814.813/0001-65",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Itau Janeiro Flex Prev Vertice Multimercado Access",
+        "original_cnpj": "51.102.626/0001-40",
+        "master_cnpj": "51.769.756/0001-30",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "ITAU JANEIRO RF PREV FICFI ACCESS",
+        "original_cnpj": "54.254.287/0001-05",
+        "master_cnpj": "51.768.648/0001-43",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Itaú Optimus Titan FIF Mult",
+        "original_cnpj": "35.727.276/0001-50",
+        "master_cnpj": "40.671.799/0001-62",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "ITAU SINFONIA PREV FICFIM CRPR RL ACCESS",
+        "original_cnpj": "54.304.929/0001-33",
+        "master_cnpj": "54.643.280/0001-85",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Jive Bossanova HY FICFIDC",
+        "original_cnpj": "46.322.919/0001-00",
+        "master_cnpj": "46.322.919/0001-00",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "KAPITALO K10 FIC FIM",
+        "original_cnpj": "43.984.537/0001-46",
+        "master_cnpj": "29.726.117/0001-39",
         "graph": "CDI",
     },
     {
@@ -361,10 +415,292 @@ FUND_MAPPING_RAW = [
         "graph": "CDI",
     },
     {
-        "original_name": "Verde AM Prev  FIM",
+        "original_name": "Kinea Alpes Prev FICFIRF CP RL",
+        "original_cnpj": "55.019.754/0001-85",
+        "master_cnpj": "41.756.159/0001-18",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Kinea Andes Subclasse I FIRF CrPr LP",
+        "original_cnpj": "41.993.797/0001-52",
+        "master_cnpj": "41.978.506/0001-57",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Kinea Atlas FIM",
+        "original_cnpj": "29.762.315/0001-58",
+        "master_cnpj": "29.762.315/0001-58",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Kinea Chronos FIM RL",
+        "original_cnpj": "21.624.757/0001-26",
+        "master_cnpj": "21.624.757/0001-26",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Kinea IPCA Dinâmico II FIF RF RL",
+        "original_cnpj": "39.586.858/0001-15",
+        "master_cnpj": "39.586.858/0001-15",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Legacy Capital FIC FIM",
+        "original_cnpj": "30.338.679/0001-94",
+        "master_cnpj": "29.236.556/0001-63",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Legacy Capital Compound Deb Inc Infra CDI FIRF CP",
+        "original_cnpj": "50.891.130/0001-30",
+        "master_cnpj": "50.891.130/0001-30",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "MAN GLG HIGH YIELD OPPORTUNITIES BRL FICFIM IE",
+        "original_cnpj": "41.594.835/0001-02",
+        "master_cnpj": "41.888.295/0001-61",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Mapfre RF FI",
+        "original_cnpj": "07.906.349/0001-36",
+        "master_cnpj": "07.906.349/0001-36",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Oaktree Credit FICFIM IE Access",
+        "original_cnpj": "30.338.686/0001-96",
+        "master_cnpj": "29.363.886/0001-10",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Opportunity Global Equity BRL FICFIA IE BDR NI",
+        "original_cnpj": "46.351.969/0001-08",
+        "master_cnpj": "46.372.615/0001-40",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "Pimco Global Financeiro Credit FICFIM IE",
+        "original_cnpj": "29.066.331/0001-06",
+        "master_cnpj": "29.066.638/0001-07",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Pimco Income FICFIM IE",
+        "original_cnpj": "23.729.512/0001-99",
+        "master_cnpj": "23.720.107/0001-00",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Porto Ipe FICFIRF CrPr LP",
+        "original_cnpj": "35.378.376/0001-19",
+        "master_cnpj": "35.377.796/0001-80",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Porto Seguro FIRF Referenciado DI CP",
+        "original_cnpj": "18.719.154/0001-01",
+        "master_cnpj": "18.719.154/0001-01",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Principal Global High Yield FIM IE",
+        "original_cnpj": "17.302.010/0001-84",
+        "master_cnpj": "17.302.010/0001-84",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Real Investor Credito Estruturado 30 FICFIDC",
+        "original_cnpj": "50.251.934/0001-74",
+        "master_cnpj": "50.251.934/0001-74",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Real Investor Credito Estruturado 90 FICFIDC",
+        "original_cnpj": "46.521.568/0001-59",
+        "master_cnpj": "46.521.568/0001-59",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Real Investor FIC de FIF Multimercado",
+        "original_cnpj": "28.911.549/0001-57",
+        "master_cnpj": "42.870.882/0001-96",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Real Investor FIC FIA BDR Nível I",
+        "original_cnpj": "10.500.884/0001-05",
+        "master_cnpj": "36.352.539/0001-57",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "Riza Lotus FIF RF - Referenciada DI CP RL",
+        "original_cnpj": "36.498.670/0001-27",
+        "master_cnpj": "36.498.670/0001-27",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Riza Lotus Prev FICFIRF CrP",
+        "original_cnpj": "56.954.063/0001-31",
+        "master_cnpj": "45.646.230/0001-60",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Riza Statheros FICFIM CrPr",
+        "original_cnpj": "42.260.903/0001-51",
+        "master_cnpj": "42.260.903/0001-51",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Safra Agilité FIRF CP",
+        "original_cnpj": "12.796.232/0001-87",
+        "master_cnpj": "12.796.232/0001-87",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Safra DI Master FIRF Referenciado DI LP",
+        "original_cnpj": "02.536.364/0001-16",
+        "master_cnpj": "02.536.364/0001-16",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Solis Antares FIC FIDC",
+        "original_cnpj": "13.054.728/0001-48",
+        "master_cnpj": "13.054.656/0001-39",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Solis Antares Light CrPr FICFIDC",
+        "original_cnpj": "34.780.531/0001-66",
+        "master_cnpj": "34.780.531/0001-66",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Sparta Debêntures Incentivadas",
+        "original_cnpj": "39.959.025/0001-52",
+        "master_cnpj": "39.723.106/0001-59",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "SPARTA DEBENTURES INCENTIVADAS INFRA CDI FICFIRF",
+        "original_cnpj": "26.759.909/0001-11",
+        "master_cnpj": "30.676.315/0001-14",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Sparta Top Inflação FIC FIF RF CP LP",
+        "original_cnpj": "38.026.926/0001-29",
+        "master_cnpj": "38.026.869/0001-88",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "SPX Patriot FIC FIA",
+        "original_cnpj": "15.334.585/0001-53",
+        "master_cnpj": "15.350.712/0001-08",
+        "graph": "IBOV",
+    },
+    {
+        "original_name": "SulAmerica Excellence FIRF LP",
+        "original_cnpj": "04.899.128/0001-90",
+        "master_cnpj": "04.899.128/0001-90",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "SulAmérica Exclusive FIRF CP",
+        "original_cnpj": "04.839.017/0001-98",
+        "master_cnpj": "04.839.017/0001-98",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Tivio Institucional FIRF CrPR",
+        "original_cnpj": "06.866.051/0001-87",
+        "master_cnpj": "06.866.051/0001-87",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Verde AM Prev FIM",
         "original_cnpj": "23.339.936/0001-47",
         "master_cnpj": "23.339.924/0001-12",
         "graph": "CDI",
+    },
+    {
+        "original_name": "Vinci Credito Estruturado Seleção FICFIDC",
+        "original_cnpj": "22.282.621/0001-48",
+        "master_cnpj": "22.282.621/0001-48",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Vinland 2 Debentures Incentivadas Infra Ativo FIRF CrPr LP Subclasse I",
+        "original_cnpj": "61.543.507/0001-86",
+        "master_cnpj": "61.543.507/0001-86",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Vinland Credito High Grade FICFIM CrPr",
+        "original_cnpj": "47.684.408/0001-93",
+        "master_cnpj": "47.670.400/0001-78",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "VINLAND CREDITO P PREV T1 FIC FIM CRPR",
+        "original_cnpj": "51.154.059/0001-75",
+        "master_cnpj": "49.426.637/0001-33",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Vinland Debentures Incentivado Infra IPCA FIRF Subclasse I",
+        "original_cnpj": "57.075.698/0001-21",
+        "master_cnpj": "57.075.698/0001-21",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Vinland Incentivado Debêntures Infra Ativo FIF RF CP",
+        "original_cnpj": "50.862.124/0001-54",
+        "master_cnpj": "50.862.124/0001-54",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Vinland Long Short FICFIM Sub I",
+        "original_cnpj": "58.650.505/0001-81",
+        "master_cnpj": "58.650.505/0001-81",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Vinland Macro FICFIM",
+        "original_cnpj": "29.148.660/0001-04",
+        "master_cnpj": "28.581.145/0001-42",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Vinland Macro Plus FICFIM",
+        "original_cnpj": "47.212.318/0001-08",
+        "master_cnpj": "28.692.461/0001-91",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "VINLAND RF ATIVO FICFI LP",
+        "original_cnpj": "34.687.428/0001-76",
+        "master_cnpj": "34.687.399/0001-42",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Western Asset Total Credit FIF RF CP",
+        "original_cnpj": "28.320.857/0001-08",
+        "master_cnpj": "28.320.857/0001-08",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "Western Credito Bancario Plus FIRF",
+        "original_cnpj": "49.983.964/0001-96",
+        "master_cnpj": "49.983.964/0001-96",
+        "graph": "CDI",
+    },
+    {
+        "original_name": "WHG Global Long Biased BRL FICFIA IE",
+        "original_cnpj": "41.409.761/0001-89",
+        "master_cnpj": "40.921.195/0001-27",
+        "graph": "IBOV",
     },
 ]
 
@@ -937,6 +1273,8 @@ def generate_donut_chart_svg(df: pd.DataFrame) -> str:
 
     for cat, val in valid_items:
         angle = (val / total) * 360
+        if angle >= 360:
+            angle = 359.99
         end_angle = start_angle + angle
 
         start_rad = math.radians(start_angle)
@@ -1231,6 +1569,7 @@ def generate_html_factsheet(
     logo_base64: str = "",
     logo_mime: str = "image/png",
     graph_indexer: Optional[str] = None,
+    internal_use_only: bool = False,
 ) -> str:
     """Generate complete HTML factsheet."""
 
@@ -1711,10 +2050,22 @@ def generate_html_factsheet(
                 print-color-adjust: exact !important;
             }}
         }}
+
+        .internal-banner {{
+            background: #ae0000;
+            color: white;
+            padding: 4px 0;
+            text-align: center;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }}
     </style>
 </head>
 <body>
     <div class="page">
+        {f'<div class="internal-banner">MATERIAL DE USO INTERNO - PROIBIDO O COMPARTILHAMENTO</div>' if internal_use_only else ''}
         <!-- Header - no padding wrapper -->
         <div class="header">
             <div class="header-left">
@@ -2153,6 +2504,174 @@ def parse_funds_info_docx(uploaded_file) -> tuple[dict[str, dict], list[dict]]:
     return info_map, rows
 
 
+
+# ---------------------- Text Generation Helper ----------------------
+
+def generate_performance_text(perf_df: pd.DataFrame, benchmark_name: str) -> str:
+    """
+    Generate a natural language summary of the fund's performance
+    based on the 'Índices de Rentabilidade' table (perf_df).
+    
+    Expected Columns in perf_df (normalized):
+    [SERIE, YTD, 3M, 6M, 12M, 24M, 36M]
+    
+    Rows are expected to contain:
+    - Fund row (first one)
+    - Benchmark row (CDI or IBOV)
+    - Volatility row
+    - Sharpe row
+    
+    Format:
+    "O fundo rendeu {ytd} neste ano, {%} do CDI (or {%} acima do IBOV). 
+     Nos últimos 36 meses, rendeu {36m}, com volatilidade de {vol36m} e sharpe de {sharpe36m}.
+     [Fluff]"
+    """
+    if perf_df.empty:
+        return ""
+    
+    df = perf_df.copy()
+    # Normalize columns to uppercase stripped
+    df.columns = [str(c).upper().strip() for c in df.columns]
+    
+    # Identify the series column (usually index 0)
+    serie_col = df.columns[0]
+    
+    # Helper to clean/parse values
+    def get_val(row_idx, col_name):
+        if row_idx < 0 or row_idx >= len(df):
+            return None
+        if col_name not in df.columns:
+            return None
+        val = df.iloc[row_idx][col_name]
+        return parse_br_number(val)
+
+    # Locate rows
+    fund_idx = -1
+    cdi_idx = -1
+    ibov_idx = -1
+    vol_idx = -1
+    sharpe_idx = -1
+    
+    for idx, row in df.iterrows():
+        s = str(row[serie_col]).upper()
+        if "VOLATILIDADE" in s or "VOL" in s:
+            vol_idx = idx
+        elif "SHARPE" in s:
+            sharpe_idx = idx
+        elif "CDI" in s:
+            cdi_idx = idx
+        elif "IBOV" in s:
+            ibov_idx = idx
+        else:
+            # Assume it is the fund if it hasn't been found yet and looks like a name
+            if fund_idx == -1 and len(s) > 1:
+                fund_idx = idx
+                
+    # Fallback: if fund_idx still -1, take 0 if 0 is not occupied by others?
+    # Or just assume 0 if it wasn't identifed as benchmark/stats
+    if fund_idx == -1:
+         # Check if 0 is used
+         if 0 not in (cdi_idx, ibov_idx, vol_idx, sharpe_idx):
+             fund_idx = 0
+            
+    # Determine which benchmark to compare against based on benchmark_name
+    bench_idx = -1
+    is_cdi = True
+    
+    if benchmark_name:
+        bname = benchmark_name.upper()
+        if "IBOV" in bname:
+            bench_idx = ibov_idx
+            is_cdi = False
+        elif "CDI" in bname:
+            bench_idx = cdi_idx
+            is_cdi = True
+    
+    # Fallback if benchmark_name was vague, try to pick one availability
+    if bench_idx == -1:
+        if cdi_idx != -1:
+            bench_idx = cdi_idx
+            is_cdi = True
+        elif ibov_idx != -1:
+            bench_idx = ibov_idx
+            is_cdi = False
+
+    # Extract Data
+    ytd_val = get_val(fund_idx, "YTD")
+    
+    # 36M Data
+    r36_val = get_val(fund_idx, "36M")
+    
+    vol36_val = None
+    if vol_idx != -1:
+        # Try 36M first, if missing fallback? No, prompt specifically asks for 36m stats.
+        vol36_val = get_val(vol_idx, "36M")
+        
+    sharpe36_val = None
+    if sharpe_idx != -1:
+        sharpe36_val = get_val(sharpe_idx, "36M")
+
+    # Formatting helper
+    def fmt_pct(v):
+        if v is None: return "-"
+        return f"{v*100:.1f}%".replace(".", ",")
+
+    def fmt_num(v):
+        if v is None: return "-"
+        return f"{v:.2f}".replace(".", ",")
+        
+    # Build Text
+    parts = []
+    
+    # Part 1: YTD
+    if ytd_val is not None:
+        p1 = f"O fundo rendeu {fmt_pct(ytd_val)} neste ano"
+        
+        # Benchmark comparison
+        if bench_idx != -1:
+            bench_ytd = get_val(bench_idx, "YTD")
+            if bench_ytd is not None:
+                if is_cdi:
+                    # % do CDI
+                    # Avoid div by zero
+                    if abs(bench_ytd) > 1e-9:
+                        pct_of_cdi = (ytd_val / bench_ytd)
+                        p1 += f", contra {pct_of_cdi*100:.0f}% do CDI"
+                    else:
+                        p1 += "" # Can't compute % of 0
+                else:
+                    # % above/below IBOV
+                    diff = ytd_val - bench_ytd
+                    direction = "acima" if diff >= 0 else "abaixo"
+                    p1 += f", {fmt_pct(abs(diff))} {direction} do IBOV"
+        
+        p1 += "."
+        parts.append(p1)
+    
+    # Part 2: 36 Months
+    if r36_val is not None:
+        p2 = f"Nos últimos 36 meses, a estratégia acumulou retorno de {fmt_pct(r36_val)}"
+        stats = []
+        if vol36_val is not None:
+            stats.append(f"com volatilidade anualizada de {fmt_pct(vol36_val)}")
+        if sharpe36_val is not None:
+            stats.append(f"índice Sharpe de {fmt_num(sharpe36_val)}")
+        
+        if stats:
+            p2 += ", " + " e ".join(stats)
+        
+        p2 += "."
+        parts.append(p2)
+        
+    # Part 3: Fluff
+    fluff = (
+        "O portfólio segue posicionado de forma consistente com a tese de investimentos de longo prazo, "
+        "buscando capturar oportunidades assimétricas e preservação de capital em diferentes cenários de mercado."
+    )
+    parts.append(fluff)
+    
+    return " ".join(parts)
+
 # ---------------------- PDF Rendering (Playwright) ----------------------
 
 
@@ -2278,6 +2797,21 @@ def main():
         "fund details. Use Batch Generation to process multiple files at once."
     )
 
+    with st.sidebar:
+        st.subheader("Settings")
+        internal_use_only = st.checkbox(
+            "Internal Use Only Banner",
+            value=False,
+            help="Adds a red banner at the top of the factsheet: MATERIAL DE USO INTERNO - PROIBIDO O COMPARTILHAMENTO"
+        )
+        
+        st.divider()
+        override_performance = st.checkbox(
+            "Override Performance Text",
+            value=False,
+            help="If checked, ignores Word/default text for 'Performance Commentary' and generates a summary from the Performance table (Perf, Vol, Sharpe)."
+        )
+
     # ---------------------- Catalog uploader ----------------------
     st.subheader("Fund Catalog (optional)")
     catalog_file = st.file_uploader(
@@ -2297,7 +2831,7 @@ def main():
             with st.expander("Preview catalog (first 20 rows)"):
                 catalog_file.seek(0)
                 st.dataframe(
-                    pd.read_excel(catalog_file).head(20), use_container_width=True
+                    pd.read_excel(catalog_file).head(20), width='stretch'
                 )
         except Exception as e:
             st.error(f"Failed to read catalog: {e}")
@@ -2344,7 +2878,7 @@ def main():
                             }
                         )
                     if preview:
-                        st.dataframe(pd.DataFrame(preview), use_container_width=True)
+                        st.dataframe(pd.DataFrame(preview), width='stretch')
                     else:
                         st.info("No previewable rows.")
             else:
@@ -2509,12 +3043,33 @@ def main():
                 height=100,
                 key="thesis",
             )
+            # Determine defaults for Performance Commentary
+            # Priority: 
+            # 1. If Override Checkbox -> Generated Text
+            # 2. Else -> Word Defaults (or empty)
+            
+            val_perf_comm = word_defaults.get("performance_commentary", "")
+            
+            if override_performance:
+                if perf_df.empty:
+                     st.warning("⚠️ Tabela de performance (perf_table) está vazia.")
+                else:
+                    gen_text = generate_performance_text(perf_df, benchmark)
+                    if gen_text:
+                        val_perf_comm = gen_text
+                    else:
+                        st.warning("⚠️ Texto gerado vazio. Verifique se a tabela de performance tem as colunas 'YTD', '36M' e se as linhas de SERIE (Volatilidade/Sharpe/Indices) foram identificadas.")
+                        st.dataframe(perf_df)
+
             performance_commentary = st.text_area(
                 "Performance Commentary",
-                value=word_defaults.get("performance_commentary", ""),
+                value=val_perf_comm,
                 placeholder="2024 – the fund outperformed its benchmark thanks to...",
                 height=100,
-                key="perfcomm",
+                # Change key invocation if override matches to force refresh if user toggles?
+                # Actually, simply using a stateful key logic or just letting Streamlit handle it.
+                # If we change the key, it resets the widget.
+                key=f"perfcomm_{override_performance}", 
             )
 
         st.divider()
@@ -2532,7 +3087,7 @@ def main():
         generate_clicked = st.button(
             "🚀 Generate HTML Factsheet (Single)",
             type="primary",
-            use_container_width=True,
+            width='stretch',
             key="single_generate",
         )
 
@@ -2608,6 +3163,7 @@ def main():
                 logo_base64=logo_base64,
                 logo_mime=logo_mime,
                 graph_indexer=graph_indexer,
+                internal_use_only=internal_use_only,
             )
 
             safe_name = sanitize_filename(meta_display.get("fund_name", "fund"))
@@ -2651,7 +3207,7 @@ def main():
                     data=st.session_state["factsheet_html"],
                     file_name=st.session_state["factsheet_html_name"],
                     mime="text/html",
-                    use_container_width=True,
+                    width='stretch',
                 )
             with col_dl2:
                 if st.session_state["factsheet_pdf"] is not None:
@@ -2660,7 +3216,7 @@ def main():
                         data=st.session_state["factsheet_pdf"],
                         file_name=st.session_state["factsheet_pdf_name"],
                         mime="application/pdf",
-                        use_container_width=True,
+                        width='stretch',
                     )
                 else:
                     st.info(
@@ -2673,16 +3229,16 @@ def main():
                 ["Performance", "Line Index", "Allocation", "Top Positions"]
             )
             with tab1:
-                st.dataframe(perf_df, use_container_width=True)
+                st.dataframe(perf_df, width='stretch')
             with tab2:
                 st.dataframe(
                     line_df.head(20) if not line_df.empty else line_df,
-                    use_container_width=True,
+                    width='stretch',
                 )
             with tab3:
-                st.dataframe(alloc_df, use_container_width=True)
+                st.dataframe(alloc_df, width='stretch')
             with tab4:
-                st.dataframe(top_df, use_container_width=True)
+                st.dataframe(top_df, width='stretch')
 
     st.divider()
 
@@ -2755,7 +3311,7 @@ def main():
     generate_batch = st.button(
         "🚀 Generate Batch",
         type="primary",
-        use_container_width=True,
+        width='stretch',
         key="batch_generate_btn",
     )
 
@@ -2939,6 +3495,12 @@ def main():
                         team_use = wi.get("team", "") or b_team
                         thesis_use = wi.get("portfolio_thesis", "") or b_thesis
                         perfcomm_use = wi.get("performance_commentary", "") or b_perfcomm
+                        
+                        # Override performance text check
+                        if override_performance and not perf_df.empty:
+                            gen_text = generate_performance_text(perf_df, meta_display.get("benchmark", ""))
+                            if gen_text:
+                                perfcomm_use = gen_text
 
                         html_content = generate_html_factsheet(
                             meta=meta_display,
@@ -2956,6 +3518,7 @@ def main():
                             logo_base64=logo_base64,
                             logo_mime=logo_mime,
                             graph_indexer=graph_indexer,
+                            internal_use_only=internal_use_only,
                         )
 
                         # Filename: {original_name}_{original_cnpj}.pdf
@@ -3067,6 +3630,12 @@ def main():
                         perfcomm_use = (
                             wi.get("performance_commentary", "") or b_perfcomm
                         )
+                        
+                        # Override performance text check
+                        if override_performance and not perf_df.empty:
+                            gen_text = generate_performance_text(perf_df, meta_display.get("benchmark", ""))
+                            if gen_text:
+                                perfcomm_use = gen_text
 
                         html_content = generate_html_factsheet(
                             meta=meta_display,
@@ -3084,6 +3653,7 @@ def main():
                             logo_base64=logo_base64,
                             logo_mime=logo_mime,
                             graph_indexer=None,
+                            internal_use_only=internal_use_only,
                         )
 
                         safe_name = sanitize_filename(fund_name)
@@ -3158,7 +3728,7 @@ def main():
                 data=html_zip,
                 file_name="factsheets_html.zip",
                 mime="application/zip",
-                use_container_width=True,
+                width='stretch',
                 disabled=not html_pairs,
             )
         with c2:
@@ -3167,7 +3737,7 @@ def main():
                 data=pdf_zip,
                 file_name="factsheets_pdf.zip",
                 mime="application/zip",
-                use_container_width=True,
+                width='stretch',
                 disabled=not pdf_pairs,
             )
         with c3:
@@ -3176,7 +3746,7 @@ def main():
                 data=excel_zip,
                 file_name="factsheets_excel.zip",
                 mime="application/zip",
-                use_container_width=True,
+                width='stretch',
                 disabled=not excel_pairs,
             )
 
@@ -3193,7 +3763,7 @@ def main():
                     for r in results
                 ]
             )
-            st.dataframe(df_sum, use_container_width=True)
+            st.dataframe(df_sum, width='stretch')
 
 
 if __name__ == "__main__":

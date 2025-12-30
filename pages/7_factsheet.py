@@ -248,45 +248,45 @@ def load_nav_series(db_path: str, cnpj: str) -> pd.DataFrame:
 
 
 def categorize_tp_ativo(tp_ativo: str) -> str:
-    if pd.isna(tp_ativo) or not str(tp_ativo).strip():
-        return "Outros"
-    s = str(tp_ativo).upper()
-    if any(kw in s for kw in ["CDB", "RDB", "LETRA FINANCEIRA", "LF", "LCR"]):
-        return "Depósitos a prazo e outros títulos de IF"
-    if any(kw in s for kw in ["TÍTULO PÚBLICO", "NTN", "LTN", "LFT", "TESOURO"]):
-        return "TÍTULOS PÚBLICOS"
-    if "COMPROMISSADA" in s:
-        return "OPERAÇÕES COMPROMISSADAS"
-    if "AÇÃO" in s:
-        return "AÇÕES"
-    if "FUNDO" in s:
-        return "FUNDO DE INVESTIMENTO"
-    if "IMOBILIÁRIO" in s or "FII" in s:
-        return "IMÓVEIS"
-    return "Outros"
+    # if pd.isna(tp_ativo) or not str(tp_ativo).strip():
+    return tp_ativo
+    # s = str(tp_ativo).upper()
+    # if any(kw in s for kw in ["CDB", "RDB", "LETRA FINANCEIRA", "LF", "LCR"]):
+    #     return "Depósitos a prazo e outros títulos de IF"
+    # if any(kw in s for kw in ["TÍTULO PÚBLICO", "NTN", "LTN", "LFT", "TESOURO"]):
+    #     return "TÍTULOS PÚBLICOS"
+    # if "COMPROMISSADA" in s:
+    #     return "OPERAÇÕES COMPROMISSADAS"
+    # if "AÇÃO" in s:
+    #     return "AÇÕES"
+    # if "FUNDO" in s:
+    #     return "FUNDO DE INVESTIMENTO"
+    # if "IMOBILIÁRIO" in s or "FII" in s:
+    #     return "IMÓVEIS"
+    # return "Outros"
 
 
 def get_alloc_donut(df_blc: pd.DataFrame) -> pd.DataFrame:
     if df_blc.empty:
-        return pd.DataFrame(columns=["CATEGORIA", "PCT"])
+        return pd.DataFrame(columns=["TP_ATIVO", "PCT"])
     if "PCT_CARTEIRA" not in df_blc.columns or "TP_ATIVO" not in df_blc.columns:
-        return pd.DataFrame(columns=["CATEGORIA", "PCT"])
+        return pd.DataFrame(columns=["TP_ATIVO", "PCT"])
     tmp = df_blc.copy()
-    tmp["CATEGORIA"] = tmp["TP_ATIVO"].apply(categorize_tp_ativo)
+    tmp["TP_APLIC"] = tmp["TP_ATIVO"].apply(categorize_tp_ativo)
     agg = (
-        tmp.groupby("CATEGORIA")["PCT_CARTEIRA"]
+        tmp.groupby("TP_ATIVO")["PCT_CARTEIRA"]
         .sum()
         .reset_index()
         .rename(columns={"PCT_CARTEIRA": "PCT"})
         .sort_values("PCT", ascending=False)
     )
-    if len(agg) > 6:
-        top = agg.head(5)
-        rest = pd.DataFrame(
-            [["Outros", float(agg["PCT"].iloc[5:].sum())]],
-            columns=["CATEGORIA", "PCT"],
-        )
-        agg = pd.concat([top, rest], ignore_index=True)
+    # if len(agg) > 6:
+    #     top = agg.head(5)
+    #     rest = pd.DataFrame(
+    #         [["Outros", float(agg["PCT"].iloc[5:].sum())]],
+    #         columns=["TP_ATIVO", "PCT"],
+    #     )
+    #     agg = pd.concat([top, rest], ignore_index=True)
     return agg.reset_index(drop=True)
 
 
@@ -303,6 +303,7 @@ def get_top_positions(df_blc: pd.DataFrame) -> pd.DataFrame:
           FI IMOBILIÁRIO, FIDC, FUNDOS DE INVESTIMENTO E DE COTAS
         FUNDOS DE ÍNDICE: prefer DS_ATIVO; else NM_FUNDO_CLASSE_SUBCLASSE_COTA.
       - For TP_* not on the list: use EMISSOR; if missing, fallback to DS_ATIVO.
+    - Single-letter names like "N" or "S" are blanked out.
     Returns columns ["TP_APLIC", "EMISSOR", "PCT"].
     """
     if df_blc.empty or "PCT_CARTEIRA" not in df_blc.columns:
@@ -345,6 +346,14 @@ def get_top_positions(df_blc: pd.DataFrame) -> pd.DataFrame:
     def _has_value(v: object) -> bool:
         return (v is not None) and (not pd.isna(v)) and (str(v).strip() != "")
 
+    def _blank_single_letter(v: object) -> str:
+        s = "" if v is None or pd.isna(v) else str(v).strip()
+        # If the final name is a single alphabetic character (e.g., "N" or "S"),
+        # keep it blank instead.
+        if len(s) == 1 and s.isalpha():
+            return ""
+        return s
+
     # Use TP_ATIVO for deciding the source column; if absent, fallback to TP_APLIC
     rules_col = "TP_ATIVO" if "TP_ATIVO" in work.columns else "TP_APLIC"
 
@@ -381,6 +390,8 @@ def get_top_positions(df_blc: pd.DataFrame) -> pd.DataFrame:
 
     # Construct display "EMISSOR" per rules above
     work["EMISSOR"] = work.apply(_pick_name, axis=1)
+    # Blank out single-letter names like "N" or "S"
+    work["EMISSOR"] = work["EMISSOR"].map(_blank_single_letter)
 
     group_col = "TP_APLIC" if "TP_APLIC" in work.columns else "TP_ATIVO"
 
@@ -1098,15 +1109,15 @@ def main() -> None:
     with c1:
         carteira_db = st.text_input(
             "SQLite carteira_fundos.db",
-            value=os.path.abspath("./carteira_fundos.db"),
+            value=os.path.abspath("./databases/carteira_fundos.db"),
         )
         perf_db = st.text_input(
             "SQLite data_fundos.db (INF_DIARIO)",
-            value=os.path.abspath("./data/data_fundos.db"),
+            value=os.path.abspath("./databases/data_fundos.db"),
         )
         bench_db = st.text_input(
             "Benchmarks DB (CDI/IBOV)",
-            value=os.path.abspath("./data/data_cdi_ibov.db"),
+            value=os.path.abspath("./databases/data_cdi_ibov.db"),
         )
 
     with c2:

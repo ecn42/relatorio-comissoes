@@ -31,7 +31,7 @@ st.set_page_config(
     layout="centered",
 )
 
-DB_PATH = Path("./data/data_cdi_ibov.db")
+DB_PATH = Path("./databases/data_cdi_ibov.db")
 CDI_SERIES_ID = 12  # SGS: CDI Over - taxa diária (% a.d.)
 IBOV_CSV_URL = "https://stooq.com/q/d/l/?s=%5Ebvp&i=d"
 DEFAULT_START_DATE = dt.date(2021, 1, 1)
@@ -318,7 +318,7 @@ def plot_combined(
         yaxis_title="Rentab. acumulada (%)",
         xaxis_title="Data",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def plot_single(
@@ -342,7 +342,7 @@ def plot_single(
         yaxis_title="Rentab. acumulada (%)",
         xaxis_title="Data",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 # -----------------------------------------------------------------------------
@@ -444,14 +444,14 @@ def main() -> None:
         st.markdown("CDI (retornos diários)")
         st.dataframe(
             cdi.tail(10),
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
         )
     with colB:
         st.markdown("IBOV (preços e retornos diários)")
         st.dataframe(
             ibov.tail(10),
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
         )
 

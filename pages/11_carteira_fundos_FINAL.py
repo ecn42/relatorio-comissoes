@@ -883,7 +883,7 @@ with tab1:
     default_dir = os.path.join(os.getcwd(), "data_cda_fi")
     dest_dir = st.text_input("Local data folder", value=default_dir)
 
-    db_default = os.path.join(os.getcwd(), "carteira_fundos.db")
+    db_default = os.path.join(os.getcwd(), "databases", "carteira_fundos.db")
     db_path = st.text_input("SQLite database path", value=db_default)
 
     k = st.number_input(
@@ -1013,7 +1013,7 @@ with tab1:
 
                     conn.close()
                     st.session_state.absent_map = absent_map
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+                    st.dataframe(pd.DataFrame(rows), width='stretch')
             except Exception as e:
                 st.error(f"Error while checking CNPJs: {e}")
 
@@ -1071,7 +1071,7 @@ with tab1:
                                 )
                             else:
                                 st.dataframe(
-                                    df_blc, use_container_width=True, height=420
+                                    df_blc, width='stretch', height=420
                                 )
                                 # Save/update in SQLite (now as table rows)
                                 action, prev = upsert_blc_in_db(
@@ -1296,7 +1296,7 @@ with tab1:
                     st.success("Lote concluído.")
                     df_res = pd.DataFrame(results)
                     if not df_res.empty:
-                        st.dataframe(df_res, use_container_width=True, height=380)
+                        st.dataframe(df_res, width='stretch', height=380)
                         st.download_button(
                             "Baixar relatório (CSV)",
                             data=df_res.to_csv(index=False).encode("utf-8"),
@@ -1475,7 +1475,7 @@ with tab1:
         return n_map, int(updated)
 
     st.subheader("Preencher EMISSOR para Debêntures (df_debentures.db)")
-    deb_db_default = os.path.join(os.getcwd(), "df_debentures.db")
+    deb_db_default = os.path.join(os.getcwd(), "databases", "df_debentures.db")
     deb_db_path = st.text_input(
         "Caminho do df_debentures.db (possui colunas 'Codigo do Ativo' e 'Empresa')",
         value=deb_db_default,

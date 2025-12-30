@@ -10,7 +10,7 @@ import yfinance as yf
 
 st.set_page_config(page_title="Pictet → PMV Appender (DB)", layout="wide")
 
-DB_PATH = "gorila_positions.db"
+DB_PATH = "databases/gorila_positions.db"
 
 
 def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
@@ -175,7 +175,7 @@ MAPPING: List[Tuple[str, List[str]]] = [
     ("Telekurs Sector", ["new:sector"]),
     ("Bond Issuer Type", ["parsed_bond_type"]),
     ("Maturity", ["parsed_maturity", "parsed_maturity_date"]),
-    ("Composite rating", ["new:rating"]),
+    ("Composite rating", ["rating"]),
 ]
 
 
@@ -389,12 +389,16 @@ def main() -> None:
                 if col not in df_pmv_extended.columns:
                     df_pmv_extended[col] = pd.NA
 
-            # 2. Ensure country_risk exists and set it to "Brazil"
+            # 2. Ensure rating exists (will be populated from Pictet)
+            if "rating" not in df_pmv_extended.columns:
+                df_pmv_extended["rating"] = pd.NA
+
+            # 3. Ensure country_risk exists and set it to "Brazil"
             if "country_risk" not in df_pmv_extended.columns:
                 df_pmv_extended["country_risk"] = pd.NA
             df_pmv_extended.loc[:, "country_risk"] = "Brazil"
 
-            # 3. Build PMV-style rows from Pictet positions (matched dates)
+            # 4. Build PMV-style rows from Pictet positions (matched dates)
             df_pictet_pmv, missing_sources = build_pmv_from_pictet(
                 df_pictet=df_pictet_filtered,
                 mapping=MAPPING,
@@ -404,7 +408,7 @@ def main() -> None:
             if "country_risk" not in df_pictet_pmv.columns:
                 df_pictet_pmv["country_risk"] = pd.NA
 
-            # 4. Align columns: start with PMV extended columns in their
+            # 5. Align columns: start with PMV extended columns in their
             #    current order, then append any extra columns from Pictet.
             all_cols_new = list(df_pmv_extended.columns) + [
                 c
@@ -415,17 +419,17 @@ def main() -> None:
             df_pmv_aligned = df_pmv_extended.reindex(columns=all_cols_new)
             df_pictet_aligned = df_pictet_pmv.reindex(columns=all_cols_new)
 
-            # 5. Append Pictet rows at the bottom of PMV rows
+            # 6. Append Pictet rows at the bottom of PMV rows
             df_result = pd.concat(
                 [df_pmv_aligned, df_pictet_aligned],
                 ignore_index=True,
                 sort=False,
             )
 
-            # 6. Final column ordering for this new batch
+            # 7. Final column ordering for this new batch
             df_result = reorder_pmv_columns(df_result)
 
-            # 6b. Set 'indexer' = 'PRÉ' where asset_class == 'Bond'
+            # 7b. Set 'indexer' = 'PRÉ' where asset_class == 'Bond'
             if "asset_class" in df_result.columns and "indexer" in df_result.columns:
                 bond_mask = (
                     df_result["asset_class"]
@@ -436,7 +440,7 @@ def main() -> None:
                 )
                 df_result.loc[bond_mask, "indexer"] = "PRÉ"
 
-            # 7. Fetch USD/BRL FX rate and convert USD market values
+            # 8. Fetch USD/BRL FX rate and convert USD market values
             try:
                 usd_brl = fetch_usd_brl_rate()
             except Exception as e:

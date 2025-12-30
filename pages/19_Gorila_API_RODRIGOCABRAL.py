@@ -1483,7 +1483,7 @@ with st.sidebar:
 
     positions_db_path = st.text_input(
         "Positions DB path",
-        value="gorila_positions.db",
+        value="databases/gorila_positions.db",
         help="Where to store positions/PMV snapshots per reference date.",
     )
 

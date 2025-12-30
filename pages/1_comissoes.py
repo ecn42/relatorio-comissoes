@@ -1108,7 +1108,7 @@ class CommissionDataManager:
     We use a class to organize our code better and avoid repeating database connection logic.
     """
     
-    def __init__(self, db_path="/mnt/databases/commission_data.db"):
+    def __init__(self, db_path="databases/commission_data.db"):
         """
         Initialize the database connection and create tables if they don't exist.
         
@@ -2151,12 +2151,12 @@ def create_product_analysis(df):
         yaxis_title_font_size=14
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Show summary table with formatted values
     display_df = product_summary[['Produto', 'Comissão Total Formatada', 'Qtd Transações', 'Comissão Média Formatada']].copy()
     display_df.columns = ['Produto', 'Comissão Total', 'Transações', 'Comissão Média']
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width='stretch')
 
 def create_level1_analysis(df):
     """Create enhanced analysis by Level 1 with Brazilian formatting."""
@@ -2188,7 +2188,7 @@ def create_level1_analysis(df):
         title_font_size=16
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Format and display table
     level1_summary['Comissão Total Formatada'] = level1_summary['Comissão Total'].apply(format_currency)
@@ -2196,7 +2196,7 @@ def create_level1_analysis(df):
     
     display_df = level1_summary[['Nível 1', 'Comissão Total Formatada', 'Qtd Transações', 'Comissão Média Formatada']].copy()
     display_df.columns = ['Nível 1', 'Comissão Total', 'Transações', 'Comissão Média']
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width='stretch')
 
 def create_client_analysis(df):
     """Create enhanced analysis by client code with Brazilian formatting."""
@@ -2248,14 +2248,14 @@ def create_client_analysis(df):
         title_font_size=16
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Format and display table (still useful to see top 50)
     st.markdown("**Top 50 Clientes por Comissão**")
     client_summary['Comissão Total Formatada'] = client_summary['Comissão Total'].apply(format_currency)
     display_df = client_summary.head(50)[['Código Cliente', 'Comissão Total Formatada', 'Qtd Transações']].copy()
     display_df.columns = ['Código Cliente', 'Comissão Total', 'Transações']
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width='stretch')
 
 def create_assessor_analysis(df):
     """Create enhanced analysis by assessor code with Brazilian formatting."""
@@ -2296,7 +2296,7 @@ def create_assessor_analysis(df):
         title_font_size=16
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Format and display table
     assessor_summary['Comissão Total Formatada'] = assessor_summary['Comissão Total'].apply(format_currency)
@@ -2304,7 +2304,7 @@ def create_assessor_analysis(df):
     
     display_df = assessor_summary[['Código Assessor', 'Comissão Total Formatada', 'Qtd Transações', 'Comissão Média Formatada']].copy()
     display_df.columns = ['Código Assessor', 'Comissão Total', 'Transações', 'Comissão Média']
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width='stretch')
 
 def create_time_evolution_analysis(df):
     """Create enhanced time evolution analysis with Brazilian formatting."""
@@ -2345,7 +2345,7 @@ def create_time_evolution_analysis(df):
         yaxis_title_font_size=14
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Show growth rates
     time_summary['Taxa de Crescimento (%)'] = time_summary['Comissão Total'].pct_change() * 100
@@ -2357,7 +2357,7 @@ def create_time_evolution_analysis(df):
     
     display_df = time_summary[['Mês', 'Comissão Total Formatada', 'Qtd Transações', 'Comissão Média Formatada', 'Taxa de Crescimento (%)']].copy()
     display_df.columns = ['Mês', 'Comissão Total', 'Transações', 'Comissão Média', 'Crescimento (%)']
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width='stretch')
 
 def create_renda_variavel_analysis(df):
     """Create comprehensive analysis for Renda Variável data with enhanced visualizations."""
@@ -2464,7 +2464,7 @@ def create_renda_variavel_analysis(df):
         font=dict(size=12),
         title_font_size=16
     )
-    st.plotly_chart(fig_total, use_container_width=True)
+    st.plotly_chart(fig_total, width='stretch')
     
     # Evolution by Category with enhanced colors
     st.subheader("📊 Evolução das Comissões por Categoria")
@@ -2495,7 +2495,7 @@ def create_renda_variavel_analysis(df):
         font=dict(size=12),
         title_font_size=16
     )
-    st.plotly_chart(fig_cat, use_container_width=True)
+    st.plotly_chart(fig_cat, width='stretch')
     
     # Evolution by Product (Top 10) with enhanced styling
     st.subheader("🏷️ Evolução das Comissões por Principais Produtos")
@@ -2530,7 +2530,7 @@ def create_renda_variavel_analysis(df):
         font=dict(size=12),
         title_font_size=16
     )
-    st.plotly_chart(fig_prod, use_container_width=True)
+    st.plotly_chart(fig_prod, width='stretch')
     
 
     # 3. Enhanced Category Deep Dive
@@ -2567,7 +2567,7 @@ def create_renda_variavel_analysis(df):
         font=dict(size=12),
         title_font_size=16
     )
-    st.plotly_chart(fig_cat_pie, use_container_width=True)
+    st.plotly_chart(fig_cat_pie, width='stretch')
     
     # Format and display category table
     for col in ['Comissão Total', 'Comissão Média', 'Receita Total']:
@@ -2576,7 +2576,7 @@ def create_renda_variavel_analysis(df):
     display_cat = category_summary[['categoria', 'Comissão Total Formatado', 'Transações', 
                                    'Comissão Média Formatado', 'Receita Total Formatado', 'Clientes Únicos']].copy()
     display_cat.columns = ['Categoria', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
-    st.dataframe(display_cat, use_container_width=True)
+    st.dataframe(display_cat, width='stretch')
     
     # 4. Mesa RV Commission Calculation - Individual Analysis
     st.markdown("---")
@@ -2622,7 +2622,7 @@ def create_renda_variavel_analysis(df):
         'Mesa RV Acumulada'
     ]
     
-    st.dataframe(display_mesa_rv, use_container_width=True)
+    st.dataframe(display_mesa_rv, width='stretch')
     
     # Summary metrics for current selection
     total_mesa_rv = mesa_rv_summary['Comissão Mesa RV'].sum()
@@ -2668,7 +2668,7 @@ def create_renda_variavel_analysis(df):
         title_font_size=16
     )
     
-    st.plotly_chart(fig_mesa_rv, use_container_width=True)
+    st.plotly_chart(fig_mesa_rv, width='stretch')
     
     # 5. COMPREHENSIVE COMPARISON TABLE
     st.markdown("---")
@@ -2760,8 +2760,8 @@ def create_renda_variavel_analysis(df):
         'Combinado - Mesa RV'
     ]
     
-    st.dataframe(display_comparison, use_container_width=True)
-    st.dataframe(comparison_df, use_container_width=True)
+    st.dataframe(display_comparison, width='stretch')
+    st.dataframe(comparison_df, width='stretch')
     
     # Summary metrics comparison
     st.subheader("📈 Resumo")
@@ -2853,7 +2853,7 @@ def create_cross_sell_analysis(df_filtered):
     fig_total.update_layout(
         hovermode='x unified', height=500, font=dict(size=12), title_font_size=16
     )
-    st.plotly_chart(fig_total, use_container_width=True)
+    st.plotly_chart(fig_total, width='stretch')
     
     # Evolution by Category with enhanced styling
     st.subheader("📊 Evolução das Comissões por Produto")
@@ -2869,7 +2869,7 @@ def create_cross_sell_analysis(df_filtered):
     
     fig_cat.update_traces(line=dict(width=3), marker=dict(size=8))
     fig_cat.update_layout(hovermode='x unified', height=500, font=dict(size=12), title_font_size=16)
-    st.plotly_chart(fig_cat, use_container_width=True)
+    st.plotly_chart(fig_cat, width='stretch')
     
     
     # 3. Enhanced Category Deep Dive
@@ -2892,7 +2892,7 @@ def create_cross_sell_analysis(df_filtered):
         hovertemplate='<b>%{label}</b><br>Comissão: R$ %{value:,.2f}<br>Percentual: %{percent}<extra></extra>'
     )
     fig_cat_pie.update_layout(height=500, font=dict(size=12), title_font_size=16)
-    st.plotly_chart(fig_cat_pie, use_container_width=True)
+    st.plotly_chart(fig_cat_pie, width='stretch')
     
     # Format and display category table
     for col in ['Comissão Total', 'Comissão Média', 'Receita Total']:
@@ -2901,7 +2901,7 @@ def create_cross_sell_analysis(df_filtered):
     display_cat = category_summary[['produto', 'Comissão Total Formatado', 'Transações', 
                                    'Comissão Média Formatado', 'Receita Total Formatado', 'Clientes Únicos']].copy()
     display_cat.columns = ['Produto', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
-    st.dataframe(display_cat, use_container_width=True)
+    st.dataframe(display_cat, width='stretch')
     
     # 4. Enhanced Product Analysis
     st.markdown("---")
@@ -2924,7 +2924,7 @@ def create_cross_sell_analysis(df_filtered):
         hovertemplate='<b>%{x}</b><br>Comissão: R$ %{y:,.2f}<extra></extra>'
     )
     fig_prod_bar.update_layout(xaxis_tickangle=45, showlegend=False, height=600, font=dict(size=12), title_font_size=16)
-    st.plotly_chart(fig_prod_bar, use_container_width=True)
+    st.plotly_chart(fig_prod_bar, width='stretch')
     
     # Format and display product table
     for col in ['Comissão Total', 'Comissão Média', 'Receita Total']:
@@ -2933,7 +2933,7 @@ def create_cross_sell_analysis(df_filtered):
     display_prod = product_summary[['produto', 'Comissão Total Formatado', 'Transações', 
                                    'Comissão Média Formatado', 'Receita Total Formatado', 'Clientes Únicos']].copy()
     display_prod.columns = ['Produto', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
-    st.dataframe(display_prod, use_container_width=True)
+    st.dataframe(display_prod, width='stretch')
     
     # 5. Enhanced Client Analysis (within the cross-sell group)
     st.markdown("---")
@@ -2959,7 +2959,7 @@ def create_cross_sell_analysis(df_filtered):
         hovertemplate='<b>Cliente: %{customdata[0]}</b><br>Comissão: R$ %{y:,.2f}<extra></extra>'
     )
     fig_client.update_layout(xaxis_tickvals= client_summary.head(20).index, xaxis_ticktext=client_summary['cod_cliente'], xaxis_tickangle=45, showlegend=False, height=500, font=dict(size=12), title_font_size=16)
-    st.plotly_chart(fig_client, use_container_width=True)
+    st.plotly_chart(fig_client, width='stretch')
     
     # Format and display client table
     for col in ['Comissão Total', 'Comissão Média', 'Receita Total']:
@@ -2968,7 +2968,7 @@ def create_cross_sell_analysis(df_filtered):
     display_client = client_summary[['cod_cliente', 'Comissão Total Formatado', 'Transações', 
                                     'Comissão Média Formatado', 'Receita Total Formatado']].copy()
     display_client.columns = ['Código Cliente', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total']
-    st.dataframe(display_client, use_container_width=True)
+    st.dataframe(display_client, width='stretch')
     
     # 6. Enhanced Assessor Analysis
     st.markdown("---")
@@ -2995,7 +2995,7 @@ def create_cross_sell_analysis(df_filtered):
                      'Comissão Média: R$ %{marker.size:,.2f}<extra></extra>'
     )
     fig_assessor.update_layout(height=500, font=dict(size=12), title_font_size=16)
-    st.plotly_chart(fig_assessor, use_container_width=True)
+    st.plotly_chart(fig_assessor, width='stretch')
     
     # Format and display assessor table
     for col in ['Comissão Total', 'Comissão Média', 'Receita Total']:
@@ -3004,9 +3004,9 @@ def create_cross_sell_analysis(df_filtered):
     display_assessor = assessor_summary.head(20)[['cod_assessor_direto', 'Comissão Total Formatado', 'Transações', 
                                                  'Comissão Média Formatado', 'Receita Total Formatado', 'Clientes Únicos']].copy()
     display_assessor.columns = ['Código Assessor', 'Comissão Total', 'Transações', 'Comissão Média', 'Receita Total', 'Clientes Únicos']
-    st.dataframe(display_assessor, use_container_width=True)
+    st.dataframe(display_assessor, width='stretch')
 
-def load_cross_sell_clients(file_path="/mnt/databases/cross_sell_clients.txt"):
+def load_cross_sell_clients(file_path="databases/cross_sell_clients.txt"):
     """
     Loads client codes from a text file for cross-sell analysis.
     
@@ -3378,7 +3378,7 @@ def main():
                 with st.expander("Visualizar Clientes Monitorados"):
                     # Display clients in a more organized way
                     clients_df = pd.DataFrame(cross_sell_clients, columns=['Código do Cliente'])
-                    st.dataframe(clients_df, use_container_width=True)
+                    st.dataframe(clients_df, width='stretch')
 
                 if not selected_months:
                     st.warning("Por favor, selecione pelo menos um mês na barra lateral.")
@@ -3436,7 +3436,7 @@ def main():
                 if len(filtered_df) != len(df_explorer):
                     st.info(f"🔍 Filtro aplicado: {format_number(len(filtered_df))} de {format_number(len(df_explorer))} registros mostrados")
 
-                st.dataframe(filtered_df, use_container_width=True)
+                st.dataframe(filtered_df, width='stretch')
 
                 # Add download button for filtered data
                 if not filtered_df.empty:
@@ -3566,7 +3566,7 @@ def main():
             display_counts = month_counts[['Mês', 'Tipo', 'Qtd Registros Formatada']].copy()
             display_counts.columns = ['Mês', 'Tipo de Documento', 'Quantidade de Registros']
 
-            st.dataframe(display_counts, use_container_width=True)
+            st.dataframe(display_counts, width='stretch')
         else:
             st.info("Ainda não há dados no banco. Faça upload de alguns arquivos!")
     
@@ -3607,7 +3607,7 @@ def main():
         with col1:
             if st.button("📊 Relatório de Análise Geral", 
                         help="Relatório completo com análise temporal, produtos e assessores",
-                        use_container_width=True):
+                        width='stretch'):
                 with st.spinner("Gerando relatório de Análise Geral..."):
                     try:
                         pdf_content = generate_pdf_report('analise', df_reports, selected_months, selected_doc_types)
@@ -3621,7 +3621,7 @@ def main():
                             data=pdf_content,
                             file_name=filename,
                             mime="application/pdf",
-                            use_container_width=True
+                            width='stretch'
                         )
                         st.success("✅ Relatório de Análise Geral gerado com sucesso!")
                         
@@ -3631,7 +3631,7 @@ def main():
         with col2:
             if st.button("💹 Relatório de Renda Variável", 
                         help="Relatório específico para análise de Renda Variável com cálculo de Mesa RV",
-                        use_container_width=True):
+                        width='stretch'):
                 with st.spinner("Gerando relatório de Renda Variável..."):
                     try:
                         pdf_content = generate_pdf_report('renda_variavel', df_reports, selected_months, selected_doc_types)
@@ -3644,7 +3644,7 @@ def main():
                             data=pdf_content,
                             file_name=filename,
                             mime="application/pdf",
-                            use_container_width=True
+                            width='stretch'
                         )
                         st.success("✅ Relatório de Renda Variável gerado com sucesso!")
                         
@@ -3654,7 +3654,7 @@ def main():
         with col3:
             if st.button("🔄 Relatório de Cross-Sell", 
                         help="Relatório específico para análise de clientes Cross-Sell",
-                        use_container_width=True):
+                        width='stretch'):
                 with st.spinner("Gerando relatório de Cross-Sell..."):
                     try:
                         pdf_content = generate_pdf_report('cross_sell', df_reports, selected_months, selected_doc_types)
@@ -3667,7 +3667,7 @@ def main():
                             data=pdf_content,
                             file_name=filename,
                             mime="application/pdf",
-                            use_container_width=True
+                            width='stretch'
                         )
                         st.success("✅ Relatório de Cross-Sell gerado com sucesso!")
                         

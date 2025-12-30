@@ -674,7 +674,7 @@ else:
                         rows, columns=["Empresa", "Ticker", "Peso (%)"]
                     )
                     st.dataframe(
-                        df_carteira, use_container_width=True, hide_index=True
+                        df_carteira, width='stretch', hide_index=True
                     )
                 else:
                     st.warning("Tabela da carteira não identificada.")

@@ -30,6 +30,7 @@ data/
 data_cda_fi/
 defasado/
 assets/
+databases/
 # Jupyter/IPython Notebook
 .ipynb_checkpoints/
 

@@ -27,7 +27,7 @@ st.write("Autenticado")
 # -------------------------------
 # Database path
 # -------------------------------
-DB_PATH = "gorila_positions.db"
+DB_PATH = "databases/gorila_positions.db"
 TARGET_TABLE = "pmv_plus_gorila"
 
 # -------------------------------
@@ -123,6 +123,39 @@ def load_custom_assets(reference_date: Optional[str] = None) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def load_custom_assets_by_security_ids(
+    reference_date: str,
+    security_ids: list[int],
+) -> pd.DataFrame:
+    """Load CUSTOM assets for specific security_ids from a given date."""
+    if not os.path.exists(DB_PATH):
+        return pd.DataFrame()
+
+    if not security_ids:
+        return pd.DataFrame()
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        placeholders = ",".join(["?" for _ in security_ids])
+        query = f"""
+        SELECT
+            rowid AS rowid,
+            *
+        FROM {TARGET_TABLE}
+        WHERE security_type = 'CUSTOM'
+          AND reference_date = ?
+          AND security_id IN ({placeholders})
+        ORDER BY position_id
+        """
+        params = [reference_date] + list(security_ids)
+        df = pd.read_sql_query(query, conn, params=params)
+        conn.close()
+        return df
+    except Exception as e:
+        st.error(f"Error loading source data: {e}")
+        return pd.DataFrame()
+
+
 def save_custom_assets(df: pd.DataFrame) -> bool:
     """Save edited CUSTOM assets back to database.
 
@@ -145,9 +178,7 @@ def save_custom_assets(df: pd.DataFrame) -> bool:
 
         # Columns that can be updated (exclude the row key and PK)
         updatable_columns = [
-            col
-            for col in df.columns
-            if col not in ("rowid", "position_id")
+            col for col in df.columns if col not in ("rowid", "position_id")
         ]
 
         for _, row in df.iterrows():
@@ -157,16 +188,12 @@ def save_custom_assets(df: pd.DataFrame) -> bool:
             if pd.isna(rowid_val):
                 continue
 
-            set_clause = ", ".join(
-                [f"{col} = ?" for col in updatable_columns]
-            )
+            set_clause = ", ".join([f"{col} = ?" for col in updatable_columns])
             values = [row[col] for col in updatable_columns]
             values.append(int(rowid_val))
 
             query = (
-                f"UPDATE {TARGET_TABLE} "
-                f"SET {set_clause} "
-                f"WHERE rowid = ?"
+                f"UPDATE {TARGET_TABLE} " f"SET {set_clause} " f"WHERE rowid = ?"
             )
             cursor.execute(query, values)
 
@@ -176,6 +203,35 @@ def save_custom_assets(df: pd.DataFrame) -> bool:
     except Exception as e:
         st.error(f"Error saving to database: {e}")
         return False
+
+
+def apply_pulled_changes(
+    target_df: pd.DataFrame,
+    source_df: pd.DataFrame,
+    columns_to_pull: list[str],
+) -> pd.DataFrame:
+    """Apply values from source_df to target_df based on security_id matching.
+
+    Returns a new DataFrame with the pulled values applied.
+    """
+    result_df = target_df.copy()
+
+    # Create a mapping from security_id to source row
+    source_map = {}
+    for _, row in source_df.iterrows():
+        sec_id = row["security_id"]
+        source_map[sec_id] = row
+
+    # Apply changes to matching rows
+    for idx, row in result_df.iterrows():
+        sec_id = row["security_id"]
+        if sec_id in source_map:
+            source_row = source_map[sec_id]
+            for col in columns_to_pull:
+                if col in source_row.index and col in result_df.columns:
+                    result_df.at[idx, col] = source_row[col]
+
+    return result_df
 
 
 # -------------------------------
@@ -212,9 +268,7 @@ if st.button("📂 Load CUSTOM Assets from DB", key="load_btn"):
         st.session_state["df_custom_assets_original"] = df_custom.copy()
         st.session_state["df_custom_assets"] = df_custom
         st.session_state["selected_date"] = selected_date
-        st.success(
-            f"Loaded {len(df_custom)} CUSTOM asset(s) for {selected_date}"
-        )
+        st.success(f"Loaded {len(df_custom)} CUSTOM asset(s) for {selected_date}")
     else:
         st.info(f"No CUSTOM assets found for {selected_date}")
 
@@ -282,9 +336,179 @@ if st.session_state.get("df_custom_assets") is not None:
             mime="text/csv",
         )
 
-        # Section for applying changes to other dates
+        # ===================================================
+        # Section for PULLING changes from another date
+        # ===================================================
         st.divider()
-        st.subheader("Apply Changes to Other Dates")
+        st.subheader("⬇️ Pull Changes from Another Date")
+        st.caption(
+            "Copy field values from another date's records into the current date "
+            "(matched by security_id)"
+        )
+
+        # Source date selector (exclude current date)
+        source_dates = [d for d in available_dates if d != selected_date]
+
+        if not source_dates:
+            st.info("No other dates available to pull from")
+        else:
+            source_date = st.selectbox(
+                "Select Source Date to Pull From",
+                options=source_dates,
+                key="source_date_selector",
+            )
+
+            # Get current security_ids
+            current_security_ids = edited_df["security_id"].unique().tolist()
+
+            # Columns that can be pulled (exclude internal/key columns)
+            pullable_columns = [
+                col
+                for col in edited_df.columns
+                if col
+                not in (
+                    "rowid",
+                    "position_id",
+                    "reference_date",
+                    "security_id",
+                )
+            ]
+
+            # Column selector for pulling
+            columns_to_pull = st.multiselect(
+                "Select Columns to Pull",
+                options=pullable_columns,
+                default=[],
+                key="columns_to_pull",
+                help="Choose which columns to copy from the source date",
+            )
+
+            col_preview, col_apply = st.columns([1, 1])
+
+            with col_preview:
+                if st.button("🔍 Preview Pull Changes", key="preview_pull_btn"):
+                    if not columns_to_pull:
+                        st.warning("Please select at least one column to pull")
+                    else:
+                        # Load source data
+                        source_df = load_custom_assets_by_security_ids(
+                            source_date, current_security_ids
+                        )
+
+                        if source_df.empty:
+                            st.info(
+                                f"No matching CUSTOM assets found in {source_date}"
+                            )
+                        else:
+                            # Find differences
+                            st.session_state["pull_source_df"] = source_df
+                            st.session_state["pull_columns"] = columns_to_pull
+
+                            # Build preview of changes
+                            preview_data = []
+                            source_map = {
+                                row["security_id"]: row
+                                for _, row in source_df.iterrows()
+                            }
+
+                            for _, row in edited_df.iterrows():
+                                sec_id = row["security_id"]
+                                if sec_id in source_map:
+                                    source_row = source_map[sec_id]
+                                    for col in columns_to_pull:
+                                        current_val = row.get(col)
+                                        source_val = source_row.get(col)
+
+                                        # Check if values differ
+                                        curr_nan = pd.isna(current_val)
+                                        src_nan = pd.isna(source_val)
+
+                                        if curr_nan and src_nan:
+                                            continue
+                                        elif curr_nan != src_nan or str(
+                                            current_val
+                                        ) != str(source_val):
+                                            preview_data.append(
+                                                {
+                                                    "security_id": sec_id,
+                                                    "column": col,
+                                                    "current_value": current_val,
+                                                    "source_value": source_val,
+                                                }
+                                            )
+
+                            if preview_data:
+                                st.session_state["pull_preview"] = preview_data
+                                st.success(
+                                    f"Found {len(preview_data)} field(s) "
+                                    "with differences"
+                                )
+                            else:
+                                st.session_state["pull_preview"] = None
+                                st.info(
+                                    "No differences found in selected columns"
+                                )
+
+            # Show preview if available
+            if st.session_state.get("pull_preview"):
+                preview_data = st.session_state["pull_preview"]
+                preview_df = pd.DataFrame(preview_data)
+
+                st.write("**Preview of changes to be pulled:**")
+                st.dataframe(
+                    preview_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "security_id": "Security ID",
+                        "column": "Column",
+                        "current_value": st.column_config.Column(
+                            "Current Value",
+                            help="Value in currently selected date",
+                        ),
+                        "source_value": st.column_config.Column(
+                            "Source Value",
+                            help="Value from source date (will be applied)",
+                        ),
+                    },
+                )
+
+                with col_apply:
+                    if st.button(
+                        "✅ Apply Pulled Changes",
+                        key="apply_pull_btn",
+                        type="primary",
+                    ):
+                        source_df = st.session_state.get("pull_source_df")
+                        pull_columns = st.session_state.get("pull_columns", [])
+
+                        if source_df is not None and pull_columns:
+                            # Apply the changes to edited_df
+                            updated_df = apply_pulled_changes(
+                                edited_df, source_df, pull_columns
+                            )
+
+                            # Update session state
+                            st.session_state["df_custom_assets"] = updated_df
+
+                            # Clear preview
+                            st.session_state["pull_preview"] = None
+                            st.session_state["pull_source_df"] = None
+                            st.session_state["pull_columns"] = None
+
+                            st.success(
+                                "✓ Changes pulled! Click 'Save Changes to DB' "
+                                "to persist them."
+                            )
+                            st.rerun()
+                        else:
+                            st.error("Source data not found. Please preview again.")
+
+        # ===================================================
+        # Section for PUSHING changes to other dates
+        # ===================================================
+        st.divider()
+        st.subheader("⬆️ Push Changes to Other Dates")
         st.caption(
             "Find same security_id in other dates and apply the changes"
         )
@@ -321,9 +545,9 @@ if st.session_state.get("df_custom_assets") is not None:
                         continue
                     elif orig_is_nan != new_is_nan:
                         row_changes[col] = new_val
-                    elif not (orig_is_nan or new_is_nan) and str(
-                        orig_val
-                    ) != str(new_val):
+                    elif not (orig_is_nan or new_is_nan) and str(orig_val) != str(
+                        new_val
+                    ):
                         row_changes[col] = new_val
 
                 if row_changes:
@@ -369,19 +593,12 @@ if st.session_state.get("df_custom_assets") is not None:
                                 conn = sqlite3.connect(DB_PATH)
                                 cursor = conn.cursor()
 
-                                for _, match_row in (
-                                    matching_df.iterrows()
-                                ):
+                                for _, match_row in matching_df.iterrows():
                                     set_clause = ", ".join(
-                                        [
-                                            f"{col} = ?"
-                                            for col in row_changes.keys()
-                                        ]
+                                        [f"{col} = ?" for col in row_changes.keys()]
                                     )
                                     values = list(row_changes.values())
-                                    values.append(
-                                        match_row["position_id"]
-                                    )
+                                    values.append(match_row["position_id"])
 
                                     query = (
                                         f"UPDATE {TARGET_TABLE} "
@@ -394,9 +611,7 @@ if st.session_state.get("df_custom_assets") is not None:
                                 conn.commit()
                                 conn.close()
                             except Exception as e:
-                                st.error(
-                                    f"Error applying changes: {e}"
-                                )
+                                st.error(f"Error applying changes: {e}")
 
                     if total_applied > 0:
                         st.success(
@@ -404,13 +619,11 @@ if st.session_state.get("df_custom_assets") is not None:
                             f"{total_applied} record(s) in other dates!"
                         )
                     else:
-                        st.info(
-                            "No matching records found in other dates"
-                        )
+                        st.info("No matching records found in other dates")
             else:
                 st.info(
                     "No changes detected. Edit the records and save "
                     "to see options here."
-        )
+                )
 else:
     st.info("Click 'Load CUSTOM Assets from DB' to get started")

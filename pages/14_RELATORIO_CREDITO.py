@@ -43,6 +43,10 @@
 #   • Removido Stress Testing (seção)
 #   • Adicionadas seções 1 (Objetivo) e 2 (Metodologia) no início do relatório
 #   • Tabelas do relatório centralizadas (não ocupar 100% da largura)
+# - Change (Dec/2025):
+#   • Rating part: add bar graphs (BRL and USD) both in Dashboard and Report.
+#   • Normalize rating value "NONE" (and common equivalents) to "Sem Rating".
+#   • Order all rating bars by rating scale (AAA at top, Sem Rating at bottom).
 
 import base64
 import json
@@ -73,13 +77,6 @@ try:
     HAS_MPL = True
 except Exception:
     HAS_MPL = False
-
-try:
-    import pdfkit  # Opcional (wkhtmltopdf deve estar instalado)
-
-    HAS_PDFKIT = True
-except Exception:
-    HAS_PDFKIT = False
 
 # ---------------------------- Config ---------------------------- #
 
@@ -217,6 +214,77 @@ PALETA_CORES = [
     "#7a6200",
 ]
 
+# ---------------------------- Rating Ordering ---------------------------- #
+
+RATING_ORDER = [
+    "AAA",
+    "AA+",
+    "AA",
+    "AA-",
+    "A+",
+    "A",
+    "A-",
+    "BBB+",
+    "BBB",
+    "BBB-",
+    "BB+",
+    "BB",
+    "BB-",
+    "B+",
+    "B",
+    "B-",
+    "CCC+",
+    "CCC",
+    "CCC-",
+    "CC",
+    "C",
+    "D",
+    "Sem Rating",
+]
+
+
+def normalize_rating_label(x: Optional[str]) -> Optional[str]:
+    if x is None:
+        return None
+    s = str(x).strip()
+    if not s or s == "########":
+        return None
+    u = s.upper()
+    if u in {
+        "NONE",
+        "NENHUM",
+        "SEM RATING",
+        "SEM_RATING",
+        "NA",
+        "N/A",
+        "-",
+        "NR",
+        "UNRATED",
+        "NOT RATED",
+        "SEM CLASSIFICAÇÃO",
+    }:
+        return None
+    return u
+
+
+def rating_sort_key(label: str) -> int:
+    """Return order index; unknown ratings go before 'Sem Rating', and 'Sem Rating' last."""
+    if label is None or str(label).strip() == "":
+        label = "Sem Rating"
+    lab = str(label).strip()
+    # unify casing for matching
+    if lab.upper() in {"NONE", "NR", "UNRATED", "NOT RATED"}:
+        lab = "Sem Rating"
+    # Keep exact "Sem Rating" case at bottom
+    if lab == "Sem Rating":
+        return len(RATING_ORDER) - 1
+    try:
+        return RATING_ORDER.index(lab)
+    except ValueError:
+        # Place unknown just before 'Sem Rating'
+        return len(RATING_ORDER) - 2
+
+
 # ---------------------------- CSV Reader ---------------------------- #
 
 
@@ -278,8 +346,8 @@ def _sqlite_list_tables(conn: sqlite3.Connection) -> List[str]:
 def _sqlite_table_columns(conn: sqlite3.Connection, table: str) -> List[str]:
     with closing(conn.cursor()) as cur:
         cur.execute(f"PRAGMA table_info('{table}')")
-        cols = [row[1] for row in cur.fetchall()]
-    return cols
+        rows = cur.fetchall()
+        return [row[1] for row in rows]
 
 
 def detect_tables_with_reference_date(conn: sqlite3.Connection) -> List[str]:
@@ -379,7 +447,8 @@ def to_date_safe(x: str) -> Optional[datetime]:
         except Exception:
             pass
     m2 = re.search(
-        r"\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[/ -](\d{2,4})\b", s.lower()
+        r"\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[/ -](\d{2,4})\b",
+        s.lower(),
     )
     if m2:
         mon_txt = m2.group(1)
@@ -403,6 +472,11 @@ def pct(numerator: float, denominator: float) -> float:
 
 def as_pct_str(x: float) -> str:
     return f"{x * 100:.2f}%"
+
+
+def brl(v: float) -> str:
+    """Formata valor em formato brasileiro (R$ com vírgula decimal)."""
+    return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def safe_float(x) -> float:
@@ -450,46 +524,46 @@ def _normalize_text_for_fund_detection(s: str) -> str:
 
 
 def is_fund_row(row: pd.Series) -> bool:
-    """
-    Heurísticas para classificar fundos.
-    """
-    t = _normalize_text_for_fund_detection(row.get("security_type", ""))
-    if t in FUND_TYPES or t in FUND_TYPE_ALIASES:
-        return True
-    if re.search(r"\bFUND\b", t):
-        return True
+    # """
+    # Heurísticas para classificar fundos.
+    # """
+    # t = _normalize_text_for_fund_detection(row.get("security_type", ""))
+    # if t in FUND_TYPES or t in FUND_TYPE_ALIASES:
+    #     return True
+    # if re.search(r"\bFUND\b", t):
+    #     return True
 
-    class_fields = [
-        "asset_class",
-        "asset_category",
-        "asset_subclass",
-        "product_type",
-        "class",
-        "subclass",
-        "category",
-    ]
-    for f in class_fields:
-        val = _normalize_text_for_fund_detection(row.get(f, ""))
-        if not val:
-            continue
-        for tok in FUND_TOKENS:
-            if tok in val:
-                return True
-        if re.search(r"\bFUND(O|S)?\b", val):
-            return True
-        if re.search(r"\bFUNDO(S)?\b", val):
-            return True
+    # class_fields = [
+    #     "asset_class",
+    #     "asset_category",
+    #     "asset_subclass",
+    #     "product_type",
+    #     "class",
+    #     "subclass",
+    #     "category",
+    # ]
+    # for f in class_fields:
+    #     val = _normalize_text_for_fund_detection(row.get(f, ""))
+    #     if not val:
+    #         continue
+    #     for tok in FUND_TOKENS:
+    #         if tok in val:
+    #             return True
+    #     if re.search(r"\bFUND(O|S)?\b", val):
+    #         return True
+    #     if re.search(r"\bFUNDO(S)?\b", val):
+    #         return True
 
-    text = " ".join(
-        [
-            _normalize_text_for_fund_detection(row.get("security_name", "")),
-            _normalize_text_for_fund_detection(row.get("security_description", "")),
-        ]
-    )
-    if re.search(r"\b(FUNDO|FUND|ETF|FII|FIDC|FIP)\b", text):
-        return True
-    if re.search(r"\b(COTA|COTAS|QUOTA|QUOTAS)\b", text):
-        return True
+    # text = " ".join(
+    #     [
+    #         _normalize_text_for_fund_detection(row.get("security_name", "")),
+    #         _normalize_text_for_fund_detection(row.get("security_description", "")),
+    #     ]
+    # )
+    # if re.search(r"\b(FUNDO|FUND|ETF|FII|FIDC|FIP)\b", text):
+    #     return True
+    # if re.search(r"\b(COTA|COTAS|QUOTA|QUOTAS)\b", text):
+    #     return True
     return False
 
 
@@ -752,6 +826,15 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     # NEW: Flag S1 via parsed_company_name
     df["is_s1"] = df["parsed_company_name"].apply(is_s1_from_parsed_company)
 
+    # Normalizar coluna de rating (preferir 'rating'; fallback para 'ratings')
+    if "rating" not in df.columns and "ratings" in df.columns:
+        df["rating"] = df["ratings"]
+
+    if "rating" in df.columns:
+        df["rating"] = df["rating"].apply(normalize_rating_label)
+    else:
+        df["rating"] = None
+
     return df
 
 
@@ -759,10 +842,76 @@ def compute_nav(df: pd.DataFrame) -> float:
     return float(df["mv"].sum())
 
 
+def filter_bonds_by_type(
+    df: pd.DataFrame, bond_types: List[str], currency: Optional[str] = None
+) -> pd.DataFrame:
+    """
+    Filtra bonds por tipo e moeda.
+    bond_types: lista de security_type values
+    (ex: ["CORPORATE_BONDS_CRI", "CORPORATE_BONDS_CRA"])
+    currency: "BRL", "USD", ou None para todas
+    """
+    filtered = df.copy()
+    if bond_types:
+        filtered = filtered.loc[
+            filtered["security_type"].astype(str).str.upper().isin(
+                [bt.upper() for bt in bond_types]
+            )
+        ]
+    if currency:
+        filtered = filtered.loc[filtered["currency_code"] == currency]
+    return filtered
+
+
+def compute_rating_distribution_by_group(
+    df_subset: pd.DataFrame, group_total: float
+) -> List[Dict[str, str]]:
+    """
+    Calcula distribuição de ratings para um grupo específico.
+    Retorna lista de dicts com rating, mv, pct (relativo ao group_total).
+    """
+    if df_subset.empty or group_total <= 0:
+        return []
+
+    # Agrupar por rating
+    if "rating" not in df_subset.columns:
+        return []
+
+    # Mapeia para labels finais e agrega
+    tmp = df_subset.copy()
+    tmp["rating_label"] = tmp["rating"].apply(
+        lambda x: "Sem Rating" if normalize_rating_label(x) is None else normalize_rating_label(x)
+    )
+    rating_groups = tmp.groupby("rating_label", dropna=False)["mv"].sum().reset_index()
+    rating_groups.columns = ["rating", "mv"]
+
+    # Calcular percentuais
+    rating_groups["pct"] = rating_groups["mv"].apply(
+        lambda v: pct(float(v), group_total)
+    )
+
+    # Ordenar por nossa escala (AAA topo, Sem Rating fundo)
+    rating_groups["order"] = rating_groups["rating"].apply(rating_sort_key)
+    rating_groups = rating_groups.sort_values(["order", "mv"], ascending=[True, False])
+
+    # Converter para lista de dicts
+    rows = []
+    for _, row in rating_groups.iterrows():
+        rows.append(
+            {
+                "rating": str(row["rating"]),
+                "mv": float(row["mv"]),
+                "pct": as_pct_str(float(row["pct"])),
+            }
+        )
+
+    return rows
+
+
 def compute_sovereign_or_aaa_share(
     df: pd.DataFrame,
     denom_total: float,
-    ratings_map: Optional[pd.DataFrame],
+    ratings_map: Optional[pd.DataFrame] = None,
 ) -> Tuple[float, pd.DataFrame]:
     """
     Share de Soberano/AAA relativo a denom_total.
@@ -774,7 +923,16 @@ def compute_sovereign_or_aaa_share(
 
     aaa_mv = 0.0
     join_df = pd.DataFrame()
-    if ratings_map is not None and not ratings_map.empty:
+
+    # Primeiro tentar usar ratings da coluna do dataframe (rating)
+    if "rating" in df.columns:
+        aaa_mv = df.loc[df["rating"].astype(str).str.upper() == "AAA", "mv"].sum()
+        join_df = df[
+            ["issuer_cnpj", "issuer_name_norm", "issuer_bucket", "mv", "rating"]
+        ].copy()
+        join_df["rating_bucket"] = join_df["rating"]
+    # Fallback para ratings_map (compatibilidade)
+    elif ratings_map is not None and not ratings_map.empty:
         m = ratings_map.copy()
         m.columns = [c.strip().lower() for c in m.columns]
         if "issuer_name" in m.columns:
@@ -860,7 +1018,9 @@ def compute_maturity_share_over_5y(
     if credit_df.empty:
         return 0.0, credit_df
     tmp = credit_df.copy()
-    tmp["over_5y"] = tmp["maturity_date"].map(lambda d: d is not None and d > five_years)
+    tmp["over_5y"] = tmp["maturity_date"].map(
+        lambda d: d is not None and d > five_years
+    )
     over_mv = tmp.loc[tmp["over_5y"], "mv"].sum()
     share = pct(over_mv, denom_total)
     return share, tmp[["issuer_bucket", "maturity_date", "mv", "over_5y"]]
@@ -1095,8 +1255,30 @@ REPORT_HTML = """
       </li>
     </ul>
     <div class="small muted">
-      Nota: "AAA" depende de arquivo de ratings opcional. Soberano = Tesouro Nacional.
+      Nota: Ratings vêm da coluna 'rating' no banco de dados. Soberano = Tesouro Nacional.
+      Valores "NONE" são tratados como "Sem Rating".
     </div>
+
+    <h4>3.1.A Análise de Crédito Privado – BRL (CRI + CRA + DEBENTURE)</h4>
+    {% if brl_private_ratings_rows %}
+      <div class="small">
+        Total CRI+CRA+DEBENTURE (BRL): R$ {{ brl_private_total_fmt }}
+      </div>
+      <div class="imgcell imgcell-wide">{{ bar_ratings_brl | safe }}</div>
+    {% else %}
+      <div class="nodata">Sem dados para CRI+CRA+DEBENTURE em BRL.</div>
+    {% endif %}
+
+    <h4>3.1.B Análise de Crédito Privado – USD (Corporate)</h4>
+    {% if usd_corporate_ratings_rows %}
+      <div class="small">
+        Total Corporate (USD): $ {{ usd_corporate_total_fmt }}
+      </div>
+      <div class="imgcell imgcell-wide">{{ bar_ratings_usd | safe }}</div>
+    {% else %}
+      <div class="nodata">Sem dados para Corporate em USD.</div>
+    {% endif %}
+
     {% else %}
     <h3>3.1 Exposição por Classe</h3>
     <div class="small muted">Seção de Rating desativada.</div>
@@ -1346,7 +1528,7 @@ if data_source == "CSV":
 else:
     st.sidebar.subheader("Banco de Dados Local (SQLite)")
     db_path = st.sidebar.text_input(
-        "Caminho do banco (relativo ao projeto)", value="gorila_positions.db"
+        "Caminho do banco (relativo ao projeto)", value="databases/gorila_positions.db"
     )
     st.sidebar.markdown("Tabela fixa: pmv_plus_gorila")
     if not db_path or not os.path.exists(db_path):
@@ -1536,7 +1718,9 @@ if portfolio_id and "portfolio_id" in df.columns:
 if ref_date_filter:
     try:
         dt_filter = datetime.strptime(ref_date_filter, "%d/%m/%Y")
-        df = df.loc[df["reference_dt"].notna() & (df["reference_dt"] == dt_filter)].copy()
+        df = df.loc[
+            df["reference_dt"].notna() & (df["reference_dt"] == dt_filter)
+        ].copy()
     except Exception:
         st.warning("Data inválida. Use dd/mm/aaaa.")
         st.stop()
@@ -1545,14 +1729,7 @@ if df.empty:
     st.warning("Após filtros, nenhum dado disponível.")
     st.stop()
 
-# Ratings opcional
-ratings_file = st.sidebar.file_uploader(
-    "Opcional: ratings.csv (issuer_cnpj, issuer_name, rating_bucket)",
-    type=["csv"],
-)
-ratings_df = None
-if ratings_file:
-    ratings_df = pd.read_csv(ratings_file, dtype=str, keep_default_na=False)
+# Ratings agora vêm da coluna 'rating' no banco de dados
 
 # Métricas principais
 pl_total = compute_nav(df)
@@ -1566,6 +1743,9 @@ pl_credit = float(credit_df["mv"].sum())
 pl_treasury = float(treasury_df["mv"].sum())
 pl_funds = float(funds_df["mv"].sum())
 base_total = float(base_df["mv"].sum())
+
+st.dataframe(df_raw)
+st.dataframe(df)
 
 # Sub-bases por moeda
 base_df_brl = base_df.loc[base_df["currency_code"] == "BRL"].copy()
@@ -1586,8 +1766,8 @@ period_label = ref_dt.strftime("%B de %Y").title()
 
 # Rating share (relativo ao PL em Renda Fixa e PL)
 if show_ratings_section:
-    aaa_share_base, _ = compute_sovereign_or_aaa_share(base_df, base_total, ratings_df)
-    aaa_share_pl, _ = compute_sovereign_or_aaa_share(df, pl_total, ratings_df)
+    aaa_share_base, _ = compute_sovereign_or_aaa_share(base_df, base_total, None)
+    aaa_share_pl, _ = compute_sovereign_or_aaa_share(df, pl_total, None)
     ok_aaa = (
         aaa_share_base >= DEFAULT_LIMITS["min_sovereign_or_aaa"]
         if base_total > 0
@@ -1598,7 +1778,11 @@ else:
 
 # Excluir Tesouro + S1 da análise de concentração
 s1_bucket_names = set(
-    base_df.loc[base_df["is_s1"], "issuer_bucket"].dropna().astype(str).unique().tolist()
+    base_df.loc[base_df["is_s1"], "issuer_bucket"]
+    .dropna()
+    .astype(str)
+    .unique()
+    .tolist()
 )
 EXCLUDE_IN_LIMITS = set(IGNORE_IN_LIMITS_AS_TESOURO) | s1_bucket_names
 
@@ -1611,17 +1795,31 @@ top10_share_pl = pct(conc_base["top10_mv"], pl_total)
 
 if base_total_brl > 0:
     conc_brl = compute_concentration_by_bucket(
-        base_df_brl, base_total_brl, bucket_col="issuer_bucket", exclude_set=EXCLUDE_IN_LIMITS
+        base_df_brl,
+        base_total_brl,
+        bucket_col="issuer_bucket",
+        exclude_set=EXCLUDE_IN_LIMITS,
     )
 else:
-    conc_brl = {"largest_share": 0.0, "top10_share": 0.0, "table": pd.Series(dtype=float)}
+    conc_brl = {
+        "largest_share": 0.0,
+        "top10_share": 0.0,
+        "table": pd.Series(dtype=float),
+    }
 
 if base_total_usd > 0:
     conc_usd = compute_concentration_by_bucket(
-        base_df_usd, base_total_usd, bucket_col="issuer_bucket", exclude_set=EXCLUDE_IN_LIMITS
+        base_df_usd,
+        base_total_usd,
+        bucket_col="issuer_bucket",
+        exclude_set=EXCLUDE_IN_LIMITS,
     )
 else:
-    conc_usd = {"largest_share": 0.0, "top10_share": 0.0, "table": pd.Series(dtype=float)}
+    conc_usd = {
+        "largest_share": 0.0,
+        "top10_share": 0.0,
+        "table": pd.Series(dtype=float),
+    }
 
 # Fator de risco
 factor_shares_base = compute_factor_risk_shares(base_df, base_total)
@@ -1634,7 +1832,47 @@ over5y_share_base, over5y_table = compute_maturity_share_over_5y(
     credit_df, ref_dt, base_total
 )
 over5y_share_pl, _ = compute_maturity_share_over_5y(credit_df, ref_dt, pl_total)
-mat_buckets_df = compute_maturity_buckets_exposure(credit_df, ref_dt, base_total, pl_total)
+mat_buckets_df = compute_maturity_buckets_exposure(
+    credit_df, ref_dt, base_total, pl_total
+)
+
+# ---------------------------- Análise de Rating por Grupo ---------------------------- #
+
+# BRL: CRI + CRA + DEBENTURE
+brl_private_bond_types = [
+    "CORPORATE_BONDS_CRI",
+    "CORPORATE_BONDS_CRA",
+    "CORPORATE_BONDS_DEBENTURE",
+]
+brl_private_df = filter_bonds_by_type(
+    credit_df, brl_private_bond_types, currency="BRL"
+)
+brl_private_total = float(brl_private_df["mv"].sum())
+brl_private_ratings_rows = compute_rating_distribution_by_group(
+    brl_private_df, brl_private_total
+)
+
+# USD: Corporate
+corp_type_mask = (
+    credit_df["security_type"]
+    .astype(str)
+    .str.upper()
+    .str.contains("CORPORATE", na=False)
+)
+if "parsed_bond_type" in credit_df.columns:
+    corp_pbt_mask = (
+        credit_df["parsed_bond_type"].astype(str).str.upper() == "CORPORATE"
+    )
+else:
+    corp_pbt_mask = pd.Series(False, index=credit_df.index)
+
+usd_corporate_df = credit_df.loc[
+    (credit_df["currency_code"] == "USD") & (corp_type_mask | corp_pbt_mask)
+].copy()
+usd_corporate_total = float(usd_corporate_df["mv"].sum())
+usd_corporate_ratings_rows = compute_rating_distribution_by_group(
+    usd_corporate_df, usd_corporate_total
+)
 
 # Checks de conformidade
 max_single_issuer = float(max_single_issuer)
@@ -1747,7 +1985,9 @@ df["class_bucket"] = np.select(
     default="Outros",
 )
 by_class = df.groupby("class_bucket")["mv"].sum().reset_index()
-fig1 = px.pie(by_class, names="class_bucket", values="mv", title="Patrimônio por Classe", hole=0.2)
+fig1 = px.pie(
+    by_class, names="class_bucket", values="mv", title="Patrimônio por Classe", hole=0.2
+)
 fig1.update_layout(
     font=dict(size=9),
     legend_font_size=9,
@@ -1862,10 +2102,14 @@ st.dataframe(
     issuer_table.assign(
         **{
             "Valor (R$)": issuer_table["Valor (R$)"]
-            .map(lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            .map(
+                lambda v: f"{v:,.2f}"
+                .replace(",", "X")
+                .replace(".", ",")
+                .replace("X", ".")
+            )
         }
-    )
-    .assign(
+    ).assign(
         **{
             "% do PL em Renda Fixa": issuer_table["% do PL em Renda Fixa"].map(
                 as_pct_str
@@ -1936,7 +2180,9 @@ if "parsed_bond_type" in df.columns:
             text=plot_bt_brl["Percentual"].map(lambda v: f"{v:.2f}%"),
             color_discrete_sequence=PALETA_CORES,
         )
-        fig_bt_brl.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
+        fig_bt_brl.update_layout(
+            font=dict(size=9), showlegend=False, height=dash_height
+        )
         center_chart(fig_bt_brl)
     else:
         st.info("Sem dados agregados de tipos em BRL.")
@@ -1962,7 +2208,9 @@ if "parsed_bond_type" in df.columns:
             text=plot_bt_usd["Percentual"].map(lambda v: f"{v:.2f}%"),
             color_discrete_sequence=PALETA_CORES,
         )
-        fig_bt_usd.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
+        fig_bt_usd.update_layout(
+            font=dict(size=9), showlegend=False, height=dash_height
+        )
         center_chart(fig_bt_usd)
     else:
         st.info("Sem dados agregados de tipos em USD.")
@@ -2003,7 +2251,10 @@ if not credit_df.empty:
     cred_plot["Valor"] = pd.to_numeric(cred_plot["mv"], errors="coerce")
     cred_plot = cred_plot.loc[cred_plot["Maturity"].notna()].copy()
     cred_plot["Valor"] = (
-        cred_plot["Valor"].replace([np.inf, -np.inf], np.nan).fillna(0.0).clip(lower=0.0)
+        cred_plot["Valor"]
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna(0.0)
+        .clip(lower=0.0)
     )
     cred_plot_nz = cred_plot.loc[cred_plot["Valor"] > 0.0].copy()
     if not cred_plot_nz.empty:
@@ -2016,12 +2267,112 @@ if not credit_df.empty:
             title="Distribuição de Vencimentos",
             size_max=30,
         )
-        fig3.update_layout(font=dict(size=9), colorway=PALETA_CORES, height=dash_height)
+        fig3.update_layout(
+            font=dict(size=9), colorway=PALETA_CORES, height=dash_height
+        )
         center_chart(fig3)
     else:
         st.info("Sem valores válidos para o gráfico de pontos (size).")
 else:
     st.info("Sem crédito privado para plotar.")
+
+# Análise de Rating por Grupo (Dashboard) — BAR GRAPHS ORDERED BY RATING
+if show_ratings_section:
+    st.markdown("---")
+    st.subheader("Análise de Rating por Grupo")
+
+    # BRL: CRI + CRA + DEBENTURE
+    st.markdown("**BRL: CRI + CRA + DEBENTURE**")
+    if brl_private_ratings_rows:
+        st.write(f"Total CRI+CRA+DEBENTURE (BRL): R$ {brl(brl_private_total)}")
+
+        # Tabela
+        brl_rating_df = pd.DataFrame(brl_private_ratings_rows)
+        brl_rating_df["Valor (R$)"] = brl_rating_df["mv"].apply(lambda x: brl(x))
+        brl_rating_df = brl_rating_df[["rating", "Valor (R$)", "pct"]].rename(
+            columns={"rating": "Rating", "pct": "% do Total CRI+CRA+DEBENTURE"}
+        )
+        # Ordenar tabela pela escala
+        brl_rating_df["order"] = brl_rating_df["Rating"].apply(rating_sort_key)
+        brl_rating_df = brl_rating_df.sort_values("order").drop(columns="order")
+        st.dataframe(brl_rating_df, use_container_width=True)
+
+        # Gráfico de barras horizontal (percentual), ordenado por escala
+        plot_brl = pd.DataFrame(brl_private_ratings_rows)
+        plot_brl["Percentual"] = (
+            plot_brl["mv"] / max(brl_private_total, 1e-9) * 100.0
+        )
+        plot_brl["order"] = plot_brl["rating"].apply(rating_sort_key)
+        plot_brl = plot_brl.sort_values("order")
+        present = [r for r in RATING_ORDER if r in plot_brl["rating"].tolist()]
+        fig_brl_rating = px.bar(
+            plot_brl,
+            x="Percentual",
+            y="rating",
+            color="rating",
+            orientation="h",
+            title="Distribuição de Rating – BRL (% do total CRI+CRA+DEBENTURE)",
+            text=plot_brl["Percentual"].map(lambda v: f"{v:.2f}%"),
+            color_discrete_sequence=PALETA_CORES,
+        )
+        fig_brl_rating.update_layout(
+            font=dict(size=9),
+            showlegend=False,
+            height=dash_height,
+            yaxis=dict(categoryorder="array", categoryarray=present),
+            xaxis_title="% do Total",
+            yaxis_title="Rating",
+        )
+        fig_brl_rating.update_traces(texttemplate="%{text}", textfont_size=9)
+        center_chart(fig_brl_rating)
+    else:
+        st.info("Sem dados para CRI+CRA+DEBENTURE em BRL.")
+
+    # USD: Corporate
+    st.markdown("**USD: Corporate**")
+    if usd_corporate_ratings_rows:
+        st.write(f"Total Corporate (USD): $ {brl(usd_corporate_total)}")
+
+        # Tabela
+        usd_rating_df = pd.DataFrame(usd_corporate_ratings_rows)
+        usd_rating_df["Valor (USD)"] = usd_rating_df["mv"].apply(lambda x: brl(x))
+        usd_rating_df = usd_rating_df[["rating", "Valor (USD)", "pct"]].rename(
+            columns={"rating": "Rating", "pct": "% do Total Corporate USD"}
+        )
+        usd_rating_df["order"] = usd_rating_df["Rating"].apply(rating_sort_key)
+        usd_rating_df = usd_rating_df.sort_values("order").drop(columns="order")
+        st.dataframe(usd_rating_df, use_container_width=True)
+
+        # Gráfico de barras horizontal (percentual), ordenado por escala
+        plot_usd = pd.DataFrame(usd_corporate_ratings_rows)
+        plot_usd["Percentual"] = (
+            plot_usd["mv"] / max(usd_corporate_total, 1e-9) * 100.0
+        )
+        plot_usd["order"] = plot_usd["rating"].apply(rating_sort_key)
+        plot_usd = plot_usd.sort_values("order")
+        present_u = [r for r in RATING_ORDER if r in plot_usd["rating"].tolist()]
+        fig_usd_rating = px.bar(
+            plot_usd,
+            x="Percentual",
+            y="rating",
+            color="rating",
+            orientation="h",
+            title="Distribuição de Rating – USD (% do total Corporate USD)",
+            text=plot_usd["Percentual"].map(lambda v: f"{v:.2f}%"),
+            color_discrete_sequence=PALETA_CORES,
+        )
+        fig_usd_rating.update_layout(
+            font=dict(size=9),
+            showlegend=False,
+            height=dash_height,
+            yaxis=dict(categoryorder="array", categoryarray=present_u),
+            xaxis_title="% do Total",
+            yaxis_title="Rating",
+        )
+        fig_usd_rating.update_traces(texttemplate="%{text}", textfont_size=9)
+        center_chart(fig_usd_rating)
+    else:
+        st.info("Sem dados para Corporate em USD.")
 
 # ------------------- Gráficos Estáticos (Relatório) -------------------- #
 
@@ -2223,7 +2574,9 @@ def _bar_img_html_sov_s1(
     colors = [PALETA_CORES[0], PALETA_CORES[1], PALETA_CORES[2]]
 
     # Figura mais larga para rótulos
-    fig, ax = plt.subplots(figsize=(cfg["size_in"] * 1.6, cfg["size_in"]), dpi=cfg["dpi"])
+    fig, ax = plt.subplots(
+        figsize=(cfg["size_in"] * 1.6, cfg["size_in"]), dpi=cfg["dpi"]
+    )
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
@@ -2250,6 +2603,61 @@ def _bar_img_html_sov_s1(
     return _img_html_from_matplotlib(fig, dpi=cfg["dpi"])
 
 
+# NEW: Barras para distribuição de rating (Relatório)
+def _bar_img_html_ratings(
+    rows: List[Dict[str, str]], title: str, cfg: Dict[str, float]
+) -> str:
+    if not HAS_MPL or not rows:
+        return '<div class="nodata">Sem dados.</div>'
+    df = pd.DataFrame(rows)
+    if "rating" not in df.columns or "mv" not in df.columns:
+        return '<div class="nodata">Sem dados.</div>'
+    total = float(df["mv"].sum())
+    if total <= 0:
+        return '<div class="nodata">Sem dados.</div>'
+    df["rating"] = df["rating"].apply(
+        lambda x: "Sem Rating"
+        if normalize_rating_label(x) is None
+        else normalize_rating_label(x)
+    )
+    df["pct_val"] = df["mv"] / total * 100.0
+    df["order"] = df["rating"].apply(rating_sort_key)
+    df = df.sort_values("order")
+
+    fig, ax = plt.subplots(
+        figsize=(cfg["size_in"] * 1.6, cfg["size_in"]), dpi=cfg["dpi"]
+    )
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    y = df["rating"].tolist()
+    x = df["pct_val"].tolist()
+    colors = [PALETA_CORES[i % len(PALETA_CORES)] for i in range(len(x))]
+    bars = ax.barh(y, x, color=colors)
+    ax.set_xlabel("% do Total", fontsize=9)
+    ax.set_xlim(0, max(100, max(x) * 1.15))
+    ax.set_title(title, fontsize=10)
+
+    for bar, v in zip(bars, x):
+        ax.text(
+            bar.get_width() + max(0.5, 0.01 * max(x)),
+            bar.get_y() + bar.get_height() / 2,
+            f"{v:.{int(cfg['decimals'])}f}%",
+            va="center",
+            fontsize=max(8, int(cfg["font_size"])),
+            color="#222",
+            fontweight="bold",
+        )
+
+    # AAA no topo, Sem Rating no rodapé
+    ax.invert_yaxis()
+
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+
+    return _img_html_from_matplotlib(fig, dpi=cfg["dpi"])
+
+
 # ---------------------------- CSV Export Helper ---------------------------- #
 
 
@@ -2262,7 +2670,9 @@ def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     protect_re = re.compile(r"(taxid|cnpj|cpf|codigo|cetip|isin|id$)", re.I)
     for col in df_copy.columns:
         if protect_re.search(col):
-            df_copy[col] = df_copy[col].apply(lambda x: "" if pd.isna(x) else str(x))
+            df_copy[col] = df_copy[col].apply(
+                lambda x: "" if pd.isna(x) else str(x)
+            )
 
     numeric_cols = df_copy.select_dtypes(include=["number"]).columns
     for col in numeric_cols:
@@ -2276,10 +2686,6 @@ def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
 
 
 # ---------------------------- Render do Relatório ---------------------------- #
-
-
-def brl(v: float) -> str:
-    return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def render_report_html() -> str:
@@ -2422,6 +2828,30 @@ def render_report_html() -> str:
     # NEW: Barra Soberano + S1
     bar_sov_s1 = _bar_img_html_sov_s1(base_df, base_total, DONUT_CFG)
 
+    # Preparar dados de rating para template e gráficos (Relatório)
+    brl_private_ratings_rows_formatted = []
+    for r in brl_private_ratings_rows:
+        brl_private_ratings_rows_formatted.append(
+            {"rating": r["rating"], "mv_fmt": brl(r["mv"]), "pct": r["pct"], "mv": r["mv"]}
+        )
+    usd_corporate_ratings_rows_formatted = []
+    for r in usd_corporate_ratings_rows:
+        usd_corporate_ratings_rows_formatted.append(
+            {"rating": r["rating"], "mv_fmt": brl(r["mv"]), "pct": r["pct"], "mv": r["mv"]}
+        )
+
+    # NEW: Gráficos de barras (estáticos) para ratings no relatório (ordenados)
+    bar_ratings_brl = _bar_img_html_ratings(
+        brl_private_ratings_rows_formatted,
+        "Distribuição de Rating – BRL (% do total CRI+CRA+DEBENTURE)",
+        DONUT_CFG,
+    )
+    bar_ratings_usd = _bar_img_html_ratings(
+        usd_corporate_ratings_rows_formatted,
+        "Distribuição de Rating – USD (% do total Corporate USD)",
+        DONUT_CFG,
+    )
+
     t = Template(REPORT_HTML)
     html = t.render(
         manager_name=manager_name,
@@ -2483,6 +2913,13 @@ def render_report_html() -> str:
         conf_top10_usd=status_tag(ok_top10_usd),
         country_rows=country_rows,
         bar_sov_s1=bar_sov_s1,
+        brl_private_ratings_rows=brl_private_ratings_rows_formatted,
+        brl_private_total_fmt=brl(brl_private_total),
+        usd_corporate_ratings_rows=usd_corporate_ratings_rows_formatted,
+        usd_corporate_total_fmt=brl(usd_corporate_total),
+        # Imagens dos gráficos de rating (ordenados por escala)
+        bar_ratings_brl=bar_ratings_brl,
+        bar_ratings_usd=bar_ratings_usd,
     )
     return html
 
@@ -2501,28 +2938,6 @@ st.download_button(
     file_name="relatorio_risco_credito.html",
     mime="text/html",
 )
-
-if HAS_PDFKIT:
-    if st.button("Gerar PDF (requer wkhtmltopdf instalado)"):
-        try:
-            pdf_bytes = pdfkit.from_string(html_report, False)
-            st.download_button(
-                "Baixar PDF",
-                data=pdf_bytes,
-                file_name="relatorio_risco_credito.pdf",
-                mime="application/pdf",
-            )
-        except Exception as e:
-            st.error(
-                "Falha ao gerar PDF. Detalhes: "
-                f"{e}. Dica: verifique a instalação do wkhtmltopdf."
-            )
-else:
-    st.info(
-        "Para exportar PDF, instale wkhtmltopdf e o pacote pdfkit. "
-        "Alternativamente, abra o HTML no Word e exporte para PDF. "
-        "Os gráficos do relatório são imagens (PNG) e serão preservados."
-    )
 
 # ---------------------------- CSV Downloads ---------------------------- #
 
@@ -2552,6 +2967,8 @@ st.caption(
     "'Fixed income fund') não entram em Crédito mesmo se security_type indicar "
     "'BONDS'. País de risco vem diretamente da coluna 'country_risk'. "
     "O relatório inclui gráficos estáticos para Moeda, Vencimento, Tipo de Título, "
-    "Fator de Risco BRL/USD e um gráfico de barras para Soberano e S1. "
+    "Fator de Risco BRL/USD, um gráfico de barras para Soberano e S1, "
+    "e gráficos de barras para as distribuições de rating (BRL e USD), "
+    "sempre ordenados por escala (AAA no topo, Sem Rating no rodapé). "
     "As tabelas do relatório são centralizadas e não ocupam 100% da largura."
 )

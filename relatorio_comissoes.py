@@ -51,6 +51,8 @@ def home():
             {"title": "2. Carteira Fundos", "icon": ":material/account_balance_wallet:"},
             {"title": "3. Rent. Fundos", "icon": ":material/trending_up:"},
             {"title": "4. Gerar Excel One Pager", "icon": ":material/description:"},
+            {"title": "5. Gerar HTML/PDF", "icon": ":material/html:"},
+            {"title": "6. Puxar Lâmina", "icon": ":material/description:"},
         ],
         "Formatação": [
             {"title": "Texto Carteira Ações", "icon": ":material/article:"},
@@ -60,6 +62,8 @@ def home():
         "Gorila/Relatórios de Risco": [
             {"title": "Gorila API Novo", "icon": ":material/api:"},
             {"title": "Relatório de Crédito", "icon": ":material/account_balance:"},
+            {"title": "Add Ratings BR", "icon": ":material/star:"},
+            {"title": "Rating to Fitch", "icon": ":material/translate:"},
         ],
     }
 
@@ -158,6 +162,11 @@ pages = {
             "pages/20_TESTE_ONEPAGER_HTML.py",
             title="5. Gerar HTML/PDF",
             icon=":material/html:",
+        ),
+        st.Page(
+            "pages/23_Puxar_Lamina.py",
+            title="6. Puxar Lâmina",
+            icon=":material/description:",
         )
     ],
     "Formatação": [
@@ -208,7 +217,18 @@ pages = {
             title="Dados API - Rodrigo Cabral",
             icon=":material/api:",
         ),
-        
+
+        st.Page(
+            "pages/21_Add_Ratings_BR.py",
+            title="Add Ratings BR",
+            icon=":material/star:",
+        ),
+
+        st.Page(
+            "pages/22_Rating_To_Fitch.py",
+            title="Rating to Fitch",
+            icon=":material/translate:",
+        ),
 
     ],
 }

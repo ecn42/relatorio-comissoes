@@ -1453,7 +1453,7 @@ with st.sidebar:
 
     positions_db_path = st.text_input(
         "Positions DB path",
-        value="gorila_positions.db",
+        value="databases/gorila_positions.db",
         help=("Where to store positions/PMV snapshots per reference date."),
     )
 
@@ -1492,7 +1492,7 @@ if st.button("Fetch portfolios"):
         rows = [flatten_portfolio(p) for p in client.list_portfolios()]
         df_port = pd.DataFrame(rows)
         st.session_state["df_portfolios"] = df_port
-        st.dataframe(df_port, use_container_width=True)
+        st.dataframe(df_port, width='stretch')
     except Exception as e:
         st.error(f"Error fetching portfolios: {e}")
 
@@ -1513,7 +1513,7 @@ with cols_iss[0]:
             rows = [flatten_issuer(i) for i in client.list_issuers()]
             df_iss = pd.DataFrame(rows)
             st.session_state["df_issuers"] = df_iss
-            st.dataframe(df_iss, use_container_width=True)
+            st.dataframe(df_iss, width='stretch')
         except Exception as e:
             st.error(f"Error fetching issuers: {e}")
 
@@ -1534,7 +1534,7 @@ with cols_iss[1]:
                 f"added={added_cnt}, total={final_cnt}"
             )
             df_prev = load_issuer_json_df(issuer_json_path)
-            st.dataframe(df_prev, use_container_width=True, height=240)
+            st.dataframe(df_prev, width='stretch', height=240)
         except Exception as e:
             st.error(f"Error updating issuer JSON: {e}")
 
@@ -1566,7 +1566,7 @@ with cols_bro[0]:
             df_bro = pd.DataFrame(rows)
             st.session_state["df_brokers"] = df_bro
             st.success(f"Brokers fetched: {len(df_bro)}")
-            st.dataframe(df_bro, use_container_width=True)
+            st.dataframe(df_bro, width='stretch')
         except Exception as e:
             st.error(f"Error fetching brokers: {e}")
 
@@ -1590,7 +1590,7 @@ deb_url = st.text_input(
 )
 
 deb_db_path = st.text_input(
-    "Salvar/Carregar de (DB local)", value="df_debentures.db"
+    "Salvar/Carregar de (DB local)", value="databases/df_debentures.db"
 )
 st.session_state["deb_db_path"] = deb_db_path
 cols_deb = st.columns(2)
@@ -1607,7 +1607,7 @@ with cols_deb[0]:
                     "Debêntures carregado do DB: "
                     f"{df_deb.shape[0]} linhas × {df_deb.shape[1]} cols"
                 )
-                st.dataframe(df_deb, use_container_width=True)
+                st.dataframe(df_deb, width='stretch')
         except Exception as e:
             st.error(f"Erro ao carregar DB local: {e}")
 
@@ -1640,7 +1640,7 @@ with cols_deb[1]:
                 "Debêntures carregado: "
                 f"{df_deb.shape[0]} linhas × {df_deb.shape[1]} cols"
             )
-            st.dataframe(df_deb, use_container_width=True)
+            st.dataframe(df_deb, width='stretch')
 
         except Exception as e:
             st.error(f"Erro ao carregar Debêntures: {e}")
@@ -1715,7 +1715,7 @@ if st.button("Fetch positions for selected portfolios"):
 
         df_pos = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
         st.session_state["df_positions"] = df_pos
-        st.dataframe(df_pos, use_container_width=True)
+        st.dataframe(df_pos, width='stretch')
 
         if errors:
             st.warning(
@@ -1779,7 +1779,7 @@ if st.button("Fetch position market values"):
         # Ensure debentures df loaded (prefer local DB; fallback to download)
         if st.session_state.get("df_debentures") is None:
             deb_db_path_ss = st.session_state.get(
-                "deb_db_path", "df_debentures.db"
+                "deb_db_path", "databases/df_debentures.db"
             )
             df_deb_local = deb_load_df_from_db(deb_db_path_ss)
             if not df_deb_local.empty:
@@ -1839,7 +1839,7 @@ if st.button("Fetch position market values"):
             df_pmv = ensure_broker_cols_from_raw(df_pmv)
 
         st.session_state["df_position_market_values"] = df_pmv
-        st.dataframe(df_pmv, use_container_width=True)
+        st.dataframe(df_pmv, width='stretch')
 
         if errors:
             st.warning(
@@ -1941,7 +1941,7 @@ if st.button("Run All", type="primary"):
             "Positions fetched: "
             f"{df_pos_all.shape[0]} rows from {len(all_ids)} portfolios"
         )
-        st.dataframe(df_pos_all, use_container_width=True)
+        st.dataframe(df_pos_all, width='stretch')
 
         if errors_pos:
             st.warning(
@@ -2003,7 +2003,7 @@ if st.button("Run All", type="primary"):
             "PMV fetched and enriched: "
             f"{df_pmv_all.shape[0]} rows from {len(all_ids)} portfolios"
         )
-        st.dataframe(df_pmv_all, use_container_width=True)
+        st.dataframe(df_pmv_all, width='stretch')
 
         if errors_pmv:
             st.warning(

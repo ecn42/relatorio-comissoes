@@ -55,7 +55,7 @@ FILE_PREFIX = "inf_diario_fi"
 START_YEAR = 2021
 
 
-LOCAL_DB_PATH = Path("./data/data_fundos.db")
+LOCAL_DB_PATH = Path("./databases/data_fundos.db")
 CLOUD_DB_PATH = Path("/mnt/databases/data/data_fundos.db")
 
 if CLOUD_DB_PATH.exists():
@@ -63,7 +63,7 @@ if CLOUD_DB_PATH.exists():
 else:
     DEFAULT_DB_PATH = LOCAL_DB_PATH
 
-LOCAL_BENCH_DB_PATH = Path("./data/data_cdi_ibov.db")
+LOCAL_BENCH_DB_PATH = Path("./databases/data_cdi_ibov.db")
 CLOUD_BENCH_DB_PATH = Path("/mnt/databases/data/data_cdi_ibov.db")
 
 if CLOUD_BENCH_DB_PATH.exists():
@@ -2034,7 +2034,7 @@ def main() -> None:
         height=bar_height,
         width=bar_width,
     )
-    st.plotly_chart(fig_ml, use_container_width=False)
+    st.plotly_chart(fig_ml, width='content')
 
     # 2) Tabela de performance (comparativo)
     st.subheader("Tabela de performance (comparativo)")
@@ -2226,7 +2226,7 @@ def main() -> None:
         height=line_height,
         width=line_width,
     )
-    st.plotly_chart(nav_line, use_container_width=False)
+    st.plotly_chart(nav_line, width='content')
 
     with st.expander("Detalhes e download"):
         st.write(

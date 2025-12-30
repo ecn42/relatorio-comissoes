@@ -139,7 +139,7 @@ def get_month_year_key(date_obj):
         return None
     return f"{date_obj.year}-{date_obj.month:02d}"
 
-def load_cross_sell_clients(file_path="/mnt/databases/cross_sell_clients.txt"):
+def load_cross_sell_clients(file_path="databases/cross_sell_clients.txt"):
     """
     Loads client codes from a text file for cross-sell analysis.
     
@@ -1290,7 +1290,7 @@ def main():
     st.markdown("Mostrando dados Positivador + Estruturadas")
     
     # Database file path
-    db_path = "/mnt/databases/financial_data.db"
+    db_path = "databases/financial_data.db"
     
     # Connect to database and create tables
     conn = sqlite3.connect(db_path)
@@ -1529,13 +1529,13 @@ def main():
 
                 if chart_option == "Total da Receita por Assessor":
                     fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "horizontal_bar") # Using horizontal bar for better readability
-                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_total')
+                    st.plotly_chart(fig, width='stretch', key='receita_by_assessor_chart_total')
                 elif chart_option == "Detalhe da Receita (Tradicional e Estruturada)": # NEW CHART DISPLAY
                     fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "traditional_breakdown")
-                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_detailed_breakdown')
+                    st.plotly_chart(fig, width='stretch', key='receita_by_assessor_chart_detailed_breakdown')
                 elif chart_option == "Distribuição da Receita Total (Pizza)":
                     fig, receita_data = create_receita_by_assessor_chart(df_filtered, estruturadas_summary, "pie")
-                    st.plotly_chart(fig, use_container_width=True, key='receita_by_assessor_chart_pie')
+                    st.plotly_chart(fig, width='stretch', key='receita_by_assessor_chart_pie')
 
                 # Detailed table
                 st.subheader("📋 Dados Detalhados de Receita")
@@ -1582,7 +1582,7 @@ def main():
                     col_name: display_columns_dict[col_name] for col_name in actual_display_cols if col_name in display_columns_dict
                 })
                 
-                st.dataframe(final_display_df, use_container_width=True, hide_index=True)
+                st.dataframe(final_display_df, width='stretch', hide_index=True)
                 
                 # Download option
                 csv_data = receita_data.to_csv(sep=';', index=False)
@@ -1734,7 +1734,7 @@ def main():
                     )
                 )
                 
-                st.plotly_chart(fig_roa, use_container_width=True, key='roa_fig')
+                st.plotly_chart(fig_roa, width='stretch', key='roa_fig')
                 
                 # Portfolio allocation chart
                 st.subheader("📊 Análise de Alocação de Portfólio")
@@ -1788,7 +1788,7 @@ def main():
                     )
                 )
                 
-                st.plotly_chart(fig_alocacao, use_container_width=True, key='alocacao_fig')
+                st.plotly_chart(fig_alocacao, width='stretch', key='alocacao_fig')
                 
                 # Detailed metrics table
                 st.subheader("📋 Métricas Detalhadas de Portfólio")
@@ -1825,7 +1825,7 @@ def main():
                     'Variacao_PL_Display': 'Variação PL'
                 })
                 
-                st.dataframe(portfolio_display, use_container_width=True, hide_index=True)
+                st.dataframe(portfolio_display, width='stretch', hide_index=True)
                 
             else:
                 st.warning("⚠️ Nenhum dado disponível para análise de portfólio.")
@@ -1928,7 +1928,7 @@ def main():
                         )
                     )
                     
-                    st.plotly_chart(fig_operou, use_container_width=True, key='operou_chart')
+                    st.plotly_chart(fig_operou, width='stretch', key='operou_chart')
                     
                     # Summary table
                     st.subheader("📋 Resumo por Assessor")
@@ -1953,7 +1953,7 @@ def main():
                         'Patrimonio_Display': 'Patrimônio Não Operou'
                     })
                     
-                    st.dataframe(display_operou, use_container_width=True, hide_index=True)
+                    st.dataframe(display_operou, width='stretch', hide_index=True)
                     
                     # Detailed client list
                     if not nao_operou_details.empty:
@@ -1986,7 +1986,7 @@ def main():
                             'Tipo_Pessoa': 'Tipo Pessoa'
                         })
                         
-                        st.dataframe(final_client_display, use_container_width=True, hide_index=True)
+                        st.dataframe(final_client_display, width='stretch', hide_index=True)
                         
                         # Download option
                         csv_data = nao_operou_details.to_csv(sep=';', index=False)
@@ -2113,7 +2113,7 @@ def main():
                         )
                     )
                     
-                    st.plotly_chart(fig_ativacao, use_container_width=True, key='ativacao_chart')
+                    st.plotly_chart(fig_ativacao, width='stretch', key='ativacao_chart')
                     
                     # Summary table by assessor
                     st.subheader("📋 Resumo por Assessor")
@@ -2136,7 +2136,7 @@ def main():
                         'Patrimonio_Medio_Display': 'Patrimônio Médio'
                     })
                     
-                    st.dataframe(display_ativacao, use_container_width=True, hide_index=True)
+                    st.dataframe(display_ativacao, width='stretch', hide_index=True)
                     
                     # Detailed client list
                     st.subheader("📋 Lista Detalhada de Clientes Ativados")
@@ -2164,7 +2164,7 @@ def main():
                         'Data_Posicao': 'Data Posição'
                     })
                     
-                    st.dataframe(final_ativou_display, use_container_width=True, hide_index=True)
+                    st.dataframe(final_ativou_display, width='stretch', hide_index=True)
                     
                     # Distribution by Tipo_Pessoa
                     st.subheader("📊 Distribuição por Tipo Pessoa")
@@ -2186,7 +2186,7 @@ def main():
                     )
                     
                     fig_tipo.update_layout(height=400)
-                    st.plotly_chart(fig_tipo, use_container_width=True, key='tipo_pessoa_chart')
+                    st.plotly_chart(fig_tipo, width='stretch', key='tipo_pessoa_chart')
                     
                     # Download option
                     csv_data = ativou_details.to_csv(sep=';', index=False)
@@ -2245,7 +2245,7 @@ def main():
                 
                 # Show preview of data
                 st.subheader("🔍 Visualização dos Dados")
-                st.dataframe(df.head(10), use_container_width=True)
+                st.dataframe(df.head(10), width='stretch')
                 
                 # Check for Data Posição column
                 if 'Data Posição' not in df.columns:
@@ -2410,14 +2410,14 @@ def main():
                 
                 # Show preview of original data
                 st.subheader("🔍 Visualização dos Dados Originais")
-                st.dataframe(df_estruturadas.head(10), use_container_width=True)
+                st.dataframe(df_estruturadas.head(10), width='stretch')
                 
                 # Process the data
                 df_processed = process_estruturadas_data(df_estruturadas)
                 
                 # Show preview of processed data
                 st.subheader("🔍 Visualização dos Dados Processados")
-                st.dataframe(df_processed.head(10), use_container_width=True)
+                st.dataframe(df_processed.head(10), width='stretch')
                 
                 # Display processing summary
                 st.subheader("📊 Resumo do Processamento")
@@ -2593,7 +2593,7 @@ def main():
                         
                         # Display data
                         st.subheader("📋 Registros do Banco de Dados Financeiro")
-                        st.dataframe(df_from_db, use_container_width=True)
+                        st.dataframe(df_from_db, width='stretch')
                         
                         # Option to download as CSV
                         csv_data = df_from_db.to_csv(sep=';', index=False)
@@ -2635,7 +2635,7 @@ def main():
                         
                         # Display data
                         st.subheader("📋 Registros do Banco de Dados Estruturados")
-                        st.dataframe(df_estruturadas_from_db, use_container_width=True)
+                        st.dataframe(df_estruturadas_from_db, width='stretch')
                         
                         # Option to download as CSV
                         csv_data = df_estruturadas_from_db.to_csv(sep=';', index=False)

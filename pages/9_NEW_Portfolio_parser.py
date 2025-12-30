@@ -1151,7 +1151,7 @@ else:
                     )
                 )
                 st.dataframe(
-                    df_h, use_container_width=True, hide_index=True
+                    df_h, width='stretch', hide_index=True
                 )
             else:
                 st.warning("Nenhum ativo identificado.")

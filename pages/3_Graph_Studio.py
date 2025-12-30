@@ -2306,7 +2306,7 @@ use_container = not imported_size
 
 st.plotly_chart(
     fig,
-    use_container_width=use_container,
+    width='stretch' if use_container else "content",
     theme=None,
     config={
         "displaylogo": False,

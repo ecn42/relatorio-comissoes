@@ -452,7 +452,7 @@ tickers = [
 
 if st.button(
     get_text(lang_code, "analyze_btn"),
-    use_container_width=False,
+    width='content',
 ):
     with st.spinner(
         get_text(lang_code, "fetching")
@@ -905,7 +905,7 @@ if (
 
     st.dataframe(
         display_df,
-        use_container_width=False,
+        width='content',
         hide_index=True,
     )
 
@@ -1008,7 +1008,7 @@ if (
 
         st.dataframe(
             display_quotes,
-            use_container_width=False,
+            width='content',
             hide_index=True,
         )
 
@@ -1194,7 +1194,7 @@ if (
 
             st.plotly_chart(
                 fig,
-                use_container_width=False,
+                width='content',
                 config={
                     "displayModeBar": True,
                     "displaylogo": False,
@@ -1637,7 +1637,7 @@ if (
 
                 st.plotly_chart(
                     fig,
-                    use_container_width=False,
+                    width='content',
                     config={
                         "displayModeBar": True,
                         "displaylogo": False,
@@ -1706,7 +1706,7 @@ if (
                 )
                 st.dataframe(
                     comparison_df,
-                    use_container_width=False,
+                    width='content',
                     hide_index=True,
                 )
 

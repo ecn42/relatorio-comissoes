@@ -83,7 +83,7 @@ def main():
                     st.success(f"Loaded {len(df)} indicators successfully.")
                     st.dataframe(
                         df, 
-                        use_container_width=True,
+                        width='stretch',
                         column_config={
                             "id": "ID",
                             "name": "Name",
