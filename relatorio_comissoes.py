@@ -163,11 +163,7 @@ pages = {
             title="5. Gerar HTML/PDF",
             icon=":material/html:",
         ),
-        st.Page(
-            "pages/23_Puxar_Lamina.py",
-            title="6. Puxar Lâmina",
-            icon=":material/description:",
-        )
+     
     ],
     "Formatação": [
         st.Page(
