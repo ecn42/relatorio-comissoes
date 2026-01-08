@@ -5,6 +5,9 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+import base64
+import io
+    
 
 ### Simple Authentication
 if not st.session_state.get("authenticated", False):
@@ -107,6 +110,347 @@ def get_text(lang, key):
     """Get translated text"""
     return TRANSLATIONS[lang].get(key, key)
 
+
+# ---------------------- PDF Logic (Playwright) ----------------------
+
+def html_to_pdf_playwright(html_content: str, width_px: int = 1080, height_px: int = 1080) -> bytes:
+    """
+    Render HTML to a PDF using headless Chromium via Playwright.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        st.error("Playwright not installed. Please install it to use PDF generation features.")
+        return None
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": width_px, "height": height_px},
+            device_scale_factor=2,  # Higher pixel density for better quality
+        )
+        page = context.new_page()
+
+        page.set_content(html_content, wait_until="load")
+        
+        try:
+           page.wait_for_load_state("networkidle", timeout=5000)
+        except:
+           pass
+
+        pdf_bytes = page.pdf(
+            print_background=True,
+            width=f"{width_px}px",
+            height=f"{height_px}px",
+            page_ranges="1",
+            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+        )
+
+        context.close()
+        browser.close()
+
+    return pdf_bytes
+
+
+def html_to_png_playwright(html_content: str, width_px: int = 1080, height_px: int = 1080) -> bytes:
+    """
+    Render HTML to a Transparent PNG using headless Chromium via Playwright.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        st.error("Playwright not installed. Please install it to use features.")
+        return None
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": width_px, "height": height_px},
+            device_scale_factor=2, 
+        )
+        page = context.new_page()
+
+        # Set content with transparent background explicitly in body/html style if not already
+        page.set_content(html_content, wait_until="load")
+        
+        try:
+           page.wait_for_load_state("networkidle", timeout=5000)
+        except:
+           pass
+
+        png_bytes = page.screenshot(
+            omit_background=True,
+            type="png",
+        )
+
+        context.close()
+        browser.close()
+
+    return png_bytes
+
+
+
+def generate_bar_chart_svg(
+    data: dict, 
+    title: str, 
+    formatter: callable = lambda x: f"{x:.2f}"
+) -> str:
+    """
+    Generate a simple SVG bar chart.
+    data: dict {ticker: value}
+    title: Chart title
+    formatter: Function to format values
+    """
+    if not data:
+        return ""
+
+    width = 320
+    height = 220
+    margin_top = 40
+    margin_bottom = 30
+    margin_left = 10
+    margin_right = 10
+    
+    chart_h = height - margin_top - margin_bottom
+    chart_w = width - margin_left - margin_right
+    
+    tickers = list(data.keys())
+    values = list(data.values())
+    
+    # Handle NaNs or Nones
+    values = [0 if pd.isna(v) or v is None else v for v in values]
+    
+    max_val = max(values) if values else 1
+    if max_val == 0: max_val = 1
+    
+    # Bar width calculations
+    n = len(tickers)
+    bar_gap = 20
+    # Total width available for bars = chart_w - (n-1)*gap
+    # But usually we want fixed bar width or proportional
+    # Let's do simple proportional
+    step = chart_w / n
+    bar_w = step * 0.6
+    
+    svg_parts = []
+    
+    # Title
+    svg_parts.append(
+        f'<text x="{width/2}" y="20" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="bold" fill="#333">{title}</text>'
+    )
+    
+    for i, (ticker, val) in enumerate(zip(tickers, values)):
+        # Normalize height
+        # If negative values exist, this logic needs update, but for now assuming mostly positive metrics 
+        # (Margin, Revenue, etc. can be neg, but let's stick to positive base or simple projection)
+        # For simplicity in this bespoke chart: base at bottom. 
+        # If val < 0, simple implementation might look weird, but acceptable for MVP replacement.
+        
+        # Scale 0 to max_val * 1.1 top
+        scale_max = max(max_val, 0) * 1.1
+        if scale_max == 0: scale_max = 1
+        
+        bar_h = (max(val, 0) / scale_max) * chart_h
+        
+        x = margin_left + (i * step) + (step - bar_w)/2
+        y = margin_top + (chart_h - bar_h)
+        
+        color = CERES_COLORS[i % len(CERES_COLORS)]
+        
+        # Bar
+        svg_parts.append(
+            f'<rect x="{x}" y="{y}" width="{bar_w}" height="{bar_h}" fill="{color}" rx="2" />'
+        )
+        
+        # Value Label (above bar)
+        label = formatter(val)
+        svg_parts.append(
+            f'<text x="{x + bar_w/2}" y="{y - 5}" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#333">{label}</text>'
+        )
+        
+        # X Axis Label (Ticker)
+        svg_parts.append(
+            f'<text x="{x + bar_w/2}" y="{height - 10}" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="#555">{ticker}</text>'
+        )
+
+    return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" style="background-color: #fff; border-radius: 8px; border: 1px solid #eee;">{"".join(svg_parts)}</svg>'
+
+
+def generate_social_export(
+    metrics_dict: dict, 
+    selected_tickers: list,
+    title_str: str,
+    scale_label: str,
+    scale_divisor: float,
+    currency_unit: str,
+    fmt: str = "Square",
+    file_type: str = "pdf",
+    transparent: bool = False
+) -> bytes:
+    """
+    Generate a PDF or PNG suitable for social media sharing using SVG charts.
+    file_type: 'pdf' or 'png'
+    """
+    
+    # Dimensions
+    if fmt == "Story":
+        width, height = 1080, 1920
+    else: # Square
+        width, height = 1080, 1080
+        
+    bg_color = "#f4f4f4" if not transparent else "transparent"
+    card_color = "#ffffff" if not transparent else "rgba(255,255,255,0.9)"
+    brand_color = CERES_COLORS[0]
+    
+    # If transparent PNG, maybe we want the card to be semi-transparent or just the background transparent?
+    # User said "transparent background", usually implies the outer padding is transparent.
+    # The container logic below adds padding and a card. 
+    # If transparent, let's make the BODY transparent, but keep the CONTAINER opaque 
+    # so the charts are readable, but the surrounding 'margin' is clear?
+    # Or does the user want NO container background?
+    # Assuming standard "sticker" style: Transparent background, Opaque Card.
+    
+    if transparent:
+        bg_color = "transparent"
+        # We can keep card_color white
+    
+    # 1. Generate SVGs for each metric
+    svgs = []
+    
+    # Helper to extract values
+    def get_vals(key):
+        return {t: metrics_dict[t].get(key, 0) for t in selected_tickers}
+        
+    # Revenue
+    rev_data = {t: metrics_dict[t].get("revenue", 0)/scale_divisor for t in selected_tickers}
+    svgs.append(generate_bar_chart_svg(
+        rev_data, 
+        f"Revenue ({scale_label} {currency_unit})", 
+        lambda x: f"{x:.1f}"
+    ))
+    
+    # EBIT Margin
+    svgs.append(generate_bar_chart_svg(
+        get_vals("ebit_margin"), "EBIT Margin (%)", lambda x: f"{x:.1f}%"
+    ))
+    
+    # ROE
+    svgs.append(generate_bar_chart_svg(
+        get_vals("roe"), "ROE (%)", lambda x: f"{x:.1f}%"
+    ))
+    
+    # P/E
+    svgs.append(generate_bar_chart_svg(
+        get_vals("pe_ratio"), "P/E Ratio", lambda x: f"{x:.1f}x"
+    ))
+    
+    # Debt/equity
+    svgs.append(generate_bar_chart_svg(
+        get_vals("debt_equity"), "Debt/Equity", lambda x: f"{x:.2f}x"
+    ))
+    
+    # EBITDA Margin
+    svgs.append(generate_bar_chart_svg(
+        get_vals("ebitda_margin"), "EBITDA Margin (%)", lambda x: f"{x:.1f}%"
+    ))
+    
+    # CSS Grid Logic
+    charts_html = "".join([f'<div class="chart-wrapper">{svg}</div>' for svg in svgs])
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{
+                margin: 0;
+                padding: 0;
+                background-color: {bg_color};
+                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                width: {width}px;
+                height: {height}px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                box-sizing: border-box;
+                padding: 40px;
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 30px;
+                width: 100%;
+            }}
+            .logo {{
+                color: {brand_color};
+                font-size: 28px;
+                font-weight: bold;
+                letter-spacing: 4px;
+                margin-bottom: 10px;
+                text-transform: uppercase;
+            }}
+            .title {{
+                color: #333;
+                font-size: 36px;
+                font-weight: 700;
+            }}
+            .grid-container {{
+                display: grid;
+                grid-template-columns: repeat(2, 1fr); 
+                gap: 20px;
+                width: 100%;
+                flex: 1;
+                justify-items: center;
+                align-content: start;
+            }}
+            .chart-wrapper {{
+                width: 100%;
+                display: flex;
+                justify-content: center;
+            }}
+            /* Adjust SVG size via CSS if needed, but they have intrinsic size */
+            svg {{
+                width: 100% !important;
+                height: auto !important;
+                max-width: 450px; 
+                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            }}
+            
+            .footer {{
+                margin-top: auto;
+                padding-top: 20px;
+                color: #888;
+                font-size: 16px;
+                width: 100%;
+                text-align: center;
+                border-top: 1px solid #ddd;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="logo">Ceres Wealth</div>
+            <div class="title">{title_str}</div>
+        </div>
+        
+        <div class="grid-container">
+            {charts_html}
+        </div>
+        
+        <div class="footer">
+            Generated by Ceres Wealth Analytics
+        </div>
+    </body>
+    </html>
+    """
+    
+    if file_type == "png":
+        return html_to_png_playwright(html, width_px=width, height_px=height)
+    else:
+        return html_to_pdf_playwright(html, width_px=width, height_px=height)
+
+
+    
 
 def _format_dividend_yield(x):
     """Format dividend yield correctly"""
@@ -1643,6 +1987,62 @@ if (
                         "displaylogo": False,
                     },
                 )
+
+                # Social Media PDF Export
+                st.divider()
+                st.subheader("📱 Social Media Export")
+                
+                col_exp1, col_exp2, col_exp3 = st.columns([1, 1, 1])
+                with col_exp1:
+                    social_fmt = st.selectbox(
+                        "Format", 
+                        ["Square (1:1 - Post)", "Vertical (9:16 - Story)"],
+                        key="social_fmt_select"
+                    )
+                
+                with col_exp2:
+                    file_fmt = st.selectbox(
+                        "File Type",
+                        ["PDF", "PNG (Transparent)"],
+                        key="file_fmt_val"
+                    )
+
+                with col_exp3:
+                    st.write("") # Spacer
+                    st.write("") # Spacer
+                    generate_btn = st.button("Generate Export")
+                
+                if generate_btn:
+                    fmt_key = "Story" if "9:16" in social_fmt else "Square"
+                    is_png = "PNG" in file_fmt
+                    file_ext = "png" if is_png else "pdf"
+                    mime_type = "image/png" if is_png else "application/pdf"
+                    
+                    with st.spinner(f"Generating {fmt_key} {file_ext.upper()}..."):
+                        title_str = f"Comparison: {', '.join(selected_tickers)}"
+                        
+                        file_bytes = generate_social_export(
+                            metrics_dict,
+                            selected_tickers,
+                            title_str,
+                            scale_label,
+                            scale_divisor,
+                            currency_unit,
+                            fmt=fmt_key,
+                            file_type=file_ext,
+                            transparent=True if is_png else False
+                        )
+                        
+                        if file_bytes:
+                            st.download_button(
+                                label=f"📥 Download {fmt_key} {file_ext.upper()}",
+                                data=file_bytes,
+                                file_name=f"comparison_{fmt_key.lower()}_{'_'.join(selected_tickers)}.{file_ext}",
+                                mime=mime_type,
+                            )
+
+
+
 
                 # Detailed Comparison
                 # Table

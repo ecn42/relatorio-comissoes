@@ -131,6 +131,11 @@ pages = {
             icon=":material/bar_chart:",
         ),
         st.Page(
+            "pages/24_Comparador_Acoes_Novo.py",
+            title="Comparador de Ações Novo",
+            icon=":material/bar_chart:",
+        ),
+        st.Page(
             "pages/16_API_4int.py",
             title="API 4intelligence",
             icon=":material/api:",
@@ -163,7 +168,11 @@ pages = {
             title="5. Gerar HTML/PDF",
             icon=":material/html:",
         ),
-     
+        st.Page(
+            "pages/23_Puxar_FIDCS.py",
+            title="6. Puxar FIDCS",
+            icon=":material/description:",
+        )
     ],
     "Formatação": [
         st.Page(
