@@ -140,6 +140,17 @@ pages = {
             title="API 4intelligence",
             icon=":material/api:",
         ),
+        st.Page(
+            "pages/25_Carteiras_RV.py",
+            title="Carteiras RV",
+            icon=":material/account_balance_wallet:",
+        ),
+
+        st.Page(
+            "pages/26_Carteiras_Mes_Atual.py",
+            title="Carteiras Mes Atual",
+            icon=":material/account_balance_wallet:",
+        )
     ],
     "One Pager Fundos": [
         st.Page(

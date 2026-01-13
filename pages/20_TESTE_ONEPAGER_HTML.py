@@ -1005,6 +1005,8 @@ def parse_meta(df: pd.DataFrame) -> dict:
         val = row.iloc[1] if len(row) > 1 and pd.notna(row.iloc[1]) else ""
         if "CNPJ" in key:
             meta["cnpj"] = str(val)
+        elif "SUBCLASSE" in key:
+            meta["subclasse"] = str(val)
         elif "SNAPSHOT" in key:
             meta["snapshot_date"] = str(val)
         elif "SÉRIE" in key or "INF_DIARIO" in key or "RANGE" in key:
@@ -3168,12 +3170,15 @@ def main():
 
             safe_name = sanitize_filename(meta_display.get("fund_name", "fund"))
             safe_cnpj = clean_cnpj(meta_display.get("cnpj", ""))
+            sub_id = meta_display.get("subclasse", "")
+            sub_suffix = f"_{sub_id}" if sub_id else ""
+
             if safe_name and safe_cnpj:
-                pdf_name = f"{safe_name}_{safe_cnpj}.pdf"
-                html_name = f"{safe_name}_{safe_cnpj}.html"
+                pdf_name = f"{safe_name}_{safe_cnpj}{sub_suffix}.pdf"
+                html_name = f"{safe_name}_{safe_cnpj}{sub_suffix}.html"
             else:
-                pdf_name = f"factsheet_{safe_cnpj or 'fund'}.pdf"
-                html_name = f"factsheet_{safe_cnpj or 'fund'}.html"
+                pdf_name = f"factsheet_{safe_cnpj or 'fund'}{sub_suffix}.pdf"
+                html_name = f"factsheet_{safe_cnpj or 'fund'}{sub_suffix}.html"
 
             st.session_state["factsheet_html"] = html_content
             st.session_state["factsheet_html_name"] = html_name
@@ -3343,7 +3348,9 @@ def main():
                     }
                     preloaded.append(rec)
                     if file_cnpj_clean:
-                        idx_by_master_cnpj[file_cnpj_clean] = rec
+                        if file_cnpj_clean not in idx_by_master_cnpj:
+                            idx_by_master_cnpj[file_cnpj_clean] = []
+                        idx_by_master_cnpj[file_cnpj_clean].append(rec)
                 except Exception as e:
                     st.error(f"Failed preloading {uf.name}: {e}")
 
@@ -3437,9 +3444,9 @@ def main():
                     )
 
                     try:
-                        # Get master data sheets
-                        master_rec = idx_by_master_cnpj.get(master_cnpj_clean)
-                        if not master_rec:
+                        # Get master data sheets (list of one or more files/subclasses)
+                        master_recs = idx_by_master_cnpj.get(master_cnpj_clean, [])
+                        if not master_recs:
                             with log_container:
                                 st.warning(
                                     f"Master data not found for {original_name} "
@@ -3447,116 +3454,120 @@ def main():
                                 )
                             continue
 
-                        sheets_master = master_rec["sheets"]
-                        meta_master = master_rec["meta"]
+                        for master_rec in master_recs:
+                            sheets_master = master_rec["sheets"]
+                            meta_master = master_rec["meta"]
+                            sub_id = meta_master.get("subclasse", "")
+                            sub_suffix = f"_{sub_id}" if sub_id else ""
 
-                        # Use master sheets for chart, perf table, allocation, top positions
-                        line_df = sheets_master.get("line_index", pd.DataFrame())
-                        alloc_df = sheets_master.get("alloc_donut", pd.DataFrame())
-                        top_df = sheets_master.get("top_positions", pd.DataFrame())
-                        perf_df = sheets_master.get("perf_table", pd.DataFrame())
+                            # Use master sheets for chart, perf table, allocation, top positions
+                            line_df = sheets_master.get("line_index", pd.DataFrame())
+                            alloc_df = sheets_master.get("alloc_donut", pd.DataFrame())
+                            top_df = sheets_master.get("top_positions", pd.DataFrame())
+                            perf_df = sheets_master.get("perf_table", pd.DataFrame())
 
-                        # Build details via catalog using ORIGINAL CNPJ
-                        details_raw = {
-                            "AuM": "",
-                            "Classe do Fundo": "",
-                            "Benchmark": meta_master.get("benchmark", "CDI"),
-                            "Tx. Administração": "",
-                            "Tx. Performance": "",
-                            "Administrador": "",
-                            "Resgate": "",
-                        }
-
-                        details_filled, risk_final, bench_final = (
-                            apply_catalog_overrides(
-                                cnpj=original_cnpj,  # Use original_cnpj for catalog lookup
-                                fund_details=details_raw,
-                                risk_level=default_batch_risk,
-                                meta_benchmark=meta_master.get("benchmark", ""),
-                                catalog_map=catalog_map,
-                            )
-                        )
-                        details_display = format_fund_details_for_display(
-                            details_filled
-                        )
-
-                        # Build meta for display with original name/cnpj
-                        meta_display = dict(meta_master)
-                        meta_display["fund_name"] = original_name
-                        meta_display["cnpj"] = original_cnpj
-                        meta_display["benchmark"] = (
-                            bench_final or meta_master.get("benchmark", "CDI")
-                        )
-
-                        # Per-fund content from Word by ORIGINAL CNPJ, else batch defaults
-                        wi = word_info_map.get(original_cnpj_clean, {})
-                        desc_use = wi.get("description", "") or b_desc
-                        carac_use = wi.get("characteristics", "") or b_carac
-                        team_use = wi.get("team", "") or b_team
-                        thesis_use = wi.get("portfolio_thesis", "") or b_thesis
-                        perfcomm_use = wi.get("performance_commentary", "") or b_perfcomm
-                        
-                        # Override performance text check
-                        if override_performance and not perf_df.empty:
-                            gen_text = generate_performance_text(perf_df, meta_display.get("benchmark", ""))
-                            if gen_text:
-                                perfcomm_use = gen_text
-
-                        html_content = generate_html_factsheet(
-                            meta=meta_display,
-                            perf_df=perf_df,
-                            line_df=line_df,
-                            alloc_df=alloc_df,
-                            top_df=top_df,
-                            description=desc_use,
-                            characteristics=carac_use,
-                            team=team_use,
-                            portfolio_thesis=thesis_use,
-                            performance_commentary=perfcomm_use,
-                            risk_level=risk_final,
-                            fund_details=details_display,
-                            logo_base64=logo_base64,
-                            logo_mime=logo_mime,
-                            graph_indexer=graph_indexer,
-                            internal_use_only=internal_use_only,
-                        )
-
-                        # Filename: {original_name}_{original_cnpj}.pdf
-                        safe_name = sanitize_filename(original_name)
-                        safe_cnpj = original_cnpj_clean
-                        if safe_name and safe_cnpj:
-                            html_name = f"{safe_name}_{safe_cnpj}.html"
-                            pdf_name = f"{safe_name}_{safe_cnpj}.pdf"
-                        else:
-                            html_name = f"factsheet_{safe_cnpj or 'fund'}.html"
-                            pdf_name = f"factsheet_{safe_cnpj or 'fund'}.pdf"
-
-                        pdf_bytes = b""
-                        try:
-                            pdf_bytes = html_to_pdf_playwright(html_content)
-                            with log_container:
-                                st.success(f"Rendered PDF: {pdf_name}")
-                        except Exception as e:
-                            with log_container:
-                                st.warning(
-                                    f"PDF render failed for {original_name}: {e}. "
-                                    "HTML still generated."
-                                )
-
-                        results.append(
-                            {
-                                "fund_name": original_name,
-                                "cnpj": original_cnpj,
-                                "html_name": html_name,
-                                "html_bytes": html_content.encode("utf-8"),
-                                "pdf_name": pdf_name,
-                                "pdf_bytes": pdf_bytes,
-                                "excel_name": master_rec["file"].name,
-                                "excel_bytes": master_rec["bytes"],
+                            # Build details via catalog using ORIGINAL CNPJ
+                            details_raw = {
+                                "AuM": "",
+                                "Classe do Fundo": "",
+                                "Benchmark": meta_master.get("benchmark", "CDI"),
+                                "Tx. Administração": "",
+                                "Tx. Performance": "",
+                                "Administrador": "",
+                                "Resgate": "",
                             }
-                        )
-                        with log_container:
-                            st.info(f"Generated HTML: {html_name}")
+
+                            details_filled, risk_final, bench_final = (
+                                apply_catalog_overrides(
+                                    cnpj=original_cnpj,  # Use original_cnpj for catalog lookup
+                                    fund_details=details_raw,
+                                    risk_level=default_batch_risk,
+                                    meta_benchmark=meta_master.get("benchmark", ""),
+                                    catalog_map=catalog_map,
+                                )
+                            )
+                            details_display = format_fund_details_for_display(
+                                details_filled
+                            )
+
+                            # Build meta for display with original name/cnpj
+                            meta_display = dict(meta_master)
+                            meta_display["fund_name"] = original_name
+                            meta_display["cnpj"] = original_cnpj
+                            meta_display["benchmark"] = (
+                                bench_final or meta_master.get("benchmark", "CDI")
+                            )
+
+                            # Per-fund content from Word by ORIGINAL CNPJ, else batch defaults
+                            wi = word_info_map.get(original_cnpj_clean, {})
+                            desc_use = wi.get("description", "") or b_desc
+                            carac_use = wi.get("characteristics", "") or b_carac
+                            team_use = wi.get("team", "") or b_team
+                            thesis_use = wi.get("portfolio_thesis", "") or b_thesis
+                            perfcomm_use = wi.get("performance_commentary", "") or b_perfcomm
+                            
+                            # Override performance text check
+                            if override_performance and not perf_df.empty:
+                                gen_text = generate_performance_text(perf_df, meta_display.get("benchmark", ""))
+                                if gen_text:
+                                    perfcomm_use = gen_text
+
+                            html_content = generate_html_factsheet(
+                                meta=meta_display,
+                                perf_df=perf_df,
+                                line_df=line_df,
+                                alloc_df=alloc_df,
+                                top_df=top_df,
+                                description=desc_use,
+                                characteristics=carac_use,
+                                team=team_use,
+                                portfolio_thesis=thesis_use,
+                                performance_commentary=perfcomm_use,
+                                risk_level=risk_final,
+                                fund_details=details_display,
+                                logo_base64=logo_base64,
+                                logo_mime=logo_mime,
+                                graph_indexer=graph_indexer,
+                                internal_use_only=internal_use_only,
+                            )
+
+                            # Filename: {original_name}_{original_cnpj}_{sub}.pdf
+                            safe_name = sanitize_filename(original_name)
+                            safe_cnpj = original_cnpj_clean
+                            
+                            if safe_name and safe_cnpj:
+                                html_name = f"{safe_name}_{safe_cnpj}{sub_suffix}.html"
+                                pdf_name = f"{safe_name}_{safe_cnpj}{sub_suffix}.pdf"
+                            else:
+                                html_name = f"factsheet_{safe_cnpj or 'fund'}{sub_suffix}.html"
+                                pdf_name = f"factsheet_{safe_cnpj or 'fund'}{sub_suffix}.pdf"
+
+                            pdf_bytes = b""
+                            try:
+                                pdf_bytes = html_to_pdf_playwright(html_content)
+                                with log_container:
+                                    st.success(f"Rendered PDF: {pdf_name}")
+                            except Exception as e:
+                                with log_container:
+                                    st.warning(
+                                        f"PDF render failed for {original_name}{sub_suffix}: {e}. "
+                                        "HTML still generated."
+                                    )
+
+                            results.append(
+                                {
+                                    "fund_name": original_name + (f" ({sub_id})" if sub_id else ""),
+                                    "cnpj": original_cnpj,
+                                    "html_name": html_name,
+                                    "html_bytes": html_content.encode("utf-8"),
+                                    "pdf_name": pdf_name,
+                                    "pdf_bytes": pdf_bytes,
+                                    "excel_name": master_rec["file"].name,
+                                    "excel_bytes": master_rec["bytes"],
+                                }
+                            )
+                            with log_container:
+                                st.info(f"Generated HTML: {html_name}")
 
                     except Exception as e:
                         with log_container:
@@ -3658,12 +3669,15 @@ def main():
 
                         safe_name = sanitize_filename(fund_name)
                         safe_cnpj = clean_cnpj(fund_cnpj)
+                        sub_id = meta.get("subclasse", "")
+                        sub_suffix = f"_{sub_id}" if sub_id else ""
+
                         if safe_name and safe_cnpj:
-                            html_name = f"{safe_name}_{safe_cnpj}.html"
-                            pdf_name = f"{safe_name}_{safe_cnpj}.pdf"
+                            html_name = f"{safe_name}_{safe_cnpj}{sub_suffix}.html"
+                            pdf_name = f"{safe_name}_{safe_cnpj}{sub_suffix}.pdf"
                         else:
-                            html_name = f"factsheet_{safe_cnpj or 'fund'}.html"
-                            pdf_name = f"factsheet_{safe_cnpj or 'fund'}.pdf"
+                            html_name = f"factsheet_{safe_cnpj or 'fund'}{sub_suffix}.html"
+                            pdf_name = f"factsheet_{safe_cnpj or 'fund'}{sub_suffix}.pdf"
 
                         pdf_bytes = b""
                         try:

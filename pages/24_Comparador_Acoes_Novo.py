@@ -1687,18 +1687,20 @@ if uploaded_file is not None:
                 mime="text/csv",
             )
 
-    # Option: enrich your main df_final with extra info by Ticker
+    # Always create enriched dataframe with all extra metrics
+    df_enriched = df_final.copy()
+    for key in ("fundamentals", "highlights"):
+        df_enriched = safe_merge_by_ticker(
+            df_enriched, extras[key], how="left"
+        )
+    
+    # Option to display the enriched dataframe
     st.subheader("🔗 Merge extra info into main StockGuide dataframe")
     want_merge = st.checkbox(
-        "Merge 'Multiples', 'Fundamentals' and 'Highlights' into df",
-        value=False,
+        "Show 'Stock Guide + Extra Metrics' table",
+        value=True,
     )
     if want_merge:
-        df_enriched = df_final.copy()
-        for key in ("fundamentals", "highlights"):
-            df_enriched = safe_merge_by_ticker(
-                df_enriched, extras[key], how="left"
-            )
         st.subheader(f"Stock Guide + Extra Metrics ({len(df_enriched)} stocks)")
         st.dataframe(df_enriched, use_container_width=True, height=600)
         csv_enriched = df_enriched.to_csv(index=False).encode("utf-8")
@@ -1712,20 +1714,19 @@ if uploaded_file is not None:
     # ------------------ STOCK COMPARATOR (HTML) ------------------
     st.subheader("🧪 Stock Comparator (HTML)")
 
-    # Base para o comparador: df_final + (opcional) extras
-    use_extras_in_comparator = st.checkbox(
-        "Incluir métricas das planilhas extras (Fundamentals/Highlights) no comparador",
-        value=True,
-    )
+    # Use the enriched dataframe for comparator (includes fundamentals + highlights)
+    # This same df_comp_source will be used for both HTML comparator and graph comparisons
+    df_comp_source = df_enriched
 
-    df_comp_source = df_final.copy()
-    if use_extras_in_comparator:
-        for key in ("fundamentals", "highlights"):
-            df_comp_source = safe_merge_by_ticker(
-                df_comp_source, extras.get(key, pd.DataFrame()), how="left"
-            )
 
     cols_all = df_comp_source.columns.tolist()
+    
+    # Show info about available metrics
+    st.info(
+        f"📊 **{len(cols_all)} colunas** disponíveis para comparação "
+        f"(incluindo {len(df_comp_source)} empresas com métricas de Fundamentals e Highlights)"
+    )
+
 
     # Auto-detecção de colunas para facilitar
     def _auto_pick(aliases: list[str]) -> str | None:

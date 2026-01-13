@@ -107,3 +107,4 @@ pillow
 python-pptx
 python-dotenv
 playwright
+pypdf

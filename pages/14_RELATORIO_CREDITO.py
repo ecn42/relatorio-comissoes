@@ -564,6 +564,9 @@ def is_fund_row(row: pd.Series) -> bool:
     #     return True
     # if re.search(r"\b(COTA|COTAS|QUOTA|QUOTAS)\b", text):
     #     return True
+    val = _normalize_text_for_fund_detection(row.get("asset_class", ""))
+    if val == "FIXED INCOME FUND":
+        return True
     return False
 
 
@@ -571,6 +574,12 @@ def is_credit_row(row: pd.Series) -> bool:
     # Fundos nunca são crédito (inclui 'Fixed income fund')
     if is_fund_row(row):
         return False
+    
+    # Exclusão manual sugerida pelo usuário (FGTS e DFO)
+    bt = str(row.get("parsed_bond_type", "")).strip().upper()
+    if bt in ["FGTS", "DFO"]:
+        return False
+
     t = str(row.get("security_type", "")).strip().upper()
     if t in CREDIT_TYPES:
         return True
@@ -583,6 +592,12 @@ def is_treasury_row(row: pd.Series) -> bool:
     # Fundos nunca são Tesouro
     if is_fund_row(row):
         return False
+
+    # Exclusão manual sugerida pelo usuário (FGTS e DFO)
+    bt = str(row.get("parsed_bond_type", "")).strip().upper()
+    if bt in ["FGTS", "DFO"]:
+        return False
+
     t = str(row.get("security_type", "")).strip().upper()
     if t in PUBLIC_BOND_TYPES:
         return True
@@ -1681,12 +1696,6 @@ dash_height = st.sidebar.slider(
     "Altura (px)", min_value=240, max_value=900, value=420, step=10
 )
 
-events_text = st.text_area(
-    "Eventos Relevantes (HTML ou texto simples):",
-    value=("<ul><li>Destaques de resultados trimestrais (preencher).</li></ul>"),
-    height=150,
-)
-
 # ---------------------------- Data Load ---------------------------- #
 
 if data_source == "CSV":
@@ -1729,6 +1738,60 @@ if df.empty:
     st.warning("Após filtros, nenhum dado disponível.")
     st.stop()
 
+# --- NOVO: Editor de Emissões (DESCONHECIDO, NONE ou None) ---
+mask_unknown = (
+    df["issuer_bucket"].isna()
+    | (df["issuer_bucket"].str.strip().str.upper().isin(["", "DESCONHECIDO", "NONE"]))
+) & df["is_credit"]
+
+unknown_issuers = df[mask_unknown].copy()
+if not unknown_issuers.empty:
+    st.warning(
+        f"⚠️ Encontradas {len(unknown_issuers)} linhas com emissor não identificado. "
+        "Por favor, preencha o campo 'parsed_company_name' abaixo para corrigi-los."
+    )
+
+    # Definir colunas para edição
+    cols_to_edit = ["security_name", "issuer_name_norm", "parsed_company_name"]
+    # Garantir que as colunas existem
+    for c in cols_to_edit:
+        if c not in unknown_issuers.columns:
+            unknown_issuers[c] = ""
+
+    edited_df = st.data_editor(
+        unknown_issuers[cols_to_edit],
+        key="issuer_editor",
+        use_container_width=True,
+        num_rows="fixed",
+        disabled=["security_name", "issuer_name_norm"],
+    )
+
+    # Se houve alteração, atualizar df original
+    if not edited_df.equals(unknown_issuers[cols_to_edit]):
+        for idx, row in edited_df.iterrows():
+            new_val = row["parsed_company_name"]
+            if pd.notna(new_val) and str(new_val).strip():
+                df.at[idx, "parsed_company_name"] = str(new_val).strip()
+
+        # Re-normalizar / Re-bucketizar (apenas campos que dependem de parsed_company_name)
+        def _reupdate_issuer_bucket(r):
+            if bool(r.get("is_treasury", False)):
+                return "TESOURO NACIONAL"
+            pc = r.get("parsed_company_name")
+            if isinstance(pc, str) and pc.strip() and pc.strip() != "########":
+                return clean_issuer_name(pc) or "DESCONHECIDO"
+            return r.get("issuer_name_norm", "DESCONHECIDO") or "DESCONHECIDO"
+
+        df["issuer_bucket"] = df.apply(_reupdate_issuer_bucket, axis=1)
+        # Também atualizar is_s1 que depende de parsed_company_name
+        df["is_s1"] = df["parsed_company_name"].apply(is_s1_from_parsed_company)
+
+events_text = st.text_area(
+    "Eventos Relevantes (HTML ou texto simples):",
+    value=("<ul><li>Destaques de resultados trimestrais (preencher).</li></ul>"),
+    height=150,
+)
+
 # Ratings agora vêm da coluna 'rating' no banco de dados
 
 # Métricas principais
@@ -1744,8 +1807,7 @@ pl_treasury = float(treasury_df["mv"].sum())
 pl_funds = float(funds_df["mv"].sum())
 base_total = float(base_df["mv"].sum())
 
-st.dataframe(df_raw)
-st.dataframe(df)
+st.write("Destaques do Portfólio")
 
 # Sub-bases por moeda
 base_df_brl = base_df.loc[base_df["currency_code"] == "BRL"].copy()

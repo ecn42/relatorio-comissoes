@@ -233,10 +233,10 @@ def load_nav_series(db_path: str, cnpj: str) -> pd.DataFrame:
     try:
         df = pd.read_sql_query(
             """
-            SELECT dt as DT_COMPTC, vl_quota as VL_QUOTA
+            SELECT dt as DT_COMPTC, vl_quota as VL_QUOTA, id_subclasse as ID_SUBCLASSE
             FROM nav_daily
             WHERE cnpj = ?
-            ORDER BY dt ASC
+            ORDER BY dt ASC, id_subclasse ASC
             """,
             conn,
             params=(cnpj,),
@@ -794,7 +794,12 @@ def create_xlsx_bytes_for_fund(
     ibov_daily: pd.Series,
     benchmark: str,
     include_raw_blc: bool,
+    subclasse: Optional[str] = None,
 ) -> bytes:
+    # Filter by subclasse if provided
+    if subclasse is not None:
+        nav_df = nav_df[nav_df["ID_SUBCLASSE"] == subclasse]
+
     # Compute fund daily returns
     fund_daily = daily_returns_from_nav(nav_df)
 
@@ -805,21 +810,25 @@ def create_xlsx_bytes_for_fund(
     perf_df = build_perf_table_stats(fund_daily, cdi_daily, ibov_daily, benchmark)
 
     # Meta (uppercase values; special cells white font with blank background)
-    meta_df = pd.DataFrame(
+    meta_rows = [
+        ["Fundo", denom],
+        ["CNPJ", format_cnpj(cnpj)],
+    ]
+    if subclasse:
+        meta_rows.append(["Subclasse", subclasse])
+    
+    meta_rows.extend([
+        ["Snapshot BLC (yyyymm)", yyyymm],
         [
-            ["Fundo", denom],
-            ["CNPJ", format_cnpj(cnpj)],
-            ["Snapshot BLC (yyyymm)", yyyymm],
-            [
-                "Série INF_DIARIO min/max",
-                f"{nav_df['DT_COMPTC'].min().date()} / "
-                f"{nav_df['DT_COMPTC'].max().date()}",
-            ],
-            ["Comparador", benchmark],
-            ["Export UTC", pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M:%S")],
+            "Série INF_DIARIO min/max",
+            f"{nav_df['DT_COMPTC'].min().date() if not nav_df.empty else 'N/A'} / "
+            f"{nav_df['DT_COMPTC'].max().date() if not nav_df.empty else 'N/A'}",
         ],
-        columns=["Campo", "Valor"],
-    )
+        ["Comparador", benchmark],
+        ["Export UTC", pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M:%S")],
+    ])
+
+    meta_df = pd.DataFrame(meta_rows, columns=["Campo", "Valor"])
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as xw:
@@ -1198,39 +1207,74 @@ def main() -> None:
         do_zip_pasted = st.button("Gerar ZIP (lista colada)")
 
     if do_single:
-        # Load snapshots for selected fund
-        blc_df, yyyymm, denom = load_blc_snapshot(carteira_db, cnpj_sel)
-        if blc_df.empty:
-            st.error("BLC do fundo não encontrada no DB de carteiras.")
-            return
-        nav_df = load_nav_series(perf_db, cnpj_sel)
-        if nav_df.empty:
+        # Load INF_DIARIO first to detect subclasses
+        nav_df_full = load_nav_series(perf_db, cnpj_sel)
+        if nav_df_full.empty:
             st.error("Série INF_DIARIO (VL_QUOTA) não encontrada no DB.")
             return
 
-        benchmark = "IBOV" if cnpj_sel in ibov_cnpjs else "CDI"
-        xlsx_bytes = create_xlsx_bytes_for_fund(
-            denom=denom,
-            cnpj=cnpj_sel,
-            yyyymm=yyyymm,
-            blc_df=blc_df,
-            nav_df=nav_df,
-            cdi_daily=cdi_daily,
-            ibov_daily=ibov_daily,
-            benchmark=benchmark,
-            include_raw_blc=include_raw_blc,
-        )
+        subclasses = sorted(nav_df_full["ID_SUBCLASSE"].unique().tolist())
+        
+        # Load snapshots for selected fund
+        blc_df_full, yyyymm, denom = load_blc_snapshot(carteira_db, cnpj_sel)
+        if blc_df_full.empty:
+            st.error("BLC do fundo não encontrada no DB de carteiras.")
+            return
 
-        st.success(
-            f"Planilha gerada para {denom} "
-            f"({format_cnpj(cnpj_sel)}) — Benchmark: {benchmark}."
-        )
-        st.download_button(
-            "Baixar XLSX",
-            data=xlsx_bytes,
-            file_name=f"{sanitize_cnpj(cnpj_sel)}.xlsx",
-            mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        )
+        benchmark = "IBOV" if cnpj_sel in ibov_cnpjs else "CDI"
+
+        if len(subclasses) <= 1:
+            sub = subclasses[0] if subclasses else None
+            xlsx_bytes = create_xlsx_bytes_for_fund(
+                denom=denom,
+                cnpj=cnpj_sel,
+                yyyymm=yyyymm,
+                blc_df=blc_df_full,
+                nav_df=nav_df_full,
+                cdi_daily=cdi_daily,
+                ibov_daily=ibov_daily,
+                benchmark=benchmark,
+                include_raw_blc=include_raw_blc,
+                subclasse=sub,
+            )
+            st.success(
+                f"Planilha gerada para {denom} "
+                f"({format_cnpj(cnpj_sel)}) — Benchmark: {benchmark}."
+            )
+            st.download_button(
+                "Baixar XLSX",
+                data=xlsx_bytes,
+                file_name=f"{sanitize_cnpj(cnpj_sel)}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            st.info(f"Detectadas {len(subclasses)} subclasses para este CNPJ.")
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for sub in subclasses:
+                    xls_bytes = create_xlsx_bytes_for_fund(
+                        denom=denom,
+                        cnpj=cnpj_sel,
+                        yyyymm=yyyymm,
+                        blc_df=blc_df_full,
+                        nav_df=nav_df_full,
+                        cdi_daily=cdi_daily,
+                        ibov_daily=ibov_daily,
+                        benchmark=benchmark,
+                        include_raw_blc=include_raw_blc,
+                        subclasse=sub,
+                    )
+                    sub_suffix = f"_{sub}" if sub else ""
+                    fname = f"{sanitize_cnpj(cnpj_sel)}{sub_suffix}.xlsx"
+                    zf.writestr(fname, xls_bytes)
+            
+            st.success(f"ZIP gerado com {len(subclasses)} subclasses.")
+            st.download_button(
+                "Baixar ZIP das Subclasses",
+                data=zip_buf.getvalue(),
+                file_name=f"{sanitize_cnpj(cnpj_sel)}_subclasses.zip",
+                mime="application/zip",
+            )
         return
 
     if do_zip:
@@ -1243,29 +1287,37 @@ def main() -> None:
                 cnpj = row["cnpj"]
                 denom = row["denom_social"]
                 try:
-                    blc_df, yyyymm, _denom2 = load_blc_snapshot(carteira_db, cnpj)
-                    if blc_df.empty:
-                        skipped.append((cnpj, "sem BLC"))
-                        continue
-                    nav_df = load_nav_series(perf_db, cnpj)
-                    if nav_df.empty:
+                    nav_df_full = load_nav_series(perf_db, cnpj)
+                    if nav_df_full.empty:
                         skipped.append((cnpj, "sem INF_DIARIO"))
                         continue
+                    
+                    subclasses = sorted(nav_df_full["ID_SUBCLASSE"].unique().tolist())
+                    
+                    blc_df_full, yyyymm, _denom2 = load_blc_snapshot(carteira_db, cnpj)
+                    if blc_df_full.empty:
+                        skipped.append((cnpj, "sem BLC"))
+                        continue
+
                     benchmark = "IBOV" if cnpj in ibov_cnpjs else "CDI"
-                    xls_bytes = create_xlsx_bytes_for_fund(
-                        denom=denom,
-                        cnpj=cnpj,
-                        yyyymm=yyyymm,
-                        blc_df=blc_df,
-                        nav_df=nav_df,
-                        cdi_daily=cdi_daily,
-                        ibov_daily=ibov_daily,
-                        benchmark=benchmark,
-                        include_raw_blc=include_raw_blc,
-                    )
-                    fname = f"{sanitize_cnpj(cnpj)}.xlsx"
-                    zf.writestr(fname, xls_bytes)
-                    created += 1
+                    
+                    for sub in subclasses:
+                        xls_bytes = create_xlsx_bytes_for_fund(
+                            denom=denom,
+                            cnpj=cnpj,
+                            yyyymm=yyyymm,
+                            blc_df=blc_df_full,
+                            nav_df=nav_df_full,
+                            cdi_daily=cdi_daily,
+                            ibov_daily=ibov_daily,
+                            benchmark=benchmark,
+                            include_raw_blc=include_raw_blc,
+                            subclasse=sub,
+                        )
+                        sub_suffix = f"_{sub}" if sub else ""
+                        fname = f"{sanitize_cnpj(cnpj)}{sub_suffix}.xlsx"
+                        zf.writestr(fname, xls_bytes)
+                        created += 1
                 except Exception as e:
                     skipped.append((cnpj, f"erro: {e}"))
 
@@ -1320,29 +1372,37 @@ def main() -> None:
                     skipped.append((cnpj, "CNPJ não encontrado em fundos_meta"))
                     continue
                 try:
-                    blc_df, yyyymm, denom2 = load_blc_snapshot(carteira_db, cnpj)
-                    if blc_df.empty:
-                        skipped.append((cnpj, "sem BLC"))
-                        continue
-                    nav_df = load_nav_series(perf_db, cnpj)
-                    if nav_df.empty:
+                    nav_df_full = load_nav_series(perf_db, cnpj)
+                    if nav_df_full.empty:
                         skipped.append((cnpj, "sem INF_DIARIO"))
                         continue
+                    
+                    subclasses = sorted(nav_df_full["ID_SUBCLASSE"].unique().tolist())
+                    
+                    blc_df_full, yyyymm, denom2 = load_blc_snapshot(carteira_db, cnpj)
+                    if blc_df_full.empty:
+                        skipped.append((cnpj, "sem BLC"))
+                        continue
+
                     denom = denom2 or denom_by_cnpj.get(cnpj, cnpj)
-                    xls_bytes = create_xlsx_bytes_for_fund(
-                        denom=denom,
-                        cnpj=cnpj,
-                        yyyymm=yyyymm,
-                        blc_df=blc_df,
-                        nav_df=nav_df,
-                        cdi_daily=cdi_daily,
-                        ibov_daily=ibov_daily,
-                        benchmark=benchmark,
-                        include_raw_blc=include_raw_blc,
-                    )
-                    fname = f"{sanitize_cnpj(cnpj)}.xlsx"
-                    zf.writestr(fname, xls_bytes)
-                    created += 1
+                    
+                    for sub in subclasses:
+                        xls_bytes = create_xlsx_bytes_for_fund(
+                            denom=denom,
+                            cnpj=cnpj,
+                            yyyymm=yyyymm,
+                            blc_df=blc_df_full,
+                            nav_df=nav_df_full,
+                            cdi_daily=cdi_daily,
+                            ibov_daily=ibov_daily,
+                            benchmark=benchmark,
+                            include_raw_blc=include_raw_blc,
+                            subclasse=sub,
+                        )
+                        sub_suffix = f"_{sub}" if sub else ""
+                        fname = f"{sanitize_cnpj(cnpj)}{sub_suffix}.xlsx"
+                        zf.writestr(fname, xls_bytes)
+                        created += 1
                 except Exception as e:
                     skipped.append((cnpj, f"erro: {e}"))
 

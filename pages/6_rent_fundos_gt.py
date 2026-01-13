@@ -192,7 +192,7 @@ def _normalize(col: str) -> str:
 
 def _detect_columns_from_header(
     zf: zipfile.ZipFile, csv_name: str, encoding: str
-) -> Optional[Tuple[str, str, str]]:
+) -> Optional[Tuple[str, str, str, Optional[str]]]:
     try:
         with zf.open(csv_name) as f:
             header_df = pd.read_csv(
@@ -211,11 +211,17 @@ def _detect_columns_from_header(
     )
     dt_norm = "DT_COMPTC" if "DT_COMPTC" in norm_map else None
     quota_norm = "VL_QUOTA" if "VL_QUOTA" in norm_map else None
+    subclasse_norm = "ID_SUBCLASSE" if "ID_SUBCLASSE" in norm_map else None
 
     if not (cnpj_norm and dt_norm and quota_norm):
         return None
 
-    return norm_map[cnpj_norm], norm_map[dt_norm], norm_map[quota_norm]
+    return (
+        norm_map[cnpj_norm],
+        norm_map[dt_norm],
+        norm_map[quota_norm],
+        norm_map[subclasse_norm] if subclasse_norm else None,
+    )
 
 
 def _parse_decimal_series_flexible(s: pd.Series) -> pd.Series:
@@ -269,16 +275,43 @@ def get_conn_readonly(db_path: str) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS nav_daily (
-            cnpj TEXT NOT NULL,
-            dt   TEXT NOT NULL,  -- YYYY-MM-DD
-            vl_quota REAL NOT NULL,
-            PRIMARY KEY (cnpj, dt)
-        );
-        """
-    )
+    # Check if id_subclasse exists
+    cur = conn.execute("PRAGMA table_info(nav_daily);")
+    cols = [r[1] for r in cur.fetchall()]
+    
+    if cols and "id_subclasse" not in cols:
+        # Migration: Rename old table, create new one, copy data
+        conn.execute("ALTER TABLE nav_daily RENAME TO nav_daily_old;")
+        conn.execute(
+            """
+            CREATE TABLE nav_daily (
+                cnpj TEXT NOT NULL,
+                dt   TEXT NOT NULL,
+                id_subclasse TEXT NOT NULL DEFAULT '',
+                vl_quota REAL NOT NULL,
+                PRIMARY KEY (cnpj, dt, id_subclasse)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO nav_daily (cnpj, dt, vl_quota)
+            SELECT cnpj, dt, vl_quota FROM nav_daily_old;
+            """
+        )
+        conn.execute("DROP TABLE nav_daily_old;")
+    else:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nav_daily (
+                cnpj TEXT NOT NULL,
+                dt   TEXT NOT NULL,  -- YYYY-MM-DD
+                id_subclasse TEXT NOT NULL DEFAULT '',
+                vl_quota REAL NOT NULL,
+                PRIMARY KEY (cnpj, dt, id_subclasse)
+            );
+            """
+        )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS cnpjs (
@@ -333,11 +366,11 @@ def cnpj_meta_map_from_db(conn: sqlite3.Connection) -> Dict[str, Dict[str, str]]
 
 
 def insert_nav_daily_batch(
-    conn: sqlite3.Connection, rows: List[Tuple[str, str, float]]
+    conn: sqlite3.Connection, rows: List[Tuple[str, str, str, float]]
 ) -> int:
     if not rows:
         return 0
-    sql = "INSERT OR IGNORE INTO nav_daily (cnpj, dt, vl_quota) VALUES (?, ?, ?)"
+    sql = "INSERT OR IGNORE INTO nav_daily (cnpj, dt, id_subclasse, vl_quota) VALUES (?, ?, ?, ?)"
     before = conn.total_changes
     conn.executemany(sql, rows)
     conn.commit()
@@ -362,29 +395,41 @@ def ingest_zip_for_cnpjs_to_db(
 
         for enc in encodings:
             try:
-                cols = _detect_columns_from_header(zf, csv_name, enc)
-                if cols is None:
+                cols_detected = _detect_columns_from_header(zf, csv_name, enc)
+                if cols_detected is None:
                     continue
-                cnpj_col, dt_col, quota_col = cols
+                cnpj_col, dt_col, quota_col, sub_col = cols_detected
+
+                use_cols = [cnpj_col, dt_col, quota_col]
+                if sub_col:
+                    use_cols.append(sub_col)
 
                 with zf.open(csv_name) as f:
                     chunks = pd.read_csv(
                         f,
                         sep=";",
-                        usecols=[cnpj_col, dt_col, quota_col],
-                        dtype={cnpj_col: str, dt_col: str, quota_col: str},
+                        usecols=use_cols,
+                        dtype={c: str for c in use_cols},
                         encoding=enc,
                         engine="python",
                         chunksize=200_000,
                     )
                     for ch in chunks:
-                        ch = ch.rename(
-                            columns={
-                                cnpj_col: "CNPJ_ID",
-                                dt_col: "DT_COMPTC",
-                                quota_col: "VL_QUOTA",
-                            }
-                        )
+                        rename_map = {
+                            cnpj_col: "CNPJ_ID",
+                            dt_col: "DT_COMPTC",
+                            quota_col: "VL_QUOTA",
+                        }
+                        if sub_col:
+                            rename_map[sub_col] = "ID_SUBCLASSE"
+                        
+                        ch = ch.rename(columns=rename_map)
+                        
+                        if "ID_SUBCLASSE" not in ch.columns:
+                            ch["ID_SUBCLASSE"] = ""
+                        else:
+                            ch["ID_SUBCLASSE"] = ch["ID_SUBCLASSE"].fillna("").astype(str)
+
                         ch["CNPJ"] = ch["CNPJ_ID"].astype(str).map(sanitize_cnpj)
 
                         if target_set is not None:
@@ -408,6 +453,7 @@ def ingest_zip_for_cnpjs_to_db(
                             zip(
                                 ch["CNPJ"].astype(str).tolist(),
                                 ch["DT_STR"].tolist(),
+                                ch["ID_SUBCLASSE"].tolist(),
                                 ch["VL_QUOTA"].astype(float).tolist(),
                             )
                         )
@@ -491,10 +537,10 @@ def load_history_from_db_cached(
     try:
         df = pd.read_sql_query(
             """
-            SELECT dt as DT_COMPTC, vl_quota as VL_QUOTA
+            SELECT dt as DT_COMPTC, vl_quota as VL_QUOTA, id_subclasse as ID_SUBCLASSE
             FROM nav_daily
             WHERE cnpj = ?
-            ORDER BY dt ASC
+            ORDER BY dt ASC, id_subclasse ASC
             """,
             conn,
             params=(cnpj_digits,),
@@ -1790,6 +1836,39 @@ def render_fundos_tab(db_path: str) -> Tuple[str, int, bool, bool, str, bool, bo
         key="selected_cnpj_view_tab",
     )
 
+    st.divider()
+    st.subheader("Manutenção e Exportação")
+    m_col1, m_col2 = st.columns(2)
+    with m_col1:
+        # Download button for the whole DB
+        if st.button("Preparar CSV para Download (Todo o DB)", key="prep_download_db"):
+            conn = get_conn(db_path)
+            try:
+                df_all = pd.read_sql_query("SELECT * FROM nav_daily", conn)
+                csv_data = df_all.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Clique aqui para Baixar CSV",
+                    data=csv_data,
+                    file_name="data_fundos_full.csv",
+                    mime="text/csv",
+                )
+            except Exception as e:
+                st.error(f"Erro ao preparar download: {e}")
+            finally:
+                conn.close()
+
+    with m_col2:
+        reingest_clicked = st.button(
+            "RE-INGERIR TODO O HISTÓRICO",
+            key="btn_reingest_all",
+            help="Limpa a tabela nav_daily e re-processa todos os ZIPs para os CNPJs já conhecidos no banco.",
+        )
+        if reingest_clicked:
+            st.warning("Isso irá apagar os dados atuais da tabela nav_daily e re-ler todos os arquivos ZIP. Deseja prosseguir?")
+            if st.button("Sim, limpar e re-ingerir", key="confirm_reingest"):
+                st.session_state.full_reingest_confirmed = True
+                st.rerun()
+
     return (
         selected_cnpj,
         int(update_last_n),
@@ -1880,6 +1959,33 @@ def main() -> None:
                 months=months_update, data_dir=data_dir, conn=conn
             )
         st.success(f"Atualização concluída. Linhas novas: {inserted}")
+
+    if st.session_state.get("full_reingest_confirmed", False):
+        st.session_state.full_reingest_confirmed = False
+        known_cnpjs = cnpjs_in_db(conn)
+        meta_map = cnpj_meta_map_from_db(conn)
+        
+        if not known_cnpjs:
+            st.warning("Nenhum CNPJ no banco para re-ingerir.")
+        else:
+            st.info(f"Iniciando re-ingestão total para {len(known_cnpjs)} CNPJs.")
+            with st.spinner("Limpando e re-ingerindo..."):
+                conn.execute("DELETE FROM nav_daily;")
+                conn.commit()
+                
+                months_all = tuple(yyyymm_list(start_year))
+                cnpj_map_to_reingest = {
+                    c: meta_map.get(c, {"display_name": f"CNPJ {c}", "ccy": "BRL"})
+                    for c in known_cnpjs
+                }
+                
+                inserted = preload_cnpjs_to_db(
+                    cnpj_map=cnpj_map_to_reingest,
+                    months=months_all,
+                    data_dir=data_dir,
+                    conn=conn
+                )
+            st.success(f"Re-ingestão concluída. Total de linhas: {inserted}")
 
     conn.close()
 
