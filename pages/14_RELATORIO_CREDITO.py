@@ -167,8 +167,17 @@ S1_Institutions = {
     "BTG PACTUAL DTVM",
     "BCO BTG PACTUAL",
 }
+
+S2_Institutions = {
+    "BANCO SICOOB",
+    "BANCO XP SA",
+    "BANCO SAFRA",
+    "BNDES",
+    "BANCO XP",
+}
 # Alias em CAIXA ALTA
 S1_INSTITUTIONS = set(S1_Institutions)
+S2_INSTITUTIONS = set(S2_Institutions)
 
 
 def _normalize_no_accents_upper(s: Optional[str]) -> str:
@@ -181,6 +190,7 @@ def _normalize_no_accents_upper(s: Optional[str]) -> str:
 
 
 S1_TOKENS_NORM = {_normalize_no_accents_upper(x) for x in S1_INSTITUTIONS}
+S2_TOKENS_NORM = {_normalize_no_accents_upper(x) for x in S2_INSTITUTIONS}
 
 
 def is_s1_from_parsed_company(name: Optional[str]) -> bool:
@@ -193,13 +203,23 @@ def is_s1_from_parsed_company(name: Optional[str]) -> bool:
     return False
 
 
+def is_s2_from_parsed_company(name: Optional[str]) -> bool:
+    if not isinstance(name, str) or not name.strip():
+        return False
+    u = _normalize_no_accents_upper(name)
+    for tok in S2_TOKENS_NORM:
+        if tok in u:
+            return True
+    return False
+
+
 # Limites padrão (editáveis)
 DEFAULT_LIMITS = {
     "max_single_issuer": 0.15,
     "max_top10_issuers": 0.50,
     "max_prefixed": 0.10,
     "max_maturity_over_5y": 0.45,  # > 5 anos
-    "min_sovereign_or_aaa": 0.80,
+    "min_sovereign_or_aaa": 0.40,
 }
 
 # ---------------------------- Paleta de Cores ---------------------------- #
@@ -838,8 +858,9 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     df["fund_bucket"] = df.apply(fund_bucket_name, axis=1)
 
-    # NEW: Flag S1 via parsed_company_name
+    # NEW: Flag S1 and S2 via parsed_company_name
     df["is_s1"] = df["parsed_company_name"].apply(is_s1_from_parsed_company)
+    df["is_s2"] = df["parsed_company_name"].apply(is_s2_from_parsed_company)
 
     # Normalizar coluna de rating (preferir 'rating'; fallback para 'ratings')
     if "rating" not in df.columns and "ratings" in df.columns:
@@ -1299,11 +1320,13 @@ REPORT_HTML = """
     <div class="small muted">Seção de Rating desativada.</div>
     {% endif %}
 
-    <h4>Risco Soberano e Instituições S1 (% do PL em Renda Fixa)</h4>
-    <div class="imgcell imgcell-wide">{{ bar_sov_s1 | safe }}</div>
-    <div class="small muted">
-      Base: PL em Renda Fixa (Crédito + Tesouro). S1 identificadas via parsed_company_name.
+    <h4>3.1.C Análise de Crédito Bancário</h4>
+    <div class="small">
+      Total Crédito Bancário: R$ {{ bank_credit_total_fmt }}
     </div>
+
+    <div class="imgcell imgcell-wide">{{ bar_sov_s1 | safe }}</div>
+    
   </div>
 
   <div class="section">
@@ -1311,7 +1334,7 @@ REPORT_HTML = """
     <ul>
       <li>
         Máximo {{ max_single_issuer_pct }} do PL em Renda Fixa em emissor único
-        (Tesouro e Instituições S1 excluídos). Atual: {{ largest_issuer_share_base }}
+        (Tesouro, Instituições S1 e S2 excluídos). Atual: {{ largest_issuer_share_base }}
         do PL em Renda Fixa ({{ largest_issuer_share_pl }} do PL)
         <span class="{{ 'ok' if ok_single else 'bad' }}">
           ({{ conf_single }})
@@ -1319,7 +1342,7 @@ REPORT_HTML = """
       </li>
       <li>
         Máximo {{ max_top10_issuers_pct }} do PL em Renda Fixa nos 10 maiores emissores
-        (Tesouro e Instituições S1 excluídos). Atual: {{ top10_issuers_share_base }}
+        (Tesouro, Instituições S1 e S2 excluídos). Atual: {{ top10_issuers_share_base }}
         do PL em Renda Fixa ({{ top10_issuers_share_pl }} do PL)
         <span class="{{ 'ok' if ok_top10 else 'bad' }}">
           ({{ conf_top10 }})
@@ -1838,15 +1861,15 @@ if show_ratings_section:
 else:
     aaa_share_base, aaa_share_pl, ok_aaa = 0.0, 0.0, True
 
-# Excluir Tesouro + S1 da análise de concentração
-s1_bucket_names = set(
-    base_df.loc[base_df["is_s1"], "issuer_bucket"]
+# Excluir Tesouro + S1 + S2 da análise de concentração
+s1_s2_bucket_names = set(
+    base_df.loc[base_df["is_s1"] | base_df["is_s2"], "issuer_bucket"]
     .dropna()
     .astype(str)
     .unique()
     .tolist()
 )
-EXCLUDE_IN_LIMITS = set(IGNORE_IN_LIMITS_AS_TESOURO) | s1_bucket_names
+EXCLUDE_IN_LIMITS = set(IGNORE_IN_LIMITS_AS_TESOURO) | s1_s2_bucket_names
 
 # Concentração por emissor (overall, BRL, USD)
 conc_base = compute_concentration_by_bucket(
@@ -2152,7 +2175,7 @@ fig2_usd.update_layout(font=dict(size=9), showlegend=False, height=dash_height)
 center_chart(fig2_usd)
 
 st.markdown(
-    "Concentração por Emissor (parsed_company_name) – PL em Renda Fixa; Tesouro e S1 excluídos"
+    "Concentração por Emissor (parsed_company_name) – PL em Renda Fixa; Tesouro, S1 e S2 excluídos"
 )
 issuer_table = conc_base["table"].reset_index()
 issuer_table.columns = ["Emissor (parsed_company_name)", "Valor (R$)"]
@@ -2627,17 +2650,19 @@ def _bar_img_html_sov_s1(
         base_df.loc[base_df["issuer_bucket"] == "TESOURO NACIONAL", "mv"].sum()
     )
     s1_mv = float(base_df.loc[base_df["is_s1"], "mv"].sum())
+    s2_mv = float(base_df.loc[base_df["is_s2"], "mv"].sum())
     sov_share = pct(sov_mv, base_total) * 100.0
     s1_share = pct(s1_mv, base_total) * 100.0
-    other_share = max(0.0, 100.0 - sov_share - s1_share)
+    s2_share = pct(s2_mv, base_total) * 100.0
+    other_share = max(0.0, 100.0 - sov_share - s1_share - s2_share)
 
-    labels = ["Soberano (Tesouro)", "Instituições S1", "Outros"]
-    values = [sov_share, s1_share, other_share]
-    colors = [PALETA_CORES[0], PALETA_CORES[1], PALETA_CORES[2]]
+    labels = ["Soberano", "Instituições S1", "Instituições S2", "Outros"]
+    values = [sov_share, s1_share, s2_share, other_share]
+    colors = [PALETA_CORES[0], PALETA_CORES[1], PALETA_CORES[2], PALETA_CORES[3]]
 
     # Figura mais larga para rótulos
     fig, ax = plt.subplots(
-        figsize=(cfg["size_in"] * 1.6, cfg["size_in"]), dpi=cfg["dpi"]
+        figsize=(cfg["size_in"] * 1.8, cfg["size_in"]), dpi=cfg["dpi"]
     )
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
@@ -2645,7 +2670,7 @@ def _bar_img_html_sov_s1(
     bars = ax.bar(labels, values, color=colors)
     ax.set_ylim(0, 100)
     ax.set_ylabel("% do PL em Renda Fixa", fontsize=9)
-    ax.set_title("Soberano e Instituições S1 – % do PL em Renda Fixa", fontsize=10)
+    ax.set_title("Soberano, S1 e S2 – % do PL em Renda Fixa", fontsize=10)
 
     for bar, v in zip(bars, values):
         ax.text(
@@ -2887,7 +2912,14 @@ def render_report_html() -> str:
         largest_usd = "—"
         top10_usd = "—"
 
-    # NEW: Barra Soberano + S1
+    # NEW: Barra Soberano + S1 + S2
+    sov_mv = float(
+        base_df.loc[base_df["issuer_bucket"] == "TESOURO NACIONAL", "mv"].sum()
+    )
+    s1_mv = float(base_df.loc[base_df["is_s1"], "mv"].sum())
+    s2_mv = float(base_df.loc[base_df["is_s2"], "mv"].sum())
+    bank_credit_total = sov_mv + s1_mv + s2_mv
+
     bar_sov_s1 = _bar_img_html_sov_s1(base_df, base_total, DONUT_CFG)
 
     # Preparar dados de rating para template e gráficos (Relatório)
@@ -2945,6 +2977,8 @@ def render_report_html() -> str:
         max_maturity_over_5y_pct=as_pct_str(max_over5y),
         over5y_pct_base=as_pct_str(over5y_share_base),
         over5y_pct_pl=as_pct_str(over5y_share_pl),
+        ok_over5y=ok_over5y,
+        conf_over5y=status_tag(ok_over5y),
         default_rate="0.00%",
         events_html=events_text,
         country_top=country_top_list,
@@ -2975,6 +3009,7 @@ def render_report_html() -> str:
         conf_top10_usd=status_tag(ok_top10_usd),
         country_rows=country_rows,
         bar_sov_s1=bar_sov_s1,
+        bank_credit_total_fmt=brl(bank_credit_total),
         brl_private_ratings_rows=brl_private_ratings_rows_formatted,
         brl_private_total_fmt=brl(brl_private_total),
         usd_corporate_ratings_rows=usd_corporate_ratings_rows_formatted,
@@ -3022,14 +3057,14 @@ st.download_button(
 st.caption(
     "Observação: limites e cálculos usam o PL em Renda Fixa (Crédito + Tesouro). "
     "Os percentuais versus PL são exibidos como informação adicional. "
-    "A concentração por emissor usa parsed_company_name e EXCLUI Tesouro e "
-    "Instituições S1. Ao usar o banco SQLite local, a tabela fixa é "
+    "A concentração por emissor usa parsed_company_name e EXCLUI Tesouro, "
+    "S1 e S2. Ao usar o banco SQLite local, a tabela fixa é "
     "'pmv_plus_gorila' e as datas de referência únicas são listadas para seleção. "
     "A referência de data usa exclusivamente 'reference_date'. Fundos (incluindo "
     "'Fixed income fund') não entram em Crédito mesmo se security_type indicar "
     "'BONDS'. País de risco vem diretamente da coluna 'country_risk'. "
     "O relatório inclui gráficos estáticos para Moeda, Vencimento, Tipo de Título, "
-    "Fator de Risco BRL/USD, um gráfico de barras para Soberano e S1, "
+    "Fator de Risco BRL/USD, um gráfico de barras para Soberano, S1 e S2, "
     "e gráficos de barras para as distribuições de rating (BRL e USD), "
     "sempre ordenados por escala (AAA no topo, Sem Rating no rodapé). "
     "As tabelas do relatório são centralizadas e não ocupam 100% da largura."
