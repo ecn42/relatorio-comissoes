@@ -1,0 +1,72 @@
+2026-01-19 15:53:27.493297: Error generating chart for INBR32: 'Adj Close'
+Traceback (most recent call last):
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'Adj Close'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/pages/28_Gerador_Trade_Ideas.py", line 181, in generate_comparison_chart_b64
+    data = yf.download([yf_ticker, "^BVSP"], start=fetch_start, end=fetch_end, progress=False)["Adj Close"]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/frame.py", line 4106, in __getitem__
+    return self._getitem_multilevel(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/frame.py", line 4164, in _getitem_multilevel
+    loc = self.columns.get_loc(key)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/multi.py", line 3059, in get_loc
+    loc = self._get_level_indexer(key, level=0)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/multi.py", line 3410, in _get_level_indexer
+    idx = self._get_loc_single_level_index(level_index, key)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/multi.py", line 2999, in _get_loc_single_level_index
+    return level_index.get_loc(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'Adj Close'
+
+2026-01-19 15:55:24.388549: Error generating chart for INBR32: 'Adj Close'
+Traceback (most recent call last):
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'Adj Close'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/pages/28_Gerador_Trade_Ideas.py", line 181, in generate_comparison_chart_b64
+    data = yf.download([yf_ticker, "^BVSP"], start=fetch_start, end=fetch_end, progress=False)["Adj Close"]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/frame.py", line 4106, in __getitem__
+    return self._getitem_multilevel(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/frame.py", line 4164, in _getitem_multilevel
+    loc = self.columns.get_loc(key)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/multi.py", line 3059, in get_loc
+    loc = self._get_level_indexer(key, level=0)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/multi.py", line 3410, in _get_level_indexer
+    idx = self._get_loc_single_level_index(level_index, key)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/multi.py", line 2999, in _get_loc_single_level_index
+    return level_index.get_loc(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/eduardo/C0FE9C0DFE9BFA3C/Users/eduardo/Documents/scripts/relatorio-comissoes/venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'Adj Close'
+

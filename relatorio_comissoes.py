@@ -44,7 +44,9 @@ def home():
         "Ferramentas": [
             {"title": "Estúdio de Gráficos", "icon": ":material/insert_chart:"},
             {"title": "Comparador de Ações", "icon": ":material/bar_chart:"},
+            {"title": "Gerador de Trade Ideas", "icon": ":material/rocket_launch:"},
             {"title": "API 4intelligence", "icon": ":material/api:"},
+            {"title": "Database Economatica", "icon": ":material/database:"},
         ],
         "One Pager Fundos": [
             {"title": "1. Baixar CDI", "icon": ":material/download:"},
@@ -150,6 +152,16 @@ pages = {
             "pages/26_Carteiras_Mes_Atual.py",
             title="Carteiras Mes Atual",
             icon=":material/account_balance_wallet:",
+        ),
+        st.Page(
+            "pages/28_Gerador_Trade_Ideas.py",
+            title="Gerador de Trade Ideas",
+            icon=":material/rocket_launch:",
+        ),
+        st.Page(
+            "pages/29_Database_Economatica.py",
+            title="Database Economatica",
+            icon=":material/database:",
         )
     ],
     "One Pager Fundos": [
@@ -245,6 +257,12 @@ pages = {
             title="Rating to Fitch",
             icon=":material/translate:",
         ),
+        
+        st.Page(
+            "pages/27_Relatorio_Mercado.py",
+            title="Relatório Mercado",
+            icon=":material/translate:",
+        )
 
     ],
 }

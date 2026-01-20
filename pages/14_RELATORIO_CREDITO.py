@@ -1173,6 +1173,54 @@ def top_list_from_exposure(
     return rows
 
 
+def compute_maturity_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Gera uma matriz de ativos por mês/ano de vencimento.
+    Filtra apenas ativos de crédito (is_credit) ou tesouro (is_treasury)
+    que possuem maturity_date.
+    """
+    sub = df.loc[(df["is_credit"] | df["is_treasury"]) & df["maturity_date"].notna()].copy()
+    if sub.empty:
+        return pd.DataFrame()
+
+    # Criar coluna de identificação amigável do ativo
+    # Se houver ticker/símbolo, usar. Senão, usar issuer_bucket + tipo
+    def asset_label(row: pd.Series) -> str:
+        ticker = first_nonempty(row.get("ticker"), row.get("symbol"))
+        if ticker:
+            return ticker
+        name = first_nonempty(row.get("security_name"), row.get("security_description"))
+        if name:
+            return name
+        return f"{row['issuer_bucket']} ({row['security_type']})"
+
+    sub["asset_label"] = sub.apply(asset_label, axis=1)
+
+    # Criar coluna mês/ano
+    sub["month_year"] = sub["maturity_date"].apply(lambda d: d.strftime("%Y-%m"))
+
+    # Pivotar: Index=asset_label, Columns=month_year, Values=mv
+    pivot = sub.pivot_table(
+        index="asset_label", columns="month_year", values="mv", aggfunc="sum"
+    ).fillna(0.0)
+
+    # Ordenar colunas cronologicamente
+    pivot = pivot.reindex(sorted(pivot.columns), axis=1)
+
+    # Adicionar coluna Total por ativo
+    pivot["Total"] = pivot.sum(axis=1)
+
+    # Ordenar por Total (decrescente)
+    pivot = pivot.sort_values("Total", ascending=False)
+
+    # Adicionar linha de Total por mês
+    totals = pivot.sum().to_frame().T
+    totals.index = ["TOTAL MENSAL"]
+    pivot = pd.concat([pivot, totals])
+
+    return pivot
+
+
 # ---------------------------- Template (HTML Report) ---------------------------- #
 
 REPORT_HTML = """
@@ -1535,6 +1583,83 @@ REPORT_HTML = """
       por vencimento, por país, por moeda e por tipo) podem ser exportadas
       separadamente.
     </div>
+  </div>
+</body>
+</html>
+"""
+
+MATURITY_REPORT_HTML = """
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      color: #222;
+      background: #fff;
+      margin: 20px;
+    }
+    h1 { font-size: 18px; margin-bottom: 4px; text-align: center; }
+    h2 { font-size: 14px; margin-top: 16px; border-bottom: 2px solid #333; padding-bottom: 4px; }
+    .header-info { margin-bottom: 20px; text-align: center; color: #555; }
+    .table-container { overflow-x: auto; margin-top: 20px; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      min-width: 800px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px 8px;
+      text-align: right;
+      white-space: nowrap;
+    }
+    th { background-color: #f2f2f2; font-weight: bold; text-align: center; }
+    td.asset-name { text-align: left; background-color: #fafafa; position: sticky; left: 0; z-index: 10; }
+    th.asset-name { position: sticky; left: 0; z-index: 11; }
+    .total-row { font-weight: bold; background-color: #eee; }
+    .total-col { font-weight: bold; background-color: #f9f9f9; }
+    .zero { color: #ccc; }
+  </style>
+</head>
+<body>
+  <h1>TABELA DE VENCIMENTOS - FLUXO DE CAIXA</h1>
+  <div class="header-info">
+    {{ manager_name }} | Data de Referência: {{ period_label }}<br/>
+    Valores expressos em R$ (ou moeda original do relatório)
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th class="asset-name">Ativo</th>
+          {% for col in columns %}
+            <th>{{ col }}</th>
+          {% endfor %}
+          <th class="total-col">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="{{ 'total-row' if row.is_total else '' }}">
+            <td class="asset-name">{{ row.name }}</td>
+            {% for val in row.vals %}
+              <td class="{{ 'zero' if val == 0 else '' }}">
+                {{ brl(val) if val != 0 else '-' }}
+              </td>
+            {% endfor %}
+            <td class="total-col">{{ brl(row.total) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top: 30px; font-size: 10px; color: #888; text-align: center;">
+    Gerado em: {{ emission_date }}
   </div>
 </body>
 </html>
@@ -3021,6 +3146,33 @@ def render_report_html() -> str:
     return html
 
 
+def render_maturity_report_html(matrix_df: pd.DataFrame, meta: Dict) -> str:
+    if matrix_df.empty:
+        return "<html><body><h1>Sem dados de vencimento.</h1></body></html>"
+
+    cols = [c for c in matrix_df.columns if c != "Total"]
+    rows_data = []
+
+    for idx, row in matrix_df.iterrows():
+        is_total = (str(idx) == "TOTAL MENSAL")
+        rows_data.append({
+            "name": idx,
+            "vals": [row[c] for c in cols],
+            "total": row["Total"],
+            "is_total": is_total
+        })
+
+    t = Template(MATURITY_REPORT_HTML)
+    return t.render(
+        manager_name=meta.get("manager_name", "Gestora"),
+        period_label=meta.get("period_label", ""),
+        emission_date=meta.get("emission_date", ""),
+        columns=cols,
+        rows=rows_data,
+        brl=brl
+    )
+
+
 st.subheader("Exportar Relatório")
 if not HAS_MPL:
     st.warning(
@@ -3030,11 +3182,34 @@ if not HAS_MPL:
 
 html_report = render_report_html()
 st.download_button(
-    "Baixar HTML",
+    "Baixar HTML (Relatório Completo)",
     data=html_report.encode("utf-8"),
     file_name="relatorio_risco_credito.html",
     mime="text/html",
 )
+
+st.markdown("---")
+st.subheader("Tabela de Vencimentos")
+mat_matrix = compute_maturity_matrix(base_df)
+if mat_matrix.empty:
+    st.info("Nenhum ativo com data de vencimento futura encontrado.")
+else:
+    # Mostrar no Streamlit (formatado)
+    st.dataframe(mat_matrix.style.format(lambda x: brl(x) if isinstance(x, (int, float)) else x))
+
+    # Botão de download separado
+    meta_info = {
+        "manager_name": manager_name or "Gestora",
+        "period_label": period_label or "N/A",
+        "emission_date": datetime.now().strftime("%d/%m/%Y %H:%M"),
+    }
+    html_mat = render_maturity_report_html(mat_matrix, meta_info)
+    st.download_button(
+        "Baixar Tabela de Vencimentos (HTML)",
+        data=html_mat.encode("utf-8"),
+        file_name="tabela_vencimentos_credito.html",
+        mime="text/html",
+    )
 
 # ---------------------------- CSV Downloads ---------------------------- #
 
