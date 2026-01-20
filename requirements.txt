@@ -108,3 +108,4 @@ python-pptx
 python-dotenv
 playwright
 pypdf
+scipy

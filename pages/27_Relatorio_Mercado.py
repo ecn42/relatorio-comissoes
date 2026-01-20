@@ -18,10 +18,93 @@ import yfinance as yf
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 import plotly.express as px
 import streamlit as st
 from jinja2 import Template
 
+# Add after existing imports at the top
+from pathlib import Path
+import html as _html
+
+# PDF Generation with Playwright
+try:
+    from playwright.sync_api import sync_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+
+
+def html_to_pdf_a4(html_content: str) -> bytes:
+    """Render HTML to A4 PDF using Playwright."""
+    if not HAS_PLAYWRIGHT:
+        raise ImportError("Playwright not installed. Run: pip install playwright && playwright install chromium")
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.set_viewport_size({"width": 794, "height": 1123})
+        page.set_content(html_content, wait_until="load")
+        page.wait_for_load_state("networkidle")
+        
+        # Wait for fonts
+        try:
+            page.wait_for_function(
+                'document.fonts && document.fonts.status === "loaded"',
+                timeout=10000
+            )
+        except:
+            pass
+        
+        pdf_bytes = page.pdf(
+            format="A4",
+            print_background=True,
+            margin={
+                "top": "15mm",
+                "right": "12mm",
+                "bottom": "15mm",
+                "left": "12mm"
+            },
+        )
+        browser.close()
+    
+    return pdf_bytes
+
+def html_to_pdf_single_page(html_content: str) -> bytes:
+    """Render HTML to single-page PDF with dynamic height."""
+    if not HAS_PLAYWRIGHT:
+        raise ImportError("Playwright not installed")
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.set_viewport_size({"width": 794, "height": 1123})
+        page.set_content(html_content, wait_until="load")
+        page.wait_for_load_state("networkidle")
+        
+        try:
+            page.wait_for_function(
+                'document.fonts && document.fonts.status === "loaded"',
+                timeout=10000
+            )
+        except:
+            pass
+        
+        # Measure content height
+        height = page.evaluate(
+            "() => Math.ceil(document.querySelector('.page').scrollHeight + 20)"
+        )
+        
+        pdf_bytes = page.pdf(
+            print_background=True,
+            prefer_css_page_size=False,
+            width="210mm",
+            height=f"{max(297, height)}px",
+            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+        )
+        browser.close()
+    
+    return pdf_bytes
 
 # Matplotlib for static images in report
 try:
@@ -285,19 +368,22 @@ def calculate_portfolio_returns(
     tickers_data: List[Dict],
     benchmark: str,
     debug: bool = False
-) -> Tuple[Optional[pd.Series], Optional[pd.Series], List[Dict]]:
+) -> Tuple[Optional[pd.Series], Optional[pd.Series], List[Dict], Dict]:
     """
     Calculate portfolio and benchmark returns.
-    Returns: (portfolio_returns, benchmark_returns, valid_items_used)
+    Returns: (portfolio_returns, benchmark_returns, valid_items_used, var_data)
+    var_data contains: portfolio_weights, returns_matrix, portfolio_tickers, total_mv
     """
     
+    empty_var_data = {"weights": None, "returns_matrix": None, "tickers": [], "total_mv": 0}
+    
     if adj_close is None or adj_close.empty:
-        return None, None, []
+        return None, None, [], empty_var_data
     
     if benchmark not in adj_close.columns:
         if debug:
             st.warning(f"Benchmark {benchmark} not found in data")
-        return None, None, []
+        return None, None, [], empty_var_data
     
     ticker_mv = {}
     for item in tickers_data:
@@ -315,11 +401,11 @@ def calculate_portfolio_returns(
     if not ticker_mv:
         if debug:
             st.warning("No portfolio tickers found in downloaded data")
-        return None, None, []
+        return None, None, [], empty_var_data
     
     total_mv = sum(ticker_mv.values())
     if total_mv <= 0:
-        return None, None, []
+        return None, None, [], empty_var_data
     
     portfolio_tickers = list(ticker_mv.keys())
     portfolio_weights = np.array([ticker_mv[t] / total_mv for t in portfolio_tickers])
@@ -331,14 +417,14 @@ def calculate_portfolio_returns(
     if len(price_df) < 5:
         if debug:
             st.warning(f"Not enough data points after cleaning: {len(price_df)}")
-        return None, None, []
+        return None, None, [], empty_var_data
     
     returns = price_df.pct_change().iloc[1:].fillna(0)
     
     if returns.empty or len(returns) < 5:
         if debug:
             st.warning(f"Not enough return data points: {len(returns)}")
-        return None, None, []
+        return None, None, [], empty_var_data
     
     returns_matrix = returns[portfolio_tickers].values
     
@@ -352,7 +438,15 @@ def calculate_portfolio_returns(
     
     valid_items = [{"yf_ticker": t, "mv": ticker_mv[t]} for t in portfolio_tickers]
     
-    return port_returns, bench_returns, valid_items
+    # Data for VaR calculation
+    var_data = {
+        "weights": portfolio_weights,
+        "returns_matrix": returns_matrix,
+        "tickers": portfolio_tickers,
+        "total_mv": total_mv,
+    }
+    
+    return port_returns, bench_returns, valid_items, var_data
 
 
 def calculate_backtest_metrics(
@@ -438,6 +532,139 @@ def calculate_backtest_metrics(
         "start_date": cum_port.index[0] if not cum_port.empty else None,
         "end_date": cum_port.index[-1] if not cum_port.empty else None,
     }
+
+
+def calculate_var_metrics(
+    port_returns: pd.Series,
+    portfolio_weights: np.ndarray,
+    returns_matrix: np.ndarray,
+    portfolio_tickers: List[str],
+    total_mv: float,
+    confidence_levels: List[float] = [0.95, 0.99],
+    n_simulations: int = 10000,
+) -> Dict:
+    """
+    Calculate comprehensive VaR metrics using multiple methodologies.
+    
+    Returns a dict with:
+    - Historical VaR (percentile-based)
+    - Parametric VaR (assumes normal distribution)
+    - Monte Carlo VaR (simulated scenarios)
+    - Component VaR (contribution by asset)
+    """
+    
+    if port_returns is None or len(port_returns) < 20:
+        return {}
+    
+    result = {}
+    
+    # Daily portfolio mean and std
+    port_mean = port_returns.mean()
+    port_std = port_returns.std()
+    
+    for conf in confidence_levels:
+        conf_pct = int(conf * 100)
+        alpha = 1 - conf  # e.g., 0.05 for 95%
+        
+        # =====================================================
+        # 1. HISTORICAL VaR - Uses actual percentile of returns
+        # =====================================================
+        historical_var = float(np.percentile(port_returns, alpha * 100))
+        historical_var_pct = historical_var  # Already as daily return %
+        historical_var_brl = abs(historical_var) * total_mv
+        
+        # =====================================================
+        # 2. PARAMETRIC VaR - Assumes normal distribution
+        # =====================================================
+        z_score = stats.norm.ppf(alpha)  # e.g., -1.645 for 95%, -2.326 for 99%
+        parametric_var = port_mean + z_score * port_std
+        parametric_var_pct = float(parametric_var)
+        parametric_var_brl = abs(parametric_var) * total_mv
+        
+        # =====================================================
+        # 3. MONTE CARLO VaR - Simulated scenarios
+        # =====================================================
+        np.random.seed(42)  # For reproducibility
+        simulated_returns = np.random.normal(port_mean, port_std, n_simulations)
+        monte_carlo_var = float(np.percentile(simulated_returns, alpha * 100))
+        monte_carlo_var_pct = monte_carlo_var
+        monte_carlo_var_brl = abs(monte_carlo_var) * total_mv
+        
+        # =====================================================
+        # 4. COMPONENT VaR - Contribution by asset
+        # =====================================================
+        component_var = []
+        if returns_matrix is not None and len(returns_matrix) > 0:
+            try:
+                # Calculate covariance matrix
+                cov_matrix = np.cov(returns_matrix.T)
+                if cov_matrix.ndim == 0:
+                    cov_matrix = np.array([[cov_matrix]])
+                
+                # Portfolio variance
+                port_variance = portfolio_weights @ cov_matrix @ portfolio_weights
+                port_vol = np.sqrt(port_variance)
+                
+                # Marginal VaR for each asset
+                marginal_var = (cov_matrix @ portfolio_weights) / port_vol
+                
+                # Component VaR = weight * marginal VaR * z_score
+                comp_var = portfolio_weights * marginal_var * abs(z_score)
+                
+                # Normalize to sum to total VaR
+                total_comp = comp_var.sum()
+                if total_comp != 0:
+                    comp_var_normalized = comp_var / total_comp * abs(parametric_var)
+                else:
+                    comp_var_normalized = comp_var
+                
+                for i, ticker in enumerate(portfolio_tickers):
+                    component_var.append({
+                        "ticker": ticker.replace(".SA", ""),
+                        "weight": float(portfolio_weights[i]),
+                        "marginal_var": float(marginal_var[i]),
+                        "component_var_pct": float(comp_var_normalized[i]),
+                        "component_var_brl": float(abs(comp_var_normalized[i]) * total_mv),
+                        "contribution_pct": float(comp_var[i] / total_comp * 100) if total_comp != 0 else 0,
+                    })
+                
+                # Sort by absolute contribution
+                component_var.sort(key=lambda x: abs(x["component_var_brl"]), reverse=True)
+                
+            except Exception as e:
+                pass  # If calculation fails, just skip component VaR
+        
+        # Store results for this confidence level
+        result[f"var_{conf_pct}"] = {
+            "confidence": conf,
+            "confidence_pct": conf_pct,
+            # Historical VaR
+            "historical_var_pct": historical_var_pct,
+            "historical_var_brl": historical_var_brl,
+            # Parametric VaR
+            "parametric_var_pct": parametric_var_pct,
+            "parametric_var_brl": parametric_var_brl,
+            # Monte Carlo VaR
+            "monte_carlo_var_pct": monte_carlo_var_pct,
+            "monte_carlo_var_brl": monte_carlo_var_brl,
+            # Component VaR (top 10)
+            "component_var": component_var[:10] if component_var else [],
+            # Metadata
+            "z_score": float(z_score),
+            "n_simulations": n_simulations,
+        }
+    
+    # Add summary statistics
+    result["var_summary"] = {
+        "portfolio_mean_daily": float(port_mean),
+        "portfolio_std_daily": float(port_std),
+        "portfolio_mean_annual": float(port_mean * 252),
+        "portfolio_std_annual": float(port_std * np.sqrt(252)),
+        "total_mv": total_mv,
+        "n_observations": len(port_returns),
+    }
+    
+    return result
 
 
 def calculate_backtest_multi_period(
@@ -526,7 +753,7 @@ def calculate_backtest_multi_period(
                 st.warning(f"No data for period {period_name}")
             continue
         
-        port_ret, bench_ret, valid_items = calculate_portfolio_returns(
+        port_ret, bench_ret, valid_items, var_data = calculate_portfolio_returns(
             period_data, 
             tickers_data, 
             benchmark,
@@ -557,6 +784,19 @@ def calculate_backtest_multi_period(
             result["composition"] = composition
             result["total_mv"] = total_mv
             result["n_assets"] = len(composition)
+            
+            # Calculate VaR metrics
+            if var_data.get("weights") is not None:
+                var_metrics = calculate_var_metrics(
+                    port_returns=port_ret,
+                    portfolio_weights=var_data["weights"],
+                    returns_matrix=var_data["returns_matrix"],
+                    portfolio_tickers=var_data["tickers"],
+                    total_mv=var_data["total_mv"],
+                    confidence_levels=[0.95, 0.99],
+                    n_simulations=10000,
+                )
+                result["var"] = var_metrics
             
             results[period_name] = result
             if debug:
@@ -811,6 +1051,126 @@ def display_backtest_section(results: Dict[str, Dict], title: str, df_track: pd.
     col2.metric("DD Médio", as_pct_str(res.get('avg_drawdown', 0)))
     col3.metric("DD 12m", as_pct_str(res.get('drawdown_12m', 0)))
     col4.metric(f"Max DD {bench_name}", as_pct_str(res.get('max_drawdown_bench', 0)))
+    
+    # VaR Section with tooltips
+    var_data = res.get('var', {})
+    if var_data:
+        st.markdown("---")
+        st.markdown("### 📊 Value at Risk (VaR)")
+        
+        # Methodology tooltips
+        methodology_info = """
+        **Metodologias de VaR:**
+        
+        🔹 **VaR Histórico**: Utiliza o percentil real dos retornos históricos. Não assume distribuição normal, 
+        capturando eventos de cauda ("fat tails"). É o método mais conservador em mercados voláteis.
+        
+        🔹 **VaR Paramétrico** (Variância-Covariância): Assume que os retornos seguem distribuição normal. 
+        Usa a média e desvio padrão dos retornos multiplicados pelo z-score. Mais simples, mas pode 
+        subestimar riscos em eventos extremos.
+        
+        🔹 **VaR Monte Carlo**: Simula 10.000 cenários de retornos baseados na distribuição observada. 
+        Combina características dos métodos anteriores e é útil para portfólios complexos.
+        
+        🔹 **VaR por Componente**: Mostra a contribuição de cada ativo para o VaR total do portfólio.
+        Calculado via VaR Marginal × Peso de cada ativo.
+        
+        **Interpretação**: Um VaR 95% de -2% significa que há 95% de confiança de que a perda diária 
+        não excederá 2% (ou, equivalentemente, 5% de chance de perder mais que 2%).
+        """
+        
+        with st.expander("ℹ️ Entenda as Metodologias de VaR", expanded=False):
+            st.markdown(methodology_info)
+        
+        # VaR 95% and 99% side by side
+        var_col1, var_col2 = st.columns(2)
+        
+        with var_col1:
+            st.markdown("#### VaR 95% (Diário)")
+            var_95 = var_data.get("var_95", {})
+            if var_95:
+                v1, v2, v3 = st.columns(3)
+                v1.metric(
+                    "Histórico", 
+                    as_pct_str(var_95.get('historical_var_pct', 0)),
+                    help="Percentil 5% dos retornos históricos reais"
+                )
+                v2.metric(
+                    "Paramétrico", 
+                    as_pct_str(var_95.get('parametric_var_pct', 0)),
+                    help=f"μ + z×σ (z = {var_95.get('z_score', 0):.3f})"
+                )
+                v3.metric(
+                    "Monte Carlo", 
+                    as_pct_str(var_95.get('monte_carlo_var_pct', 0)),
+                    help=f"Simulação de {var_95.get('n_simulations', 10000):,} cenários"
+                )
+                
+                # VaR in BRL
+                st.caption(f"💰 VaR em R$: Hist. {brl(var_95.get('historical_var_brl', 0))} | "
+                          f"Param. {brl(var_95.get('parametric_var_brl', 0))} | "
+                          f"MC {brl(var_95.get('monte_carlo_var_brl', 0))}")
+        
+        with var_col2:
+            st.markdown("#### VaR 99% (Diário)")
+            var_99 = var_data.get("var_99", {})
+            if var_99:
+                v1, v2, v3 = st.columns(3)
+                v1.metric(
+                    "Histórico", 
+                    as_pct_str(var_99.get('historical_var_pct', 0)),
+                    help="Percentil 1% dos retornos históricos reais"
+                )
+                v2.metric(
+                    "Paramétrico", 
+                    as_pct_str(var_99.get('parametric_var_pct', 0)),
+                    help=f"μ + z×σ (z = {var_99.get('z_score', 0):.3f})"
+                )
+                v3.metric(
+                    "Monte Carlo", 
+                    as_pct_str(var_99.get('monte_carlo_var_pct', 0)),
+                    help=f"Simulação de {var_99.get('n_simulations', 10000):,} cenários"
+                )
+                
+                # VaR in BRL
+                st.caption(f"💰 VaR em R$: Hist. {brl(var_99.get('historical_var_brl', 0))} | "
+                          f"Param. {brl(var_99.get('parametric_var_brl', 0))} | "
+                          f"MC {brl(var_99.get('monte_carlo_var_brl', 0))}")
+        
+        # Component VaR
+        var_95 = var_data.get("var_95", {})
+        component_var = var_95.get("component_var", [])
+        if component_var:
+            with st.expander("🔍 VaR por Componente (Top 10 contribuintes)", expanded=False):
+                st.markdown("""
+                **Contribuição de cada ativo para o VaR total:**
+                - **VaR Comp. (%)**: Contribuição percentual do ativo para o VaR diário
+                - **VaR Comp. (R$)**: Valor absoluto de contribuição para o VaR
+                - **Contrib. (%)**: Participação relativa no VaR total (soma = 100%)
+                """)
+                
+                comp_df = pd.DataFrame([
+                    {
+                        "Ticker": c["ticker"],
+                        "Peso (%)": as_pct_str(c["weight"]),
+                        "VaR Comp. (%)": as_pct_str(c["component_var_pct"]),
+                        "VaR Comp. (R$)": brl(c["component_var_brl"]),
+                        "Contrib. (%)": f"{c['contribution_pct']:.1f}%",
+                    }
+                    for c in component_var
+                ])
+                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+        
+        # Summary statistics
+        var_summary = var_data.get("var_summary", {})
+        if var_summary:
+            st.caption(
+                f"📈 Retorno médio diário: {as_pct_str(var_summary.get('portfolio_mean_daily', 0))} | "
+                f"Vol. diária: {as_pct_str(var_summary.get('portfolio_std_daily', 0))} | "
+                f"Observações: {var_summary.get('n_observations', 0)}"
+            )
+        
+        st.markdown("---")
     
     # Data availability info
     start_dt = res.get('start_date')
@@ -1164,348 +1524,961 @@ with col_offshore:
 
 # ---------------------------- Report Generation ---------------------------- #
 
+# ---------------------------- Report Generation ---------------------------- #
+
 REPORT_HTML = """
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
+  <title>Relatório de Monitoramento de Risco de Mercado</title>
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Arial, sans-serif; font-size: 11px; color: #222; margin: 20px; }
-    h1 { font-size: 16px; text-align: center; border-bottom: 2px solid #003366; padding-bottom: 5px; color: #003366; }
-    h2 { font-size: 14px; margin-top: 15px; color: #003366; border-left: 4px solid #003366; padding-left: 8px; }
-    h3 { font-size: 12px; margin-top: 10px; color: #333; }
-    .small { font-size: 10px; color: #555; }
+    @page {
+      size: A4;
+      margin: 15mm 12mm 15mm 12mm;
+    }
+
+    :root {
+      --brand: #825120;
+      --brand-dark: #6B4219;
+      --bg: #F8F8F8;
+      --text: #333333;
+      --tbl-border: #E0D5CA;
+      --light: #F5F5F5;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body {
+      font-family: 'Open Sans', 'Segoe UI', Arial, sans-serif;
+      background: #f0f0f0;
+      color: var(--text);
+      padding: 10px;
+      font-size: 10px;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      background: white;
+      box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+      overflow: hidden;
+      border: 1px solid var(--tbl-border);
+      padding: 0 0 20px 0;
+    }
+
+    .main-header {
+      background: var(--brand);
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .header-logo {
+      height: 45px;
+      max-width: 120px;
+      object-fit: contain;
+    }
+
+    .header-text {
+      flex: 1;
+      text-align: right;
+    }
+
+    .main-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .main-subtitle {
+      font-size: 11px;
+      opacity: 0.9;
+      line-height: 1.4;
+    }
+
+    /* ===== PAGE BREAK CONTROLS ===== */
+    .section-header {
+      background: var(--bg);
+      padding: 10px 24px;
+      border-bottom: 1px solid var(--tbl-border);
+      border-top: 1px solid var(--tbl-border);
+      font-weight: 700;
+      color: var(--brand-dark);
+      font-size: 13px;
+      margin-top: 8px;
+      
+      /* CRITICAL: Keep header with following content */
+      page-break-after: avoid;
+      break-after: avoid;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .section-header.sub {
+      font-size: 12px;
+      background: #fafafa;
+      padding-left: 34px;
+    }
+
+    .content-block {
+      padding: 12px 24px;
+      
+      /* Avoid breaking content blocks */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .content-block p {
+      margin: 5px 0;
+      line-height: 1.5;
+    }
+
+    .content-block ul {
+      margin: 5px 0 10px 0;
+      padding-left: 20px;
+    }
+
+    .content-block li {
+      margin: 3px 0;
+      line-height: 1.4;
+    }
+
+    .chart-container {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--tbl-border);
+      text-align: center;
+      
+      /* Avoid breaking charts */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .chart-container img {
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #eee;
+    }
+
+    .chart-row {
+      display: flex;
+      gap: 12px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--tbl-border);
+      
+      /* Avoid breaking chart rows */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .chart-half {
+      flex: 1;
+      text-align: center;
+    }
+
+    .chart-half img {
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #eee;
+    }
+
+    .chart-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--brand-dark);
+      margin-bottom: 5px;
+    }
+
+    /* ===== TABLE STYLING WITH PAGE BREAK CONTROL ===== */
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      padding: 12px 24px;
+      
+      /* Avoid breaking tables */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 10px;
+      margin-top: 4px;
+      
+      /* Avoid breaking tables */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    thead {
+      display: table-header-group;
+    }
+    
+    tbody {
+      display: table-row-group;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--light);
+      color: var(--text);
+      text-align: center;
+      padding: 6px 5px;
+      font-weight: 700;
+      border-bottom: 2px solid var(--tbl-border);
+      white-space: nowrap;
+    }
+
+    thead th:first-child {
+      text-align: left;
+    }
+
+    tbody td {
+      padding: 5px 5px;
+      border-bottom: 1px solid var(--tbl-border);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    tbody td:first-child {
+      text-align: left;
+      font-weight: 600;
+    }
+
+    tbody tr:nth-child(even) td {
+      background: var(--light);
+    }
+    
+    /* Avoid breaking table rows */
+    tbody tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    tr.year-header td {
+      background-color: #e0e0e0;
+      font-weight: 800;
+      text-align: left;
+      padding-left: 10px;
+      font-size: 11px;
+      color: var(--brand-dark);
+    }
+
+    tr.main-row td {
+      font-weight: 700;
+      background-color: #fff !important;
+      color: var(--text);
+      border-bottom: 2px solid #eee;
+    }
+
+    tr.sub-row td {
+      font-size: 9px;
+      color: #666;
+      background-color: #fcfcfc !important;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    tr.sub-row td:first-child {
+      padding-left: 20px;
+      font-weight: 400;
+    }
+
+    .positive { color: #0a7a0a; }
+    .negative { color: #b00020; }
     .ok { color: #0a7a0a; font-weight: bold; }
     .bad { color: #b00020; font-weight: bold; }
-    .section { margin: 10px 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 10px; }
-    th, td { border: 1px solid #ddd; padding: 4px; text-align: left; }
-    th { background: #f2f2f2; }
-    .img-row { margin: 10px 0; text-align: center; }
-    .img-container { display: inline-block; width: 48%; vertical-align: top; margin-bottom: 10px; }
-    .img-container img { max-width: 100%; height: auto; border: 1px solid #eee; }
-    .metric-box { background: #f9f9f9; border: 1px solid #ddd; padding: 5px; margin: 5px 0; }
-    .period-table { margin-top: 10px; }
-    .track-section { margin-top: 20px; padding: 10px; background: #fafafa; border: 1px solid #eee; }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 12px 24px;
+      
+      /* Avoid breaking metrics grid */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .metric-box {
+      background: var(--light);
+      border: 1px solid var(--tbl-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+
+    .metric-label {
+      font-size: 9px;
+      color: #666;
+      margin-bottom: 3px;
+    }
+
+    .metric-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--brand-dark);
+    }
+
+    /* ===== TRACK SECTIONS - KEEP TOGETHER ===== */
+    .track-section {
+      margin-top: 8px;
+      
+      /* Try to keep entire track section together, but allow break if needed */
+      page-break-inside: auto;
+      break-inside: auto;
+    }
+    
+    /* Keep section header + first table together */
+    .track-section > .section-header {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    
+    .track-section > .section-header + .table-wrap {
+      page-break-before: avoid;
+      break-before: avoid;
+    }
+
+    .var-table {
+      margin-top: 8px;
+    }
+
+    .var-table th, .var-table td {
+      padding: 4px 6px;
+    }
+
+    .summary-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 5px 20px;
+      margin: 10px 0;
+    }
+
+    .summary-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      border-bottom: 1px dotted #ddd;
+    }
+
+    .summary-item .label {
+      color: #666;
+    }
+
+    .summary-item .value {
+      font-weight: 600;
+    }
+
+    .footer {
+      padding: 12px 24px;
+      color: #666;
+      font-size: 10px;
+      border-top: 2px solid var(--tbl-border);
+      background: #fff;
+      text-align: center;
+      margin-top: 20px;
+      
+      /* Footer can break to new page if needed */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .signature-block {
+      margin-top: 30px;
+      padding: 20px 24px;
+      text-align: center;
+      
+      /* Keep signature together */
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .signature-line {
+      width: 250px;
+      border-top: 1px solid #333;
+      margin: 0 auto 5px;
+      padding-top: 5px;
+    }
+
+    /* ===== PRINT-SPECIFIC RULES ===== */
+    @media print {
+      body {
+        padding: 0;
+        background: white;
+      }
+      
+      .page {
+        box-shadow: none;
+        border: none;
+        width: 100%;
+        min-height: auto;
+      }
+      
+      /* Reinforce page break rules for print */
+      .section-header {
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+      
+      .table-wrap,
+      table,
+      .chart-row,
+      .chart-container,
+      .metrics-grid,
+      .content-block {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      
+      /* If a section is too long, allow break but keep header with some content */
+      .track-section .table-wrap:first-of-type {
+        page-break-before: avoid !important;
+        break-before: avoid !important;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>RELATÓRIO DE MONITORAMENTO DE RISCO DE MERCADO</h1>
-  <div class="small" style="text-align: center; margin-bottom: 20px;">
-    {{ manager_name }} | CNPJ: {{ manager_cnpj }}<br/>
-    Data de Emissão: {{ emission_date }} | Período de Referência: {{ period_label }}<br/>
-    Responsável: {{ responsible_name }} – Diretor de Risco
-  </div>
-
-  <div class="section">
-    <h2>1. Objetivo</h2>
-    Este relatório tem como objetivo apresentar a avaliação e monitoramento do risco de mercado das carteiras administradas pela {{ manager_name }}, em conformidade com as diretrizes da CVM, Bacen e melhores práticas.
-  </div>
-
-  <div class="section">
-    <h2>2. Metodologia</h2>
-    A análise é conduzida sobre quatro classes de ativos separadas por exposição geográfica:
-    <ul>
-      <li><strong>Ações Locais:</strong> Benchmark IBOV (^BVSP)</li>
-      <li><strong>Ações Offshore:</strong> Benchmark S&P 500 (^GSPC)</li>
-      <li><strong>FIIs Locais:</strong> Benchmark XFIX11</li>
-      <li><strong>REITs Offshore:</strong> Benchmark VNQ</li>
-    </ul>
-    <ul>
-      <li>Limites: 15% em ativos únicos.</li>
-      <li>Drawdown: Maior queda entre topo e fundo no período, comparado ao benchmark.</li>
-      <li>Indicadores: Sharpe, Beta e Volatilidade vs benchmarks respectivos.</li>
-      <li>Períodos analisados: 1 ano, 3 anos e 5 anos (quando disponível).</li>
-    </ul>
-  </div>
-
-  <div class="section">
-    <h2>3. Exposição ao Risco de Mercado</h2>
-    O total da carteira em {{ period_label }} foi de R$ {{ pl_market_fmt }}.
-    <ul>
-      <li>Ações Locais: R$ {{ local_stocks_mv_fmt }}</li>
-      <li>Ações Offshore: R$ {{ offshore_stocks_mv_fmt }}</li>
-      <li>FIIs Locais: R$ {{ local_fiis_mv_fmt }}</li>
-      <li>REITs Offshore: R$ {{ offshore_reits_mv_fmt }}</li>
-    </ul>
-    <ul>
-      <li><strong>Concentração:</strong> Máximo 15% por papel.
-        <ul>
-          <li>Maior posição Local: {{ max_pos_local_pct }} <span class="{{ 'ok' if ok_pos_local else 'bad' }}">({{ 'Em conformidade' if ok_pos_local else 'Fora de conformidade' }})</span></li>
-          <li>Maior posição Offshore: {{ max_pos_offshore_pct }} <span class="{{ 'ok' if ok_pos_offshore else 'bad' }}">({{ 'Em conformidade' if ok_pos_offshore else 'Fora de conformidade' }})</span></li>
-        </ul>
-      </li>
-    </ul>
-
-    <div class="img-row">
-      <div class="img-container">
-        <h3>Patrimônio Local por Ativo</h3>
-        <img src="data:image/png;base64,{{ fig_local_assets }}"/>
-      </div>
-      <div class="img-container">
-        <h3>Concentração Setorial Local</h3>
-        <img src="data:image/png;base64,{{ fig_local_sectors }}"/>
-      </div>
-    </div>
-    <div class="img-row">
-      <div class="img-container">
-        <h3>Patrimônio Offshore por Ativo</h3>
-        <img src="data:image/png;base64,{{ fig_offshore_assets }}"/>
-      </div>
-      <div class="img-container">
-        <h3>Concentração Setorial Offshore</h3>
-        <img src="data:image/png;base64,{{ fig_offshore_sectors }}"/>
-      </div>
-    </div>
-  </div>
-
-  <!-- Track 1: Local Stocks -->
-  <div class="section track-section">
-    <h2>3.1 Performance Ações Locais (vs IBOV)</h2>
-    <table class="period-table">
-      <thead>
-        <tr>
-          <th>Período</th>
-          <th>Retorno</th>
-          <th>Retorno IBOV</th>
-          <th>Sharpe</th>
-          <th>Volatilidade</th>
-          <th>Max DD Carteira</th>
-          <th>Max DD IBOV</th>
-          <th>Beta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in local_stocks_periods %}
-        <tr>
-          <td>{{ p.period }}</td>
-          <td>{{ p.ret }}</td>
-          <td>{{ p.bench_ret }}</td>
-          <td>{{ p.sharpe }}</td>
-          <td>{{ p.vol }}</td>
-          <td>{{ p.max_dd }}</td>
-          <td>{{ p.max_dd_bench }}</td>
-          <td>{{ p.beta }}</td>
-        </tr>
-        {% endfor %}
-        {% if not local_stocks_periods %}
-        <tr><td colspan="8">Dados insuficientes</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
+  <div class="page">
     
-    <div class="img-row">
-      <div class="img-container">
-        <h3>Performance Ações Locais vs IBOV (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_local_stocks_bt_1y }}"/>
-      </div>
-      <div class="img-container">
-        <h3>Drawdown Ações Locais vs IBOV (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_local_stocks_dd_1y }}"/>
+    <!-- HEADER -->
+    <div class="main-header">
+      <img src="data:image/png;base64,{{ logo_base64 }}" class="header-logo" alt="Logo" onerror="this.style.display='none'" />
+      <div class="header-text">
+        <div class="main-title">RELATÓRIO DE MONITORAMENTO DE RISCO DE MERCADO</div>
+        <div class="main-subtitle">
+          {{ manager_name }} | CNPJ: {{ manager_cnpj }}<br/>
+          Data de Emissão: {{ emission_date }} | Período: {{ period_label }}
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Track 2: Offshore Stocks -->
-  <div class="section track-section">
-    <h2>3.2 Performance Ações Offshore (vs S&P 500)</h2>
-    <table class="period-table">
-      <thead>
-        <tr>
-          <th>Período</th>
-          <th>Retorno</th>
-          <th>Retorno S&P 500</th>
-          <th>Sharpe</th>
-          <th>Volatilidade</th>
-          <th>Max DD Carteira</th>
-          <th>Max DD S&P 500</th>
-          <th>Beta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in offshore_stocks_periods %}
-        <tr>
-          <td>{{ p.period }}</td>
-          <td>{{ p.ret }}</td>
-          <td>{{ p.bench_ret }}</td>
-          <td>{{ p.sharpe }}</td>
-          <td>{{ p.vol }}</td>
-          <td>{{ p.max_dd }}</td>
-          <td>{{ p.max_dd_bench }}</td>
-          <td>{{ p.beta }}</td>
-        </tr>
-        {% endfor %}
-        {% if not offshore_stocks_periods %}
-        <tr><td colspan="8">Dados insuficientes</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
+    <!-- SECTION 1: Objetivo -->
+    <div class="section-header">1. Objetivo</div>
+    <div class="content-block">
+      <p>Este relatório tem como objetivo apresentar a avaliação e monitoramento do risco de mercado das carteiras 
+      administradas pela {{ manager_name }}, em conformidade com as diretrizes da CVM, Bacen e melhores práticas de mercado.</p>
+    </div>
+
+    <!-- SECTION 2: Metodologia -->
+    <div class="section-header">2. Metodologia</div>
+    <div class="content-block">
+      <p>A análise é conduzida sobre quatro classes de ativos separadas por exposição geográfica:</p>
+      <ul>
+        <li><strong>Ações Locais:</strong> Benchmark IBOV (^BVSP)</li>
+        <li><strong>Ações Offshore:</strong> Benchmark S&P 500 (^GSPC)</li>
+        <li><strong>FIIs Locais:</strong> Benchmark XFIX11</li>
+        <li><strong>REITs Offshore:</strong> Benchmark VNQ</li>
+      </ul>
+      <p><strong>Indicadores calculados:</strong></p>
+      <ul>
+        <li>Limites de concentração: máximo 15% em ativos únicos</li>
+        <li>Drawdown: maior queda entre topo e fundo, comparado ao benchmark</li>
+        <li>Métricas de risco: Sharpe, Beta, Volatilidade e VaR (95% e 99%)</li>
+        <li>Períodos analisados: 1 ano, 3 anos e 5 anos (quando disponível)</li>
+      </ul>
+    </div>
+
+    <!-- SECTION 3: Exposição -->
+    <div class="section-header">3. Exposição ao Risco de Mercado</div>
+    <div class="content-block">
+      <div class="metrics-grid">
+        <div class="metric-box">
+          <div class="metric-label">PL Total Mercado</div>
+          <div class="metric-value">R$ {{ pl_market_fmt }}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Ações Locais</div>
+          <div class="metric-value">R$ {{ local_stocks_mv_fmt }}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Ações Offshore</div>
+          <div class="metric-value">R$ {{ offshore_stocks_mv_fmt }}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">FIIs Locais</div>
+          <div class="metric-value">R$ {{ local_fiis_mv_fmt }}</div>
+        </div>
+      </div>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Exposição</th>
+              <th>Maior Posição</th>
+              <th>Limite (15%)</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Local</td>
+              <td>{{ max_pos_local_pct }}</td>
+              <td>15.00%</td>
+              <td class="{{ 'ok' if ok_pos_local else 'bad' }}">{{ 'Conforme' if ok_pos_local else 'Não Conforme' }}</td>
+            </tr>
+            <tr>
+              <td>Offshore</td>
+              <td>{{ max_pos_offshore_pct }}</td>
+              <td>15.00%</td>
+              <td class="{{ 'ok' if ok_pos_offshore else 'bad' }}">{{ 'Conforme' if ok_pos_offshore else 'Não Conforme' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Charts: Asset Distribution -->
+    <div class="chart-row">
+      <div class="chart-half">
+        <div class="chart-title">Top 20 Ativos - Exposição Local</div>
+        <img src="data:image/png;base64,{{ fig_local_assets }}" alt="Ativos Local"/>
+      </div>
+      <div class="chart-half">
+        <div class="chart-title">Setores - Exposição Local</div>
+        <img src="data:image/png;base64,{{ fig_local_sectors }}" alt="Setores Local"/>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-half">
+        <div class="chart-title">Top 20 Ativos - Exposição Offshore</div>
+        <img src="data:image/png;base64,{{ fig_offshore_assets }}" alt="Ativos Offshore"/>
+      </div>
+      <div class="chart-half">
+        <div class="chart-title">Setores - Exposição Offshore</div>
+        <img src="data:image/png;base64,{{ fig_offshore_sectors }}" alt="Setores Offshore"/>
+      </div>
+    </div>
+
+    <!-- TRACK 1: Local Stocks -->
+    <div class="track-section">
+      <div class="section-header">3.1 Ações Locais (vs IBOV)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Retorno</th>
+              <th>IBOV</th>
+              <th>Sharpe</th>
+              <th>Volatilidade</th>
+              <th>Max DD</th>
+              <th>Max DD IBOV</th>
+              <th>Beta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in local_stocks_periods %}
+            <tr class="main-row">
+              <td>{{ p.period }}</td>
+              <td class="{{ 'positive' if p.ret_val >= 0 else 'negative' }}">{{ p.ret }}</td>
+              <td>{{ p.bench_ret }}</td>
+              <td>{{ p.sharpe }}</td>
+              <td>{{ p.vol }}</td>
+              <td class="negative">{{ p.max_dd }}</td>
+              <td>{{ p.max_dd_bench }}</td>
+              <td>{{ p.beta }}</td>
+            </tr>
+            {% endfor %}
+            {% if not local_stocks_periods %}
+            <tr><td colspan="8" style="text-align:center; color:#999;">Dados insuficientes</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Performance Acumulada (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_local_stocks_bt_1y }}" alt="Performance Local Stocks"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Drawdown (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_local_stocks_dd_1y }}" alt="Drawdown Local Stocks"/>
+        </div>
+      </div>
+      
+      <div class="table-wrap">
+        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - Ações Locais (1Y)</p>
+        <table class="var-table">
+          <thead>
+            <tr>
+              <th>Confiança</th>
+              <th>VaR Histórico</th>
+              <th>VaR Paramétrico</th>
+              <th>VaR Monte Carlo</th>
+              <th>VaR Hist. (R$)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>95%</strong></td>
+              <td class="negative">{{ local_stocks_1y.var_95_hist }}</td>
+              <td class="negative">{{ local_stocks_1y.var_95_param }}</td>
+              <td class="negative">{{ local_stocks_1y.var_95_mc }}</td>
+              <td>{{ local_stocks_1y.var_95_hist_brl }}</td>
+            </tr>
+            <tr>
+              <td><strong>99%</strong></td>
+              <td class="negative">{{ local_stocks_1y.var_99_hist }}</td>
+              <td class="negative">{{ local_stocks_1y.var_99_param }}</td>
+              <td class="negative">{{ local_stocks_1y.var_99_mc }}</td>
+              <td>{{ local_stocks_1y.var_99_hist_brl }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TRACK 2: Offshore Stocks -->
+    <div class="track-section">
+      <div class="section-header">3.2 Ações Offshore (vs S&P 500)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Retorno</th>
+              <th>S&P 500</th>
+              <th>Sharpe</th>
+              <th>Volatilidade</th>
+              <th>Max DD</th>
+              <th>Max DD S&P</th>
+              <th>Beta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in offshore_stocks_periods %}
+            <tr class="main-row">
+              <td>{{ p.period }}</td>
+              <td class="{{ 'positive' if p.ret_val >= 0 else 'negative' }}">{{ p.ret }}</td>
+              <td>{{ p.bench_ret }}</td>
+              <td>{{ p.sharpe }}</td>
+              <td>{{ p.vol }}</td>
+              <td class="negative">{{ p.max_dd }}</td>
+              <td>{{ p.max_dd_bench }}</td>
+              <td>{{ p.beta }}</td>
+            </tr>
+            {% endfor %}
+            {% if not offshore_stocks_periods %}
+            <tr><td colspan="8" style="text-align:center; color:#999;">Dados insuficientes</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Performance Acumulada (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_offshore_stocks_bt_1y }}" alt="Performance Offshore Stocks"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Drawdown (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_offshore_stocks_dd_1y }}" alt="Drawdown Offshore Stocks"/>
+        </div>
+      </div>
+      
+      <div class="table-wrap">
+        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - Ações Offshore (1Y)</p>
+        <table class="var-table">
+          <thead>
+            <tr>
+              <th>Confiança</th>
+              <th>VaR Histórico</th>
+              <th>VaR Paramétrico</th>
+              <th>VaR Monte Carlo</th>
+              <th>VaR Hist. (R$)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>95%</strong></td>
+              <td class="negative">{{ offshore_stocks_1y.var_95_hist }}</td>
+              <td class="negative">{{ offshore_stocks_1y.var_95_param }}</td>
+              <td class="negative">{{ offshore_stocks_1y.var_95_mc }}</td>
+              <td>{{ offshore_stocks_1y.var_95_hist_brl }}</td>
+            </tr>
+            <tr>
+              <td><strong>99%</strong></td>
+              <td class="negative">{{ offshore_stocks_1y.var_99_hist }}</td>
+              <td class="negative">{{ offshore_stocks_1y.var_99_param }}</td>
+              <td class="negative">{{ offshore_stocks_1y.var_99_mc }}</td>
+              <td>{{ offshore_stocks_1y.var_99_hist_brl }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TRACK 3: Local FIIs -->
+    <div class="track-section">
+      <div class="section-header">3.3 FIIs Locais (vs XFIX11)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Retorno</th>
+              <th>XFIX11</th>
+              <th>Sharpe</th>
+              <th>Volatilidade</th>
+              <th>Max DD</th>
+              <th>Max DD XFIX</th>
+              <th>Beta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in local_fiis_periods %}
+            <tr class="main-row">
+              <td>{{ p.period }}</td>
+              <td class="{{ 'positive' if p.ret_val >= 0 else 'negative' }}">{{ p.ret }}</td>
+              <td>{{ p.bench_ret }}</td>
+              <td>{{ p.sharpe }}</td>
+              <td>{{ p.vol }}</td>
+              <td class="negative">{{ p.max_dd }}</td>
+              <td>{{ p.max_dd_bench }}</td>
+              <td>{{ p.beta }}</td>
+            </tr>
+            {% endfor %}
+            {% if not local_fiis_periods %}
+            <tr><td colspan="8" style="text-align:center; color:#999;">Dados insuficientes</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Performance Acumulada (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_local_fiis_bt_1y }}" alt="Performance FIIs"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Drawdown (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_local_fiis_dd_1y }}" alt="Drawdown FIIs"/>
+        </div>
+      </div>
+      
+      <div class="table-wrap">
+        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - FIIs (1Y)</p>
+        <table class="var-table">
+          <thead>
+            <tr>
+              <th>Confiança</th>
+              <th>VaR Histórico</th>
+              <th>VaR Paramétrico</th>
+              <th>VaR Monte Carlo</th>
+              <th>VaR Hist. (R$)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>95%</strong></td>
+              <td class="negative">{{ local_fiis_1y.var_95_hist }}</td>
+              <td class="negative">{{ local_fiis_1y.var_95_param }}</td>
+              <td class="negative">{{ local_fiis_1y.var_95_mc }}</td>
+              <td>{{ local_fiis_1y.var_95_hist_brl }}</td>
+            </tr>
+            <tr>
+              <td><strong>99%</strong></td>
+              <td class="negative">{{ local_fiis_1y.var_99_hist }}</td>
+              <td class="negative">{{ local_fiis_1y.var_99_param }}</td>
+              <td class="negative">{{ local_fiis_1y.var_99_mc }}</td>
+              <td>{{ local_fiis_1y.var_99_hist_brl }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TRACK 4: Offshore REITs -->
+    <div class="track-section">
+      <div class="section-header">3.4 REITs Offshore (vs VNQ)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Retorno</th>
+              <th>VNQ</th>
+              <th>Sharpe</th>
+              <th>Volatilidade</th>
+              <th>Max DD</th>
+              <th>Max DD VNQ</th>
+              <th>Beta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in offshore_reits_periods %}
+            <tr class="main-row">
+              <td>{{ p.period }}</td>
+              <td class="{{ 'positive' if p.ret_val >= 0 else 'negative' }}">{{ p.ret }}</td>
+              <td>{{ p.bench_ret }}</td>
+              <td>{{ p.sharpe }}</td>
+              <td>{{ p.vol }}</td>
+              <td class="negative">{{ p.max_dd }}</td>
+              <td>{{ p.max_dd_bench }}</td>
+              <td>{{ p.beta }}</td>
+            </tr>
+            {% endfor %}
+            {% if not offshore_reits_periods %}
+            <tr><td colspan="8" style="text-align:center; color:#999;">Dados insuficientes</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Performance Acumulada (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_offshore_reits_bt_1y }}" alt="Performance REITs"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Drawdown (1Y)</div>
+          <img src="data:image/png;base64,{{ fig_offshore_reits_dd_1y }}" alt="Drawdown REITs"/>
+        </div>
+      </div>
+      
+      <div class="table-wrap">
+        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - REITs (1Y)</p>
+        <table class="var-table">
+          <thead>
+            <tr>
+              <th>Confiança</th>
+              <th>VaR Histórico</th>
+              <th>VaR Paramétrico</th>
+              <th>VaR Monte Carlo</th>
+              <th>VaR Hist. (R$)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>95%</strong></td>
+              <td class="negative">{{ offshore_reits_1y.var_95_hist }}</td>
+              <td class="negative">{{ offshore_reits_1y.var_95_param }}</td>
+              <td class="negative">{{ offshore_reits_1y.var_95_mc }}</td>
+              <td>{{ offshore_reits_1y.var_95_hist_brl }}</td>
+            </tr>
+            <tr>
+              <td><strong>99%</strong></td>
+              <td class="negative">{{ offshore_reits_1y.var_99_hist }}</td>
+              <td class="negative">{{ offshore_reits_1y.var_99_param }}</td>
+              <td class="negative">{{ offshore_reits_1y.var_99_mc }}</td>
+              <td>{{ offshore_reits_1y.var_99_hist_brl }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Summary Table -->
+    <div class="section-header">3.5 Resumo Comparativo (1Y)</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Métrica</th>
+            <th>Ações Locais</th>
+            <th>Ações Offshore</th>
+            <th>FIIs</th>
+            <th>REITs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Retorno</td>
+            <td class="{{ 'positive' if local_stocks_1y.ret_val >= 0 else 'negative' }}">{{ local_stocks_1y.ret }}</td>
+            <td class="{{ 'positive' if offshore_stocks_1y.ret_val >= 0 else 'negative' }}">{{ offshore_stocks_1y.ret }}</td>
+            <td class="{{ 'positive' if local_fiis_1y.ret_val >= 0 else 'negative' }}">{{ local_fiis_1y.ret }}</td>
+            <td class="{{ 'positive' if offshore_reits_1y.ret_val >= 0 else 'negative' }}">{{ offshore_reits_1y.ret }}</td>
+          </tr>
+          <tr>
+            <td>Sharpe</td>
+            <td>{{ local_stocks_1y.sharpe }}</td>
+            <td>{{ offshore_stocks_1y.sharpe }}</td>
+            <td>{{ local_fiis_1y.sharpe }}</td>
+            <td>{{ offshore_reits_1y.sharpe }}</td>
+          </tr>
+          <tr>
+            <td>Volatilidade</td>
+            <td>{{ local_stocks_1y.vol }}</td>
+            <td>{{ offshore_stocks_1y.vol }}</td>
+            <td>{{ local_fiis_1y.vol }}</td>
+            <td>{{ offshore_reits_1y.vol }}</td>
+          </tr>
+          <tr>
+            <td>Beta</td>
+            <td>{{ local_stocks_1y.beta }}</td>
+            <td>{{ offshore_stocks_1y.beta }}</td>
+            <td>{{ local_fiis_1y.beta }}</td>
+            <td>{{ offshore_reits_1y.beta }}</td>
+          </tr>
+          <tr>
+            <td>Max Drawdown</td>
+            <td class="negative">{{ local_stocks_1y.max_dd }}</td>
+            <td class="negative">{{ offshore_stocks_1y.max_dd }}</td>
+            <td class="negative">{{ local_fiis_1y.max_dd }}</td>
+            <td class="negative">{{ offshore_reits_1y.max_dd }}</td>
+          </tr>
+          <tr>
+            <td>VaR 95%</td>
+            <td class="negative">{{ local_stocks_1y.var_95_hist }}</td>
+            <td class="negative">{{ offshore_stocks_1y.var_95_hist }}</td>
+            <td class="negative">{{ local_fiis_1y.var_95_hist }}</td>
+            <td class="negative">{{ offshore_reits_1y.var_95_hist }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 4: Compliance -->
+    <div class="section-header">4. Conformidade Regulatória</div>
+    <div class="content-block">
+      <p>Este fundo opera em conformidade com as seguintes normas e regulamentos:</p>
+      <ul>
+        <li>Resolução CVM 175/2022 (nova regulação de fundos de investimento)</li>
+        <li>Resolução CVM 50/2021 (prestação de serviços fiduciários)</li>
+        <li>Resolução BCB 4.557/2017 (gerenciamento de risco)</li>
+        <li>Código ANBIMA de Regulação e Melhores Práticas</li>
+      </ul>
+    </div>
+
+    <!-- Section 5: Conclusions -->
+    <div class="section-header">5. Conclusões</div>
+    <div class="content-block">
+      <p>{{ conclusions }}</p>
+    </div>
+
+    <!-- Signature -->
+    <div class="signature-block">
+      <div class="signature-line">
+        <strong>{{ responsible_name }}</strong><br/>
+        Diretor de Risco
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      {{ manager_name }} | Documento gerado em {{ emission_date }} | Uso Interno
+    </div>
     
-    <div class="img-row">
-      <div class="img-container">
-        <h3>Performance Ações Offshore vs S&P 500 (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_offshore_stocks_bt_1y }}"/>
-      </div>
-      <div class="img-container">
-        <h3>Drawdown Ações Offshore vs S&P 500 (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_offshore_stocks_dd_1y }}"/>
-      </div>
-    </div>
-  </div>
-
-  <!-- Track 3: Local FIIs -->
-  <div class="section track-section">
-    <h2>3.3 Performance FIIs Locais (vs XFIX11)</h2>
-    <table class="period-table">
-      <thead>
-        <tr>
-          <th>Período</th>
-          <th>Retorno</th>
-          <th>Retorno XFIX11</th>
-          <th>Sharpe</th>
-          <th>Volatilidade</th>
-          <th>Max DD Carteira</th>
-          <th>Max DD XFIX11</th>
-          <th>Beta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in local_fiis_periods %}
-        <tr>
-          <td>{{ p.period }}</td>
-          <td>{{ p.ret }}</td>
-          <td>{{ p.bench_ret }}</td>
-          <td>{{ p.sharpe }}</td>
-          <td>{{ p.vol }}</td>
-          <td>{{ p.max_dd }}</td>
-          <td>{{ p.max_dd_bench }}</td>
-          <td>{{ p.beta }}</td>
-        </tr>
-        {% endfor %}
-        {% if not local_fiis_periods %}
-        <tr><td colspan="8">Dados insuficientes</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-    
-    <div class="img-row">
-      <div class="img-container">
-        <h3>Performance FIIs vs XFIX11 (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_local_fiis_bt_1y }}"/>
-      </div>
-      <div class="img-container">
-        <h3>Drawdown FIIs vs XFIX11 (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_local_fiis_dd_1y }}"/>
-      </div>
-    </div>
-  </div>
-
-  <!-- Track 4: Offshore REITs -->
-  <div class="section track-section">
-    <h2>3.4 Performance REITs Offshore (vs VNQ)</h2>
-    <table class="period-table">
-      <thead>
-        <tr>
-          <th>Período</th>
-          <th>Retorno</th>
-          <th>Retorno VNQ</th>
-          <th>Sharpe</th>
-          <th>Volatilidade</th>
-          <th>Max DD Carteira</th>
-          <th>Max DD VNQ</th>
-          <th>Beta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in offshore_reits_periods %}
-        <tr>
-          <td>{{ p.period }}</td>
-          <td>{{ p.ret }}</td>
-          <td>{{ p.bench_ret }}</td>
-          <td>{{ p.sharpe }}</td>
-          <td>{{ p.vol }}</td>
-          <td>{{ p.max_dd }}</td>
-          <td>{{ p.max_dd_bench }}</td>
-          <td>{{ p.beta }}</td>
-        </tr>
-        {% endfor %}
-        {% if not offshore_reits_periods %}
-        <tr><td colspan="8">Dados insuficientes</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-    
-    <div class="img-row">
-      <div class="img-container">
-        <h3>Performance REITs vs VNQ (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_offshore_reits_bt_1y }}"/>
-      </div>
-      <div class="img-container">
-        <h3>Drawdown REITs vs VNQ (1Y)</h3>
-        <img src="data:image/png;base64,{{ fig_offshore_reits_dd_1y }}"/>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>3.5 Indicadores Resumo (1Y)</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Métrica</th>
-          <th>Ações Locais</th>
-          <th>Ações Offshore</th>
-          <th>FIIs Locais</th>
-          <th>REITs Offshore</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Sharpe</td>
-          <td>{{ local_stocks_1y.sharpe }}</td>
-          <td>{{ offshore_stocks_1y.sharpe }}</td>
-          <td>{{ local_fiis_1y.sharpe }}</td>
-          <td>{{ offshore_reits_1y.sharpe }}</td>
-        </tr>
-        <tr>
-          <td>Volatilidade</td>
-          <td>{{ local_stocks_1y.vol }}</td>
-          <td>{{ offshore_stocks_1y.vol }}</td>
-          <td>{{ local_fiis_1y.vol }}</td>
-          <td>{{ offshore_reits_1y.vol }}</td>
-        </tr>
-        <tr>
-          <td>Beta</td>
-          <td>{{ local_stocks_1y.beta }}</td>
-          <td>{{ offshore_stocks_1y.beta }}</td>
-          <td>{{ local_fiis_1y.beta }}</td>
-          <td>{{ offshore_reits_1y.beta }}</td>
-        </tr>
-        <tr>
-          <td>Max Drawdown</td>
-          <td>{{ local_stocks_1y.max_dd }}</td>
-          <td>{{ offshore_stocks_1y.max_dd }}</td>
-          <td>{{ local_fiis_1y.max_dd }}</td>
-          <td>{{ offshore_reits_1y.max_dd }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>4. Conformidade Regulatória</h2>
-    Este fundo opera em conformidade com: CVM 555/2014, CVM 50/21, Bacen 3.930/19 e Código ANBIMA.
-  </div>
-
-  <div class="section">
-    <h2>5. Conclusões</h2>
-    {{ conclusions }}
-  </div>
-
-  <div class="section" style="margin-top: 40px;">
-    ________________________________________________<br/>
-    <strong>{{ responsible_name }}</strong><br/>
-    Diretor de Risco
   </div>
 </body>
 </html>
@@ -1518,20 +2491,26 @@ def render_report_html():
     
     def _gen_img(fig):
         buf = BytesIO()
-        fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+        fig.savefig(buf, format="png", dpi=120, bbox_inches="tight", facecolor='white')
         plt.close(fig)
         return base64.b64encode(buf.getvalue()).decode("utf-8")
 
     def _get_track_metrics(res):
         if not res:
             return {
-                "period": "N/A", "ret": "N/A", "bench_ret": "N/A", 
+                "period": "N/A", "ret": "N/A", "ret_val": 0, "bench_ret": "N/A", 
                 "max_dd": "N/A", "max_dd_bench": "N/A", "avg_dd": "N/A", 
-                "dd_12m": "N/A", "sharpe": "N/A", "vol": "N/A", "beta": "N/A"
+                "dd_12m": "N/A", "sharpe": "N/A", "vol": "N/A", "beta": "N/A",
+                "var_95_hist": "N/A", "var_95_param": "N/A", "var_95_mc": "N/A", "var_95_hist_brl": "N/A",
+                "var_99_hist": "N/A", "var_99_param": "N/A", "var_99_mc": "N/A", "var_99_hist_brl": "N/A",
             }
-        return {
+        
+        ret_val = res.get("final_return", 0)
+        
+        metrics = {
             "period": res.get("period", "N/A"),
-            "ret": as_pct_str(res.get("final_return", 0)),
+            "ret": as_pct_str(ret_val),
+            "ret_val": ret_val,  # Raw value for color coding
             "bench_ret": as_pct_str(res.get("final_bench_return", 0)),
             "max_dd": as_pct_str(res.get("max_drawdown", 0)),
             "max_dd_bench": as_pct_str(res.get("max_drawdown_bench", 0)),
@@ -1541,6 +2520,30 @@ def render_report_html():
             "vol": as_pct_str(res.get("volatility", 0)),
             "beta": f"{res.get('beta', 0):.2f}"
         }
+        
+        # Add VaR data if available
+        var_data = res.get("var", {})
+        if var_data:
+            var_95 = var_data.get("var_95", {})
+            var_99 = var_data.get("var_99", {})
+            metrics.update({
+                "var_95_hist": as_pct_str(var_95.get("historical_var_pct", 0)),
+                "var_95_param": as_pct_str(var_95.get("parametric_var_pct", 0)),
+                "var_95_mc": as_pct_str(var_95.get("monte_carlo_var_pct", 0)),
+                "var_95_hist_brl": brl(var_95.get("historical_var_brl", 0)),
+                "var_99_hist": as_pct_str(var_99.get("historical_var_pct", 0)),
+                "var_99_param": as_pct_str(var_99.get("parametric_var_pct", 0)),
+                "var_99_mc": as_pct_str(var_99.get("monte_carlo_var_pct", 0)),
+                "var_99_hist_brl": brl(var_99.get("historical_var_brl", 0)),
+            })
+        else:
+            metrics.update({
+                "var_95_hist": "N/A", "var_95_param": "N/A", "var_95_mc": "N/A", "var_95_hist_brl": "N/A",
+                "var_99_hist": "N/A", "var_99_param": "N/A", "var_99_mc": "N/A", "var_99_hist_brl": "N/A",
+            })
+        
+        return metrics
+
 
     # Build period comparison tables for all 4 tracks
     def _build_periods(results):
@@ -1719,6 +2722,7 @@ def render_report_html():
 
     t = Template(REPORT_HTML)
     return t.render(
+        logo_base64="",
         manager_name="Ceres Asset Gestão de Investimentos Ltda",
         manager_cnpj="40.962.925/0001-38",
         emission_date=datetime.now().strftime("%d/%m/%Y"),
@@ -1761,7 +2765,103 @@ def render_report_html():
     )
 
 
+# ---------------------------- Auto Report Generation ---------------------------- #
+
+st.markdown("---")
+st.subheader("📄 Relatórios Gerados")
+
+# Store generated reports in session state to avoid regenerating on every interaction
+if "report_html" not in st.session_state:
+    st.session_state.report_html = None
+    st.session_state.report_pdf = None
+    st.session_state.report_generated_at = None
+
+# Auto-generate reports if we have data
+if not base_df.empty:
+    # Check if we need to regenerate (new data or first run)
+    current_data_hash = f"{ref_dt}_{len(base_df)}_{pl_market}"
+    
+    if (st.session_state.report_html is None or 
+        st.session_state.get("data_hash") != current_data_hash):
+        
+        with st.spinner("Gerando relatórios HTML e PDF automaticamente..."):
+            try:
+                # Generate HTML
+                html_content = render_report_html()
+                st.session_state.report_html = html_content
+                st.session_state.data_hash = current_data_hash
+                st.session_state.report_generated_at = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                
+                # Generate PDF if Playwright is available
+                if HAS_PLAYWRIGHT:
+                    try:
+                        pdf_bytes = html_to_pdf_a4(html_content)
+                        st.session_state.report_pdf = pdf_bytes
+                    except Exception as e:
+                        st.warning(f"PDF generation failed: {e}")
+                        st.session_state.report_pdf = None
+                else:
+                    st.session_state.report_pdf = None
+                    
+            except Exception as e:
+                st.error(f"Erro ao gerar relatório: {e}")
+                st.session_state.report_html = None
+                st.session_state.report_pdf = None
+
+    # Display download buttons if reports are ready
+    if st.session_state.report_html:
+        st.success(f"✅ Relatórios gerados automaticamente em {st.session_state.report_generated_at}")
+        
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
+        
+        # HTML Download
+        with col_dl1:
+            filename_base = f"relatorio_mercado_{ref_dt.strftime('%Y%m%d')}"
+            st.download_button(
+                "📥 Download HTML",
+                st.session_state.report_html,
+                f"{filename_base}.html",
+                "text/html",
+                key="dl_html_auto"
+            )
+        
+        # PDF Download
+        with col_dl2:
+            if st.session_state.report_pdf:
+                st.download_button(
+                    "📥 Download PDF",
+                    st.session_state.report_pdf,
+                    f"{filename_base}.pdf",
+                    "application/pdf",
+                    key="dl_pdf_auto"
+                )
+            elif HAS_PLAYWRIGHT:
+                st.caption("PDF em processamento...")
+            else:
+                st.caption("⚠️ Playwright não instalado")
+        
+        # Regenerate button
+        with col_dl3:
+            if st.button("🔄 Regenerar Relatórios"):
+                st.session_state.report_html = None
+                st.session_state.report_pdf = None
+                st.rerun()
+        
+        # Preview HTML in expander
+        with st.expander("👁️ Pré-visualizar Relatório HTML", expanded=False):
+            st.components.v1.html(st.session_state.report_html, height=800, scrolling=True)
+
+else:
+    st.info("Carregue dados para gerar os relatórios automaticamente.")
+
+# Optional: Manual regeneration in sidebar
 st.sidebar.markdown("---")
-if st.sidebar.button("Gerar Relatório HTML"):
-    html = render_report_html()
-    st.download_button("Download Relatório", html, "relatorio_mercado.html", "text/html")
+st.sidebar.markdown("### Relatórios")
+if st.sidebar.button("🔄 Forçar Regeneração"):
+    st.session_state.report_html = None
+    st.session_state.report_pdf = None
+    st.rerun()
+
+if not HAS_PLAYWRIGHT:
+    st.sidebar.warning("⚠️ Playwright não instalado. PDF não disponível.")
+    st.sidebar.code("pip install playwright\nplaywright install chromium", language="bash")

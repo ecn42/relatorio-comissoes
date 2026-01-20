@@ -151,6 +151,8 @@ def init_db():
         cursor.execute("ALTER TABLE trade_ideas ADD COLUMN entry_price_short REAL")
     if 'exit_price_short' not in columns:
         cursor.execute("ALTER TABLE trade_ideas ADD COLUMN exit_price_short REAL")
+    if 'casa_analise' not in columns:
+        cursor.execute("ALTER TABLE trade_ideas ADD COLUMN casa_analise TEXT")
     
     conn.commit()
     conn.close()
@@ -869,7 +871,7 @@ REPORT_HTML_TEMPLATE = """
             {% else %}<div style="width: 1px;"></div>{% endif %}
             <div class="header-text">
                 <div class="title">{{ trade_type_label }}</div>
-                <div class="subtitle">{{ ticker }} | {{ date }}</div>
+                <div class="subtitle">{{ ticker }} | {{ date }}{% if casa_analise %} | {{ casa_analise }}{% endif %}</div>
             </div>
         </div>
 
@@ -1091,6 +1093,7 @@ m2.metric("Downside Estimado", pct(downside_pct), delta=f"{downside_pct*100:.2f}
 risk_reward = abs(upside_pct / downside_pct) if downside_pct != 0 else 0
 m3.metric("Relação Risco/Retorno", f"{risk_reward:.2f}")
 
+casa_analise = st.text_input("Casa de Análise (ex: XP, BTG, Itaú BBA, etc.)")
 notes = st.text_area("Notas / Tese de Investimento", height=150)
 
 if st.button("Gerar Trade Idea e Salvar"):
@@ -1117,9 +1120,9 @@ if st.button("Gerar Trade Idea e Salvar"):
         
         cursor.execute("""
             INSERT INTO trade_ideas 
-            (ticker, entry_price, target_price, stop_price, current_price, upside_pct, downside_pct, notes, start_date, status, trade_type, ticker_short, entry_price_short)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (ticker, entry_price, target_price, stop_price, current_price, upside_pct, downside_pct, notes, entry_date_str, "ABERTA", t_type, t_short, e_p_short))
+            (ticker, entry_price, target_price, stop_price, current_price, upside_pct, downside_pct, notes, start_date, status, trade_type, ticker_short, entry_price_short, casa_analise)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (ticker, entry_price, target_price, stop_price, current_price, upside_pct, downside_pct, notes, entry_date_str, "ABERTA", t_type, t_short, e_p_short, casa_analise))
         conn.commit()
         conn.close()
         st.success("Trade Idea salva no banco de dados com sucesso!")
@@ -1142,9 +1145,9 @@ if st.button("Gerar Trade Idea e Salvar"):
         l_stop = "Ratio Stop" if is_ls else "Preço Stop"
         l_exit = "Ratio de Saída" if is_ls else "Preço de Saída"
         
-        t_label = "Proposta de Investimento"
-        if t_type_val == "SHORT": t_label = "Proposta de Venda"
-        elif t_type_val == "LS": t_label = "Proposta Long & Short"
+        t_label = "Trade Idea - Compra"
+        if t_type_val == "SHORT": t_label = "Trade Idea - Venda"
+        elif t_type_val == "LS": t_label = "Trade Idea - Long & Short"
 
         html_content = template.render(
             ticker=ticker,
@@ -1171,7 +1174,8 @@ if st.button("Gerar Trade Idea e Salvar"):
             label_stop=l_stop,
             label_exit=l_exit,
             comparison_table=st.session_state.get("peer_comparison_html", ""),
-            comparison_title=st.session_state.get("peer_comparison_title", "Comparação Setorial")
+            comparison_title=st.session_state.get("peer_comparison_title", "Comparação Setorial"),
+            casa_analise=casa_analise
         )
         
         # Save to session state for persistence
@@ -1257,6 +1261,7 @@ if not df_all.empty:
             m_exit = st.number_input(label_ex, value=float(row["exit_price"] or 0), format="%.4f" if m_type == "LS" else "%.2f", key=f"ed_exit_{selected_id}")
             m_end_date = st.text_input("Data Fim", value=row["end_date"] or "", key=f"ed_end_{selected_id}")
 
+        m_casa_analise = st.text_input("Casa de Análise", value=row.get("casa_analise", "") or "", key=f"ed_casa_{selected_id}")
         m_notes = st.text_area("Notas", value=row["notes"] or "", key=f"ed_notes_{selected_id}")
 
         # --- MANAGMENT SECTOR DATA & PEERS ---
@@ -1364,9 +1369,9 @@ if not df_all.empty:
             conn.execute("""
                 UPDATE trade_ideas SET 
                 ticker=?, status=?, entry_price=?, target_price=?, stop_price=?, 
-                exit_price=?, start_date=?, end_date=?, notes=?, result_pct=?, trade_type=?
+                exit_price=?, start_date=?, end_date=?, notes=?, result_pct=?, trade_type=?, casa_analise=?
                 WHERE id=?
-            """, (m_ticker, final_status, m_entry, m_target, m_stop, m_exit, m_start_date, final_end_date, m_notes, r_pct, m_type, selected_id))
+            """, (m_ticker, final_status, m_entry, m_target, m_stop, m_exit, m_start_date, final_end_date, m_notes, r_pct, m_type, m_casa_analise, selected_id))
             conn.commit()
             conn.close()
             st.success(f"Registro atualizado! Status: {final_status}")
@@ -1414,9 +1419,9 @@ if not df_all.empty:
             l_stop = "Ratio Stop" if is_ls_report else "Preço Stop"
             l_exit = "Ratio de Saída" if is_ls_report else "Preço de Saída"
             
-            t_label = "Proposta de Investimento"
-            if m_type == "SHORT": t_label = "Proposta de Venda"
-            elif m_type == "LS": t_label = "Proposta Long & Short"
+            t_label = "Trade Idea - Compra"
+            if m_type == "SHORT": t_label = "Trade Idea - Venda"
+            elif m_type == "LS": t_label = "Trade Idea - Long & Short"
 
             h_content = template.render(
                 ticker=m_ticker,
@@ -1443,7 +1448,8 @@ if not df_all.empty:
                 label_stop=l_stop,
                 label_exit=l_exit,
                 comparison_table=st.session_state.get(f"peer_html_{selected_id}", ""),
-                comparison_title=st.session_state.get(f"peer_title_{selected_id}", "Comparação Setorial")
+                comparison_title=st.session_state.get(f"peer_title_{selected_id}", "Comparação Setorial"),
+                casa_analise=m_casa_analise
             )
             
             with st.spinner("Gerando PDF..."):
