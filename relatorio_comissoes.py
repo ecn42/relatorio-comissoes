@@ -44,6 +44,7 @@ def home():
         "Ferramentas": [
             {"title": "Estúdio de Gráficos", "icon": ":material/insert_chart:"},
             {"title": "Comparador de Ações", "icon": ":material/bar_chart:"},
+            {"title": "Análise Ações Economatica", "icon": ":material/bar_chart:"},
             {"title": "Gerador de Trade Ideas", "icon": ":material/rocket_launch:"},
             {"title": "API 4intelligence", "icon": ":material/api:"},
             {"title": "Database Economatica", "icon": ":material/database:"},
@@ -162,6 +163,11 @@ pages = {
             "pages/29_Database_Economatica.py",
             title="Database Economatica",
             icon=":material/database:",
+        ),
+        st.Page(
+            "pages/30_Analise_Acoes_Economatica.py",
+            title="Análise Ações Economatica",
+            icon=":material/bar_chart:",
         )
     ],
     "One Pager Fundos": [
@@ -261,7 +267,7 @@ pages = {
         st.Page(
             "pages/27_Relatorio_Mercado.py",
             title="Relatório Mercado",
-            icon=":material/translate:",
+            icon=":material/vital_signs:",
         )
 
     ],

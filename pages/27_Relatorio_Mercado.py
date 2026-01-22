@@ -161,15 +161,17 @@ def save_sector_override(ticker: str, sector: str) -> None:
 
 
 # Modify get_stock_info_yf to use overrides:
-def get_stock_info_yf(ticker: str, asset_class: str = "") -> Dict:
+@st.cache_data(ttl=3600)
+def get_stock_info_yf(ticker: str, asset_class: str = "", overrides: Dict[str, str] = None) -> Dict:
     if not ticker or ticker == "nan":
         return {"name": "DESCONHECIDO", "sector": "Outros"}
 
     clean_ticker = str(ticker).split()[0]
     ac = str(asset_class).strip().upper()
 
-    # Check for override first
-    overrides = load_sector_overrides()
+    # Use provided overrides or load them
+    if overrides is None:
+        overrides = load_sector_overrides()
     override_key = clean_ticker.upper().replace(".SA", "")
 
     if ac == "OFFSHORE" or "^" in clean_ticker or clean_ticker.endswith(".SA"):
@@ -260,12 +262,14 @@ def to_date_safe(x: str) -> Optional[datetime]:
 def is_market_row(row: pd.Series) -> bool:
     ac = str(row.get("asset_class", "")).strip().upper()
     st_val = str(row.get("security_type", "")).strip().upper()
-    if ac in ["STOCKS", "OFFSHORE"] and st_val not in ["FUNDQUOTE", "CUSTOM"]:
+    # Include Stocks, Offshore, FIIs and REITs
+    if ac in ["STOCKS", "OFFSHORE", "FII", "REIT", "EQUITY"] and st_val not in ["FUNDQUOTE", "CUSTOM"]:
         return True
     return False
 
 
 
+@st.cache_data(ttl=3600)
 def get_stock_name_yf(ticker: str, asset_class: str = "") -> str:
     return get_stock_info_yf(ticker, asset_class)["name"]
 
@@ -308,6 +312,7 @@ def extract_ticker_from_row(row: pd.Series) -> str:
     return ""
 
 
+@st.cache_data(ttl=3600)
 def download_price_data(
     tickers: List[str], 
     benchmark: str, 
@@ -908,12 +913,13 @@ offshore_df = pd.DataFrame()
 
 if not base_df.empty:
     with st.spinner("Resolvendo nomes, setores e calculando backtests..."):
+        overrides_dict = load_sector_overrides()
         resolved_data = []
         for _, row in base_df.iterrows():
             ticker_raw = str(row.get("security_name", ""))
             ticker_clean = ticker_raw.split()[0] if ticker_raw else ""
             ac = str(row.get("asset_class", ""))
-            info = get_stock_info_yf(ticker_clean, ac)
+            info = get_stock_info_yf(ticker_clean, ac, overrides_dict)
             resolved_data.append({
                 "security_name_clean": ticker_clean,
                 "parsed_company_name": info["name"],
@@ -1017,6 +1023,7 @@ def display_backtest_section(results: Dict[str, Dict], title: str, df_track: pd.
         if not df_track.empty:
             st.markdown("**Ativos na carteira:**")
             summary = df_track.groupby("security_name_clean")["mv"].sum().sort_values(ascending=False).head(10)
+            summary.index.name = "Ativo"
             st.dataframe(summary.reset_index())
         return
     
@@ -1992,6 +1999,11 @@ REPORT_HTML = """
         <li>Limites de concentração: máximo 15% em ativos únicos</li>
         <li>Drawdown: maior queda entre topo e fundo, comparado ao benchmark</li>
         <li>Métricas de risco: Sharpe, Beta, Volatilidade e VaR (95% e 99%)</li>
+        <ul>
+          <li><strong>VaR Histórico:</strong> Baseado na distribuição real de retornos passados da carteira.</li>
+          <li><strong>VaR Paramétrico:</strong> Utiliza a média e desvio padrão assumindo distribuição normal.</li>
+          <li><strong>VaR Monte Carlo:</strong> Simulação de milhares de cenários através de caminhos aleatórios de preços.</li>
+        </ul>
         <li>Períodos analisados: 1 ano, 3 anos e 5 anos (quando disponível)</li>
       </ul>
     </div>
@@ -2043,6 +2055,51 @@ REPORT_HTML = """
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-half" style="border-right: 1px solid var(--tbl-border);">
+          <div class="chart-title">Top 5 Ativos - Local</div>
+          <table class="var-table">
+            <thead>
+              <tr>
+                <th style="text-align:left">Ativo</th>
+                <th>Valor</th>
+                <th>%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in local_assets_list %}
+              <tr>
+                <td style="text-align:left">{{ a.ticker }}</td>
+                <td>{{ a.mv }}</td>
+                <td>{{ a.pct }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Top 5 Ativos - Offshore</div>
+          <table class="var-table">
+            <thead>
+              <tr>
+                <th style="text-align:left">Ativo</th>
+                <th>Valor</th>
+                <th>%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in offshore_assets_list %}
+              <tr>
+                <td style="text-align:left">{{ a.ticker }}</td>
+                <td>{{ a.mv }}</td>
+                <td>{{ a.pct }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -2115,36 +2172,49 @@ REPORT_HTML = """
           <img src="data:image/png;base64,{{ fig_local_stocks_dd_1y }}" alt="Drawdown Local Stocks"/>
         </div>
       </div>
-      
-      <div class="table-wrap">
-        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - Ações Locais (1Y)</p>
-        <table class="var-table">
-          <thead>
-            <tr>
-              <th>Confiança</th>
-              <th>VaR Histórico</th>
-              <th>VaR Paramétrico</th>
-              <th>VaR Monte Carlo</th>
-              <th>VaR Hist. (R$)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>95%</strong></td>
-              <td class="negative">{{ local_stocks_1y.var_95_hist }}</td>
-              <td class="negative">{{ local_stocks_1y.var_95_param }}</td>
-              <td class="negative">{{ local_stocks_1y.var_95_mc }}</td>
-              <td>{{ local_stocks_1y.var_95_hist_brl }}</td>
-            </tr>
-            <tr>
-              <td><strong>99%</strong></td>
-              <td class="negative">{{ local_stocks_1y.var_99_hist }}</td>
-              <td class="negative">{{ local_stocks_1y.var_99_param }}</td>
-              <td class="negative">{{ local_stocks_1y.var_99_mc }}</td>
-              <td>{{ local_stocks_1y.var_99_hist_brl }}</td>
-            </tr>
-          </tbody>
-        </table>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Top 10 Ações Locais</div>
+          <img src="data:image/png;base64,{{ fig_top10_local_stocks }}" alt="Top 10 Local Stocks"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Setores - Ações Locais</div>
+          <img src="data:image/png;base64,{{ fig_local_stocks_sectors }}" alt="Setores Local Stocks"/>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">VaR Diário - Ações Locais (1Y)</div>
+          <table class="var-table">
+            <thead>
+              <tr>
+                <th>Conf.</th>
+                <th>Histórico</th>
+                <th>Param.</th>
+                <th>M. Carlo</th>
+                <th>VaR (R$)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>95%</td>
+                <td class="negative">{{ local_stocks_1y.var_95_hist }}</td>
+                <td class="negative">{{ local_stocks_1y.var_95_param }}</td>
+                <td class="negative">{{ local_stocks_1y.var_95_mc }}</td>
+                <td>{{ local_stocks_1y.var_95_hist_brl }}</td>
+              </tr>
+              <tr>
+                <td>99%</td>
+                <td class="negative">{{ local_stocks_1y.var_99_hist }}</td>
+                <td class="negative">{{ local_stocks_1y.var_99_param }}</td>
+                <td class="negative">{{ local_stocks_1y.var_99_mc }}</td>
+                <td>{{ local_stocks_1y.var_99_hist_brl }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -2195,36 +2265,49 @@ REPORT_HTML = """
           <img src="data:image/png;base64,{{ fig_offshore_stocks_dd_1y }}" alt="Drawdown Offshore Stocks"/>
         </div>
       </div>
-      
-      <div class="table-wrap">
-        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - Ações Offshore (1Y)</p>
-        <table class="var-table">
-          <thead>
-            <tr>
-              <th>Confiança</th>
-              <th>VaR Histórico</th>
-              <th>VaR Paramétrico</th>
-              <th>VaR Monte Carlo</th>
-              <th>VaR Hist. (R$)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>95%</strong></td>
-              <td class="negative">{{ offshore_stocks_1y.var_95_hist }}</td>
-              <td class="negative">{{ offshore_stocks_1y.var_95_param }}</td>
-              <td class="negative">{{ offshore_stocks_1y.var_95_mc }}</td>
-              <td>{{ offshore_stocks_1y.var_95_hist_brl }}</td>
-            </tr>
-            <tr>
-              <td><strong>99%</strong></td>
-              <td class="negative">{{ offshore_stocks_1y.var_99_hist }}</td>
-              <td class="negative">{{ offshore_stocks_1y.var_99_param }}</td>
-              <td class="negative">{{ offshore_stocks_1y.var_99_mc }}</td>
-              <td>{{ offshore_stocks_1y.var_99_hist_brl }}</td>
-            </tr>
-          </tbody>
-        </table>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Top 10 Ações Offshore</div>
+          <img src="data:image/png;base64,{{ fig_top10_offshore_stocks }}" alt="Top 10 Offshore Stocks"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Setores - Ações Offshore</div>
+          <img src="data:image/png;base64,{{ fig_offshore_stocks_sectors }}" alt="Setores Offshore Stocks"/>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">VaR Diário - Ações Offshore (1Y)</div>
+          <table class="var-table">
+            <thead>
+              <tr>
+                <th>Conf.</th>
+                <th>Histórico</th>
+                <th>Param.</th>
+                <th>M. Carlo</th>
+                <th>VaR (R$)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>95%</td>
+                <td class="negative">{{ offshore_stocks_1y.var_95_hist }}</td>
+                <td class="negative">{{ offshore_stocks_1y.var_95_param }}</td>
+                <td class="negative">{{ offshore_stocks_1y.var_95_mc }}</td>
+                <td>{{ offshore_stocks_1y.var_95_hist_brl }}</td>
+              </tr>
+              <tr>
+                <td>99%</td>
+                <td class="negative">{{ offshore_stocks_1y.var_99_hist }}</td>
+                <td class="negative">{{ offshore_stocks_1y.var_99_param }}</td>
+                <td class="negative">{{ offshore_stocks_1y.var_99_mc }}</td>
+                <td>{{ offshore_stocks_1y.var_99_hist_brl }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -2275,36 +2358,49 @@ REPORT_HTML = """
           <img src="data:image/png;base64,{{ fig_local_fiis_dd_1y }}" alt="Drawdown FIIs"/>
         </div>
       </div>
-      
-      <div class="table-wrap">
-        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - FIIs (1Y)</p>
-        <table class="var-table">
-          <thead>
-            <tr>
-              <th>Confiança</th>
-              <th>VaR Histórico</th>
-              <th>VaR Paramétrico</th>
-              <th>VaR Monte Carlo</th>
-              <th>VaR Hist. (R$)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>95%</strong></td>
-              <td class="negative">{{ local_fiis_1y.var_95_hist }}</td>
-              <td class="negative">{{ local_fiis_1y.var_95_param }}</td>
-              <td class="negative">{{ local_fiis_1y.var_95_mc }}</td>
-              <td>{{ local_fiis_1y.var_95_hist_brl }}</td>
-            </tr>
-            <tr>
-              <td><strong>99%</strong></td>
-              <td class="negative">{{ local_fiis_1y.var_99_hist }}</td>
-              <td class="negative">{{ local_fiis_1y.var_99_param }}</td>
-              <td class="negative">{{ local_fiis_1y.var_99_mc }}</td>
-              <td>{{ local_fiis_1y.var_99_hist_brl }}</td>
-            </tr>
-          </tbody>
-        </table>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Top 10 FIIs Locais</div>
+          <img src="data:image/png;base64,{{ fig_top10_local_fiis }}" alt="Top 10 FIIs"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Setores - FIIs</div>
+          <img src="data:image/png;base64,{{ fig_local_fiis_sectors }}" alt="Setores FIIs"/>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">VaR Diário - FIIs (1Y)</div>
+          <table class="var-table">
+            <thead>
+              <tr>
+                <th>Conf.</th>
+                <th>Histórico</th>
+                <th>Param.</th>
+                <th>M. Carlo</th>
+                <th>VaR (R$)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>95%</td>
+                <td class="negative">{{ local_fiis_1y.var_95_hist }}</td>
+                <td class="negative">{{ local_fiis_1y.var_95_param }}</td>
+                <td class="negative">{{ local_fiis_1y.var_95_mc }}</td>
+                <td>{{ local_fiis_1y.var_95_hist_brl }}</td>
+              </tr>
+              <tr>
+                <td>99%</td>
+                <td class="negative">{{ local_fiis_1y.var_99_hist }}</td>
+                <td class="negative">{{ local_fiis_1y.var_99_param }}</td>
+                <td class="negative">{{ local_fiis_1y.var_99_mc }}</td>
+                <td>{{ local_fiis_1y.var_99_hist_brl }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -2355,36 +2451,49 @@ REPORT_HTML = """
           <img src="data:image/png;base64,{{ fig_offshore_reits_dd_1y }}" alt="Drawdown REITs"/>
         </div>
       </div>
-      
-      <div class="table-wrap">
-        <p style="font-weight:600; margin-bottom:5px;">VaR Diário - REITs (1Y)</p>
-        <table class="var-table">
-          <thead>
-            <tr>
-              <th>Confiança</th>
-              <th>VaR Histórico</th>
-              <th>VaR Paramétrico</th>
-              <th>VaR Monte Carlo</th>
-              <th>VaR Hist. (R$)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>95%</strong></td>
-              <td class="negative">{{ offshore_reits_1y.var_95_hist }}</td>
-              <td class="negative">{{ offshore_reits_1y.var_95_param }}</td>
-              <td class="negative">{{ offshore_reits_1y.var_95_mc }}</td>
-              <td>{{ offshore_reits_1y.var_95_hist_brl }}</td>
-            </tr>
-            <tr>
-              <td><strong>99%</strong></td>
-              <td class="negative">{{ offshore_reits_1y.var_99_hist }}</td>
-              <td class="negative">{{ offshore_reits_1y.var_99_param }}</td>
-              <td class="negative">{{ offshore_reits_1y.var_99_mc }}</td>
-              <td>{{ offshore_reits_1y.var_99_hist_brl }}</td>
-            </tr>
-          </tbody>
-        </table>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">Top 10 REITs Offshore</div>
+          <img src="data:image/png;base64,{{ fig_top10_offshore_reits }}" alt="Top 10 REITs"/>
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">Setores - REITs</div>
+          <img src="data:image/png;base64,{{ fig_offshore_reits_sectors }}" alt="Setores REITs"/>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">VaR Diário - REITs (1Y)</div>
+          <table class="var-table">
+            <thead>
+              <tr>
+                <th>Conf.</th>
+                <th>Histórico</th>
+                <th>Param.</th>
+                <th>M. Carlo</th>
+                <th>VaR (R$)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>95%</td>
+                <td class="negative">{{ offshore_reits_1y.var_95_hist }}</td>
+                <td class="negative">{{ offshore_reits_1y.var_95_param }}</td>
+                <td class="negative">{{ offshore_reits_1y.var_95_mc }}</td>
+                <td>{{ offshore_reits_1y.var_95_hist_brl }}</td>
+              </tr>
+              <tr>
+                <td>99%</td>
+                <td class="negative">{{ offshore_reits_1y.var_99_hist }}</td>
+                <td class="negative">{{ offshore_reits_1y.var_99_param }}</td>
+                <td class="negative">{{ offshore_reits_1y.var_99_mc }}</td>
+                <td>{{ offshore_reits_1y.var_99_hist_brl }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -2569,9 +2678,18 @@ def render_report_html():
     fig1, ax1 = plt.subplots(figsize=(6, 3))
     if not local_df.empty:
         top_local = local_df.groupby("security_name_clean")["mv"].sum().sort_values(ascending=False).head(20)
+        top_local.index.name = "Ativo"
         top_local.plot(kind="bar", ax=ax1, color=PALETA_CORES[0])
+        
+        # Add percentage labels at the top of bars
+        total_local = local_df["mv"].sum()
+        for i, (idx, v) in enumerate(top_local.items()):
+            pct_val = (v / total_local) * 100 if total_local > 0 else 0
+            ax1.text(i, v, f"{pct_val:.2f}%", ha='center', va='bottom', fontsize=7, fontweight='bold')
+            
     ax1.set_title("Top 20 Ativos Local")
-    ax1.tick_params(axis='x', rotation=45)
+    ax1.set_xlabel("Ativo")
+    ax1.tick_params(axis='x', rotation=45, labelsize=8)
     fig_local_assets = _gen_img(fig1)
 
     # Replace the sector pie charts with bar charts in render_report_html()
@@ -2596,9 +2714,18 @@ def render_report_html():
     fig3, ax3 = plt.subplots(figsize=(6, 3))
     if not offshore_df.empty:
         top_off = offshore_df.groupby("security_name_clean")["mv"].sum().sort_values(ascending=False).head(20)
+        top_off.index.name = "Ativo"
         top_off.plot(kind="bar", ax=ax3, color=PALETA_CORES[4])
+        
+        # Add percentage labels at the top of bars
+        total_offshore = offshore_df["mv"].sum()
+        for i, (idx, v) in enumerate(top_off.items()):
+            pct_val = (v / total_offshore) * 100 if total_offshore > 0 else 0
+            ax3.text(i, v, f"{pct_val:.2f}%", ha='center', va='bottom', fontsize=7, fontweight='bold')
+
     ax3.set_title("Top 20 Ativos Offshore")
-    ax3.tick_params(axis='x', rotation=45)
+    ax3.set_xlabel("Ativo")
+    ax3.tick_params(axis='x', rotation=45, labelsize=8)
     fig_offshore_assets = _gen_img(fig3)
 
     # Offshore Sectors Chart
@@ -2616,7 +2743,66 @@ def render_report_html():
     ax4.set_ylabel("")
     fig_offshore_sectors = _gen_img(fig4)
 
-    # Performance and Drawdown Chart generators
+    # Helper for Top 10 specific asset class charts
+    def _gen_top10_chart(df, title, color):
+        fig, ax = plt.subplots(figsize=(6, 2.5))
+        if not df.empty:
+            top10 = df.groupby("security_name_clean")["mv"].sum().sort_values(ascending=False).head(10)
+            top10.index.name = "Ativo"
+            top10.plot(kind="bar", ax=ax, color=color)
+            total_cat = df["mv"].sum()
+            for i, (idx, v) in enumerate(top10.items()):
+                p = (v / total_cat) * 100 if total_cat > 0 else 0
+                ax.text(i, v, f"{p:.2f}%", ha='center', va='bottom', fontsize=7, fontweight='bold')
+        ax.set_title(title)
+        ax.set_xlabel("")
+        ax.tick_params(axis='x', rotation=45, labelsize=7)
+        return _gen_img(fig)
+
+    fig_top10_local_stocks = _gen_top10_chart(local_stocks_df, "Top 10 Ações Locais", PALETA_CORES[0])
+    fig_top10_offshore_stocks = _gen_top10_chart(offshore_stocks_df, "Top 10 Ações Offshore", PALETA_CORES[4])
+    fig_top10_local_fiis = _gen_top10_chart(local_fiis_df, "Top 10 FIIs Locais", PALETA_CORES[1])
+    fig_top10_offshore_reits = _gen_top10_chart(offshore_reits_df, "Top 10 REITs Offshore", PALETA_CORES[3])
+
+    # Granular Sector Charts
+    def _gen_sector_chart_detailed(df, title):
+        fig, ax = plt.subplots(figsize=(6, 2.5))
+        if not df.empty:
+            sec = df.groupby("sector")["mv"].sum().sort_values(ascending=False)
+            colors = [PALETA_CORES[i % len(PALETA_CORES)] for i in range(len(sec))]
+            sec.plot(kind="barh", ax=ax, color=colors)
+            total = sec.sum()
+            for i, (idx, v) in enumerate(sec.items()):
+                pct_label = f" {v/total*100:.1f}%" if total > 0 else " 0%"
+                ax.text(v, i, pct_label, va='center', fontsize=8)
+        ax.set_title(title)
+        ax.set_xlabel("Valor (R$)")
+        ax.set_ylabel("")
+        return _gen_img(fig)
+
+    fig_local_stocks_sectors = _gen_sector_chart_detailed(local_stocks_df, "Setores - Ações Locais")
+    fig_offshore_stocks_sectors = _gen_sector_chart_detailed(offshore_stocks_df, "Setores - Ações Offshore")
+    fig_local_fiis_sectors = _gen_sector_chart_detailed(local_fiis_df, "Setores - FIIs")
+    fig_offshore_reits_sectors = _gen_sector_chart_detailed(offshore_reits_df, "Setores - REITs")
+
+    # Asset Lists for Section 3 Summary Tables
+    def _prepare_asset_list(df_exp):
+        if df_exp.empty: return []
+        total_group = df_exp["mv"].sum()
+        if total_group <= 0: return []
+        
+        grouped = df_exp.groupby("security_name_clean")["mv"].sum().sort_values(ascending=False).head(5).reset_index()
+        res = []
+        for _, r in grouped.iterrows():
+            res.append({
+                "ticker": r["security_name_clean"],
+                "mv": brl(r["mv"]),
+                "pct": as_pct_str(r["mv"] / total_group)
+            })
+        return res
+
+    local_assets_list = _prepare_asset_list(local_df)
+    offshore_assets_list = _prepare_asset_list(offshore_df)
     def _gen_line_chart(res, title, label_port, label_bench):
         fig, ax = plt.subplots(figsize=(6, 3))
         if res and "dates" in res and res["dates"]:
@@ -2707,9 +2893,9 @@ def render_report_html():
         "VNQ"
     )
 
-    # Compliance logic
-    max_pos_local = local_df["mv"].max() / local_df["mv"].sum() if not local_df.empty and local_df["mv"].sum() > 0 else 0
-    max_pos_offshore = offshore_df["mv"].max() / offshore_df["mv"].sum() if not offshore_df.empty and offshore_df["mv"].sum() > 0 else 0
+    # Compliance logic (group before max to match Top 5 tables)
+    max_pos_local = (local_df.groupby("security_name_clean")["mv"].sum().max() / local_df["mv"].sum()) if not local_df.empty and local_df["mv"].sum() > 0 else 0
+    max_pos_offshore = (offshore_df.groupby("security_name_clean")["mv"].sum().max() / offshore_df["mv"].sum()) if not offshore_df.empty and offshore_df["mv"].sum() > 0 else 0
     
     ok_pos_local = max_pos_local <= 0.15
     ok_pos_offshore = max_pos_offshore <= 0.15
@@ -2737,11 +2923,23 @@ def render_report_html():
         ok_pos_local=ok_pos_local,
         max_pos_offshore_pct=as_pct_str(max_pos_offshore),
         ok_pos_offshore=ok_pos_offshore,
+        local_assets_list=local_assets_list,
+        offshore_assets_list=offshore_assets_list,
         fig_local_assets=fig_local_assets,
         fig_local_sectors=fig_local_sectors,
         fig_offshore_assets=fig_offshore_assets,
         fig_offshore_sectors=fig_offshore_sectors,
-        # Track 1: Local Stocks
+        # Top 10 Asset Class Charts
+        fig_top10_local_stocks=fig_top10_local_stocks,
+        fig_top10_offshore_stocks=fig_top10_offshore_stocks,
+        fig_top10_local_fiis=fig_top10_local_fiis,
+        fig_top10_offshore_reits=fig_top10_offshore_reits,
+        # Detailed Sector Charts
+        fig_local_stocks_sectors=fig_local_stocks_sectors,
+        fig_offshore_stocks_sectors=fig_offshore_stocks_sectors,
+        fig_local_fiis_sectors=fig_local_fiis_sectors,
+        fig_offshore_reits_sectors=fig_offshore_reits_sectors,
+        # Performance charts
         fig_local_stocks_bt_1y=fig_local_stocks_bt_1y,
         fig_local_stocks_dd_1y=fig_local_stocks_dd_1y,
         local_stocks_periods=local_stocks_periods,
