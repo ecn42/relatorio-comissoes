@@ -18,17 +18,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Google Chrome (Kaleido 1.x requires a Chrome/Chromium binary)
 RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub \
-      | gpg --dearmor -o /usr/share/keyrings/google-linux.gpg && \
+    | gpg --dearmor -o /usr/share/keyrings/google-linux.gpg && \
     echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-linux.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
-      > /etc/apt/sources.list.d/google-chrome.list && \
+    > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && apt-get install -y --no-install-recommends google-chrome-stable && \
     rm -rf /var/lib/apt/lists/*
 
 # Wrapper so Kaleido always launches Chrome with safe flags in containers
 RUN mkdir -p /opt/chrome && \
     printf '%s\n' "#!/usr/bin/env bash" \
-                  "exec /usr/bin/google-chrome --no-sandbox --disable-dev-shm-usage --headless=new \"\$@\"" \
-        > /opt/chrome/chrome-wrapper && \
+    "exec /usr/bin/google-chrome --no-sandbox --disable-dev-shm-usage --headless=new \"\$@\"" \
+    > /opt/chrome/chrome-wrapper && \
     chmod +x /opt/chrome/chrome-wrapper
 # Tell Kaleido/Plotly to use this browser path (no code changes needed)
 ENV BROWSER_PATH=/opt/chrome/chrome-wrapper
@@ -41,10 +41,13 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 # If needed, you can ensure compatible versions by uncommenting:
 # RUN pip install --no-cache-dir "plotly>=6.1.1" "kaleido>=1.0.0"
-
+RUN pip install playwright
+RUN playwright install chromium
+RUN playwright install-deps chromium
 # Copy the rest of the app
 COPY . /app
 RUN chmod +x /app/entrypoint.sh
+
 
 # Expose the port that Streamlit runs on
 EXPOSE 8080
