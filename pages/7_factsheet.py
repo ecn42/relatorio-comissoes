@@ -42,6 +42,9 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import streamlit as st
+from pathlib import Path
+
+CNPJ_DB_PATH = Path("./databases/cnpj-fundos.db")
 
 
 ### Simple Authentication
@@ -71,6 +74,53 @@ def ensure_conn(db_path: str) -> sqlite3.Connection:
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"DB not found: {db_path}")
     return sqlite3.connect(db_path)
+
+
+def init_cnpj_db() -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(CNPJ_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(CNPJ_DB_PATH, check_same_thread=False)
+    # Ensure table exists
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS saved_cnpjs (
+            cnpj TEXT PRIMARY KEY,
+            ccy TEXT DEFAULT 'BRL',
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    # Migration: Add indexer column if it doesn't exist
+    cur = conn.execute("PRAGMA table_info(saved_cnpjs);")
+    cols = [r[1] for r in cur.fetchall()]
+    if "indexer" not in cols:
+        conn.execute("ALTER TABLE saved_cnpjs ADD COLUMN indexer TEXT DEFAULT 'CDI';")
+    
+    conn.commit()
+    return conn
+
+
+def load_saved_factsheet_cnpjs() -> Dict[str, str]:
+    conn = init_cnpj_db()
+    try:
+        cur = conn.execute("SELECT cnpj, indexer FROM saved_cnpjs")
+        return {r[0]: r[1] or "CDI" for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def save_factsheet_cnpj(cnpj: str, indexer: str) -> None:
+    conn = init_cnpj_db()
+    try:
+        conn.execute(
+            """
+            INSERT INTO saved_cnpjs (cnpj, indexer) VALUES (?, ?)
+            ON CONFLICT(cnpj) DO UPDATE SET indexer = excluded.indexer;
+            """,
+            (cnpj, indexer),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def daily_returns_from_nav(df_daily: pd.DataFrame) -> pd.Series:
@@ -1182,29 +1232,30 @@ def main() -> None:
     cdi_daily = load_benchmark_daily([perf_db, bench_db], "cdi")
     ibov_daily = load_benchmark_daily([perf_db, bench_db], "ibov")
 
-    colA, colB = st.columns([1, 1])
-    with colA:
-        do_single = st.button("Gerar XLSX (fundo selecionado)")
-    with colB:
-        do_zip = st.button("Gerar ZIP (todos os fundos)")
+    # Load saved CNPJs for pre-population
+    saved_cnpjs = load_saved_factsheet_cnpjs()
+    default_text = "\n".join([f"{format_cnpj(c)};{i}" for c, i in saved_cnpjs.items()])
 
-    st.markdown("")
-    with st.expander("Gerar ZIP a partir de lista colada de CNPJs e benchmarks"):
-        st.caption(
-            "Cole um CNPJ por linha, no formato CNPJ;CDI ou CNPJ;IBOV. "
-            "Linhas em branco e linhas iniciadas com '#' serão ignoradas."
-        )
-        paste_text = st.text_area(
-            "Lista (um por linha)",
-            height=160,
-            placeholder=(
-                "00.000.000/0000-00;CDI\n"
-                "11.222.333/0001-55;IBOV\n"
-                "# Comentários são permitidos\n"
-                "11222333000155;CDI"
-            ),
-        )
-        do_zip_pasted = st.button("Gerar ZIP (lista colada)")
+    st.subheader("Gerenciar Lista de Fundos (Bulk)")
+    st.caption(
+        "Cole um CNPJ por linha, no formato CNPJ;CDI ou CNPJ;IBOV. "
+        "Novos serão adicionados e os existentes terão seu benchmark atualizado."
+    )
+    paste_text = st.text_area(
+        "Lista de CNPJs e Benchmarks",
+        value=default_text,
+        height=180,
+        placeholder="00.000.000/0000-00;CDI\n11.222.333/0001-55;IBOV",
+        key="bulk_cnpj_input"
+    )
+    
+    colA, colB, colC = st.columns([1, 1, 1])
+    with colA:
+        do_single = st.button("Gerar XLSX (fundo selecionado)", use_container_width=True)
+    with colB:
+        do_zip = st.button("Gerar ZIP (todos os fundos)", use_container_width=True)
+    with colC:
+        do_zip_pasted = st.button("Gerar ZIP (lista colada)", use_container_width=True)
 
     if do_single:
         # Load INF_DIARIO first to detect subclasses
@@ -1368,6 +1419,9 @@ def main() -> None:
 
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for cnpj, benchmark in mapping.items():
+                # Persist/Update benchmark in DB
+                save_factsheet_cnpj(cnpj, benchmark)
+                
                 if cnpj not in known_cnpjs:
                     skipped.append((cnpj, "CNPJ não encontrado em fundos_meta"))
                     continue

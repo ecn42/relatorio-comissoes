@@ -727,6 +727,50 @@ with tab1:
         conn.close()
         return action, prev_ym
 
+    # ------------------------ Saved CNPJs management ------------------------
+
+    def get_saved_cnpjs(db_path: str) -> List[str]:
+        """Fetch all CNPJs from the saved_cnpjs table in cnpj-fundos.db."""
+        if not os.path.isfile(db_path):
+            return []
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        try:
+            # Ensure the table exists even if file was empty/new
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS saved_cnpjs "
+                "(cnpj TEXT PRIMARY KEY, ccy TEXT DEFAULT 'BRL', added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            rows = cur.execute("SELECT cnpj FROM saved_cnpjs ORDER BY added_at ASC").fetchall()
+            return [r[0] for r in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def save_cnpjs(db_path: str, cnpjs: List[str]):
+        """Save a list of CNPJs to the saved_cnpjs table, avoiding duplicates."""
+        if not cnpjs:
+            return
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS saved_cnpjs "
+                "(cnpj TEXT PRIMARY KEY, ccy TEXT DEFAULT 'BRL', added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            now_iso = time.strftime("%Y-%m-%d %H:%M:%S")
+            data = [(c, "BRL", now_iso) for c in cnpjs]
+            cur.executemany(
+                "INSERT OR IGNORE INTO saved_cnpjs (cnpj, ccy, added_at) VALUES (?, ?, ?)",
+                data
+            )
+            conn.commit()
+        except Exception as e:
+            st.error(f"Error saving CNPJs to DB: {e}")
+        finally:
+            conn.close()
+
     # ------------------------ Bulk helpers ------------------------
 
     def build_cnpjs_by_month_from_local(
@@ -884,7 +928,10 @@ with tab1:
     dest_dir = st.text_input("Local data folder", value=default_dir)
 
     db_default = os.path.join(os.getcwd(), "databases", "carteira_fundos.db")
-    db_path = st.text_input("SQLite database path", value=db_default)
+    db_path = st.text_input("SQLite database path", value=db_default, key="db_path_input")
+
+    cnpj_db_default = os.path.join(os.getcwd(), "databases", "cnpj-fundos.db")
+    cnpj_db_path = st.text_input("CNPJ database path", value=cnpj_db_default, key="cnpj_db_path_input")
 
     k = st.number_input(
         "How many newest months to work with",
@@ -924,8 +971,13 @@ with tab1:
 
     st.subheader("Check CNPJ presence in CONFID and view BLC rows")
 
+    # Load saved CNPJs for pre-filling
+    saved_list = get_saved_cnpjs(cnpj_db_path)
+    default_cnpj_text = "\n".join(saved_list)
+
     cnpj_text = st.text_area(
         "Paste one or more CNPJs (punctuation ok: 00.000.000/0000-00, etc.)",
+        value=default_cnpj_text,
         height=120,
     )
 
@@ -957,6 +1009,8 @@ with tab1:
         if not cnpjs:
             st.warning("Please enter at least one valid 14-digit CNPJ.")
         else:
+            # Save new ones to the persistent DB
+            save_cnpjs(cnpj_db_path, cnpjs)
             try:
                 # Use newest K local files (sorted by YYYYMM)
                 local = [
