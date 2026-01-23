@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import io
 from pypdf import PdfWriter, PdfReader
 from playwright.sync_api import sync_playwright
+from pages.ceres_logo import LOGO_BASE64
 
 # Database setup
 DB_PATH = Path("databases/carteiras_rv_mes_atual.db")
@@ -746,7 +747,8 @@ tab_dashboard, tab_manage = st.tabs(["📈 Dashboard", "⚙️ Gerenciar Carteir
 # Sidebar for report configuration
 st.sidebar.header("📁 Configuração do Relatório")
 logo_upload = st.sidebar.file_uploader("Logo da Empresa (opcional)", type=["png", "jpg", "jpeg"])
-logo_b64 = image_to_base64(logo_upload) if logo_upload else ""
+ceres_logo_b64 = f"data:image/png;base64,{LOGO_BASE64}"
+logo_b64 = image_to_base64(logo_upload) if logo_upload else ceres_logo_b64
 
 report_title = st.sidebar.text_input("Título do Relatório", "Relatório de Perfomance - Mensal")
 report_subtitle = st.sidebar.text_input("Subtítulo", datetime.now().strftime("%B / %Y"))

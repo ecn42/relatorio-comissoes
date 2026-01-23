@@ -6,6 +6,7 @@ import sqlite3
 import re
 from pathlib import Path
 import base64
+from pages.ceres_logo import LOGO_BASE64
 
 
 st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
@@ -1451,9 +1452,8 @@ if selected_strategies and not df_filtered.empty:
         raw_html_df[f"Benchmark ({benchmark_option})"] = benchmark_series
         
     # Convert logo to base64 if uploaded
-    logo_b64 = ""
-    if uploaded_logo:
-        logo_b64 = image_to_base64(uploaded_logo)
+    ceres_logo_b64 = f"data:image/png;base64,{LOGO_BASE64}"
+    logo_b64 = image_to_base64(uploaded_logo) if uploaded_logo else ceres_logo_b64
 
     # Generate HTML Report
     html_report = generate_portfolio_html(

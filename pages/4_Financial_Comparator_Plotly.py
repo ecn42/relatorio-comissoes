@@ -7,6 +7,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import base64
 import io
+from pages.ceres_logo import LOGO_BASE64
     
 
 ### Simple Authentication
@@ -429,7 +430,7 @@ def generate_social_export(
     </head>
     <body>
         <div class="header">
-            <div class="logo">Ceres Wealth</div>
+            <img src="data:image/png;base64,{LOGO_BASE64}" style="height: 50px; max-width: 200px; object-fit: contain; margin-bottom: 10px;" alt="Logo" />
             <div class="title">{title_str}</div>
         </div>
         

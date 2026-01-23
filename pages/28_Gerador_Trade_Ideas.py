@@ -11,6 +11,7 @@ import io
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use("Agg")
+from pages.ceres_logo import LOGO_BASE64
 
 # --- Configuration & Styling ---
 st.set_page_config(page_title="Gerador de Trade Ideas", layout="wide")
@@ -488,7 +489,8 @@ def generate_consolidated_performance_chart_b64(df_perf):
 # --- Sidebar Configuration ---
 st.sidebar.header("🎨 Identidade Visual")
 logo_upload = st.sidebar.file_uploader("Logo da Empresa (opcional)", type=["png", "jpg", "jpeg"])
-logo_b64 = image_to_base64(logo_upload) if logo_upload else ""
+ceres_logo_b64 = f"data:image/png;base64,{LOGO_BASE64}"
+logo_b64 = image_to_base64(logo_upload) if logo_upload else ceres_logo_b64
 st.sidebar.markdown(f'<div style="background-color: {BRAND_BROWN}; height: 5px; margin: 10px 0;"></div>', unsafe_allow_html=True)
 
 # --- PDF Generation (Playwright) ---

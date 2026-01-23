@@ -30,8 +30,12 @@ if uploaded_file is not None:
         
         st.write(f"**Abas encontradas:** {', '.join(sheet_names)}")
         
-        # Preview first sheet/rows - Skip first 3 rows (0, 1, 2), header is row 3
-        df_preview = pd.read_excel(uploaded_file, sheet_name=sheet_names[0], header=3, nrows=5)
+        # Header selection
+        header_row = st.number_input("Linha do Cabeçalho no Excel (1-indexada, ex: a linha 4 no Excel é index 3)", min_value=1, value=4, step=1)
+        header_idx = int(header_row - 1)
+        
+        # Preview first sheet/rows
+        df_preview = pd.read_excel(uploaded_file, sheet_name=sheet_names[0], header=header_idx, nrows=5)
         st.dataframe(df_preview)
         
         st.markdown("---")
@@ -55,7 +59,7 @@ if uploaded_file is not None:
                         st.stop()
                 
                 # 3. Process Excel
-                st.write("Lendo arquivo Excel e processando abas (Header: Linha 3)...")
+                st.write(f"Lendo arquivo Excel e processando abas (Header: Linha {header_row})...")
                 progress_step = 100 / len(sheet_names)
                 current_progress = 0
                 
@@ -68,8 +72,8 @@ if uploaded_file is not None:
                         # Clean table name (remove spaces, special chars)
                         table_name = sheet.strip().lower().replace(" ", "_").replace("-", "_")
                         
-                        # Read with header=3 (skipping 0, 1, 2)
-                        df = pd.read_excel(uploaded_file, sheet_name=sheet, header=3)
+                        # Read with selected header
+                        df = pd.read_excel(uploaded_file, sheet_name=sheet, header=header_idx)
                         
                         # Write to SQL
                         df.to_sql(table_name, conn, if_exists='replace', index=False)

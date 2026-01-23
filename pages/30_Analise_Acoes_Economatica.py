@@ -108,8 +108,21 @@ def load_economatica_data():
     
     try:
         conn = sqlite3.connect(DB_PATH)
-        # We know the table is called 'sheet1' from our exploration
-        df = pd.read_sql_query("SELECT * FROM sheet1", conn)
+        cursor = conn.cursor()
+        
+        # Detect available tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [t[0] for t in cursor.fetchall()]
+        
+        if not tables:
+            conn.close()
+            st.warning("Nenhuma tabela encontrada no banco de dados.")
+            return pd.DataFrame()
+            
+        # Priority: 'sheet1', then the first available table
+        table_name = "sheet1" if "sheet1" in tables else tables[0]
+        
+        df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
         conn.close()
         
         # Clean column names
@@ -117,19 +130,54 @@ def load_economatica_data():
             # Remove newlines and multiple spaces
             c = str(c).replace("\n", " ").strip()
             c = re.sub(r"\s+", " ", c)
-            # Remove common units/suffixes that make names long
-            c = c.replace(" em milhares", "").replace(" em R$", "").replace(" em %", "").replace(" em vezes", "").replace(" em units", "").replace(" em dif p.p.", "").replace(" em unidades", "")
+            # Comprehensive list of units to remove
+            units = [
+                "em milhares", "em R$", "em %", "em vezes", "em units", 
+                "em dif p.p.", "em unidades", "consolid:sim*", "consolid:não*",
+                "Mais recente", "Em moeda orig", "de 12 meses"
+            ]
+            for u in units:
+                # Use regex to match units case-insensitively, potentially surrounded by spaces or parentheses
+                pattern = rf"\(?\s*{re.escape(u)}\s*\)?"
+                c = re.sub(pattern, "", c, flags=re.IGNORECASE).strip()
+            
+            # Final touch: clean multiple spaces again if unit removal created them
+            c = re.sub(r"\s+", " ", c).strip()
             return c
             
         df.columns = [clean_col(c) for c in df.columns]
         
         # Identify Ticker and Name columns
-        # In this DB: 'Código' is Ticker, 'Nome' is Name
-        if 'Código' in df.columns:
-            df = df.rename(columns={'Código': 'Ticker'})
+        ticker_choices = ['Ticker', 'Código', 'Ativo', 'Papel', 'Ativo / Papel']
+        name_choices = ['Nome', 'Empresa', 'Razão Social', 'Nome Empresa']
         
-        # Ensure Ticker is string and clean
+        # Map first match found
+        for tc in ticker_choices:
+            if tc in df.columns:
+                df = df.rename(columns={tc: 'Ticker'})
+                break
+        
+        for nc in name_choices:
+            if nc in df.columns:
+                df = df.rename(columns={nc: 'Nome'})
+                break
+        
+        # Ensure Ticker exists and is cleaned
+        if 'Ticker' not in df.columns:
+            st.error("Coluna de Ticker não identificada. Verifique os nomes das colunas no banco de dados.")
+            return pd.DataFrame()
+            
         df['Ticker'] = df['Ticker'].astype(str).str.strip()
+        
+        # Robust Sector Detection/Fallback
+        if 'Setor Economatica' not in df.columns:
+            sector_fallbacks = ['Subsetor Bovespa', 'Segmento listagem Bovespa', 'Setor NAICS ult disponiv']
+            for sf in sector_fallbacks:
+                if sf in df.columns:
+                    df['Setor Economatica'] = df[sf]
+                    break
+            else:
+                df['Setor Economatica'] = "N/A"
         
         return df
     except Exception as e:

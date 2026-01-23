@@ -22,6 +22,7 @@ from scipy import stats
 import plotly.express as px
 import streamlit as st
 from jinja2 import Template
+from pages.ceres_logo import LOGO_BASE64
 
 # Add after existing imports at the top
 from pathlib import Path
@@ -2908,7 +2909,7 @@ def render_report_html():
 
     t = Template(REPORT_HTML)
     return t.render(
-        logo_base64="",
+        logo_base64=LOGO_BASE64,
         manager_name="Ceres Asset Gestão de Investimentos Ltda",
         manager_cnpj="40.962.925/0001-38",
         emission_date=datetime.now().strftime("%d/%m/%Y"),

@@ -12,6 +12,8 @@ import re
 from typing import List, Optional, Tuple
 
 import numpy as np
+import base64
+from pages.ceres_logo import LOGO_BASE64
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -1254,6 +1256,8 @@ with st.sidebar:
     logo_img = st.file_uploader(
         "Upload logo image", type=["png", "jpg", "jpeg"], key="logo"
     )
+    if logo_img is None:
+        logo_img = io.BytesIO(base64.b64decode(LOGO_BASE64))
     if logo_img:
         logo_size = st.slider("Logo size", 0.05, 0.5, 0.15, 0.01)
         logo_x = st.slider("Logo X position", 0.0, 1.0, 0.95, 0.05)
