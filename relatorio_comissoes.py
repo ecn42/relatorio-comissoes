@@ -48,6 +48,7 @@ def home():
             {"title": "Gerador de Trade Ideas", "icon": ":material/rocket_launch:"},
             {"title": "API 4intelligence", "icon": ":material/api:"},
             {"title": "Database Economatica", "icon": ":material/database:"},
+
         ],
         "One Pager Fundos": [
             {"title": "1. Baixar CDI", "icon": ":material/download:"},
@@ -167,6 +168,11 @@ pages = {
         st.Page(
             "pages/30_Analise_Acoes_Economatica.py",
             title="Análise Ações Economatica",
+            icon=":material/bar_chart:",
+        ),
+        st.Page(
+            "pages/31_Adequacao_Perfil_Inv.py",
+            title="Adequação Perfil Investidor",
             icon=":material/bar_chart:",
         )
     ],

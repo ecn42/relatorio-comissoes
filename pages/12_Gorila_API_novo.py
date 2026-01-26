@@ -1429,6 +1429,34 @@ def posdb_save_all(
             posdb_ensure_index(conn, "pmv", "reference_date")
 
 
+def save_dimensions_to_db(
+    db_path: str,
+    df_portfolios: Optional[pd.DataFrame],
+    df_issuers: Optional[pd.DataFrame],
+    df_brokers: Optional[pd.DataFrame],
+) -> None:
+    """
+    Save dimension tables (portfolios, issuers, brokers) to the DB.
+    Always replaces the existing tables with the current snapshot.
+    """
+    if not db_path:
+        return
+
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        if df_portfolios is not None and not df_portfolios.empty:
+            df_portfolios.to_sql("portfolios", conn, if_exists="replace", index=False)
+        
+        if df_issuers is not None and not df_issuers.empty:
+            # Only save id and name for issuers to keep it clean, or full if preferred
+            # The flatten_issuer function returns: id, name, taxId, raw
+            df_issuers.to_sql("issuers", conn, if_exists="replace", index=False)
+
+        if df_brokers is not None and not df_brokers.empty:
+            df_brokers.to_sql("brokers", conn, if_exists="replace", index=False)
+
+
+
 # -------------------------------
 # Streamlit UI (raw + robust fetch)
 # -------------------------------
@@ -1456,6 +1484,13 @@ with st.sidebar:
         value="databases/gorila_positions.db",
         help=("Where to store positions/PMV snapshots per reference date."),
     )
+    
+    dimensions_db_path = st.text_input(
+        "Dimensions DB path",
+        value="databases/gorila.db",
+        help=("Where to store portfolios, issuers, and brokers (unconditional update)."),
+    )
+
 
 if not api_key:
     st.warning(
@@ -2077,6 +2112,21 @@ if st.button("Run All", type="primary"):
                     f"Existing rows: positions={old_pos}, pmv={old_pmv}.\n"
                     "Choose below to Overwrite or Keep the old snapshot."
                 )
+        
+        # Save Dimension Tables (unconditional update)
+        try:
+            with st.spinner(f"Saving dimension tables (portfolios, issuers, brokers) to {dimensions_db_path}..."):
+                save_dimensions_to_db(
+                    dimensions_db_path,
+                    st.session_state.get("df_portfolios"),
+                    st.session_state.get("df_issuers"),
+                    st.session_state.get("df_brokers"),
+                )
+
+            st.success("Dimension tables (portfolios, issuers, brokers) updated in DB.")
+        except Exception as e:
+            st.error(f"Failed to save dimension tables: {e}")
+
 
         # CSV (PMV) and consolidated XLSX workbook
         st.download_button(
