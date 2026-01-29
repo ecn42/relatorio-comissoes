@@ -69,6 +69,10 @@ def home():
             {"title": "Add Ratings BR", "icon": ":material/star:"},
             {"title": "Rating to Fitch", "icon": ":material/translate:"},
         ],
+        "One Pager Crédito": [
+            {"title": "Database OnePager Crédito", "icon": ":material/database:"},
+            {"title": "Gerar OnePager Crédito", "icon": ":material/description:"},
+        ],
     }
 
     # Renderiza SEÇÕES em colunas (cada coluna é uma seção)
@@ -276,6 +280,18 @@ pages = {
             icon=":material/vital_signs:",
         )
 
+    ],
+    "One Pager Crédito": [
+        st.Page(
+            "pages/32_Database_OnePager_Credito.py",
+            title="Database OnePager Crédito",
+            icon=":material/database:",
+        ),
+        st.Page(
+            "pages/33_Gerar_Onepager_Credito.py",
+            title="Gerar OnePager Crédito",
+            icon=":material/description:",
+        ),
     ],
 }
 

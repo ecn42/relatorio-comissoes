@@ -1940,6 +1940,37 @@ events_text = st.text_area(
     height=150,
 )
 
+# --- Ferramenta Extra: Extrair Tokens ---
+st.sidebar.markdown("---")
+st.sidebar.header("Ferramentas Extras")
+if st.sidebar.button("Extrair Tokens (CRI/CRA/DEB)"):
+    target_types = {
+        "CORPORATE_BONDS_CRI", 
+        "CORPORATE_BONDS_CRA", 
+        "CORPORATE_BONDS_DEBENTURE"
+    }
+    # Filter for relevant types
+    if "security_type" in df.columns:
+        subset = df[df["security_type"].isin(target_types)].copy()
+        
+        unique_tokens = set()
+        for name in subset["security_name"].dropna():
+            # Get last word
+            parts = name.strip().split()
+            if parts:
+                last = parts[-1].strip().upper()
+                if last != "NONE":
+                    unique_tokens.add(last)
+        
+        if unique_tokens:
+            sorted_tokens = sorted(list(unique_tokens))
+            st.sidebar.markdown(f"### Tokens Encontrados ({len(sorted_tokens)})")
+            st.sidebar.code("\n".join(sorted_tokens), language="text")
+        else:
+            st.sidebar.warning("Nenhum token encontrado para os tipos selecionados.")
+    else:
+        st.sidebar.error("Coluna 'security_type' não encontrada no DataFrame.")
+
 # Ratings agora vêm da coluna 'rating' no banco de dados
 
 # Métricas principais

@@ -10,6 +10,7 @@ import json
 # New Imports
 from databases.models.client_profile import ClientProfile
 import databases.profile_manager as profile_manager
+import utils.compliance_report_generator as report_gen
 
 # --- Configuration ---
 st.set_page_config(page_title="Adequação de Perfil", layout="wide")
@@ -56,15 +57,33 @@ def load_portfolio_names():
         return {}
 
 @st.cache_data(ttl=600)
-def load_data():
+def get_available_dates():
+    if not os.path.exists(DB_PATH):
+        return []
+    try:
+        with get_connection(DB_PATH) as conn:
+            query = "SELECT DISTINCT reference_date FROM pmv_plus_gorila ORDER BY reference_date DESC"
+            df = pd.read_sql_query(query, conn)
+            # Filter valid dates (exclude None/Null/Empty)
+            dates = [d for d in df['reference_date'].tolist() if d and str(d).lower() != 'none']
+            return dates
+    except Exception:
+        return []
+
+@st.cache_data(ttl=600)
+def load_data(target_date=None):
     if not os.path.exists(DB_PATH):
         st.error(f"Banco de dados não encontrado: {DB_PATH}")
         return pd.DataFrame()
     
     try:
         with get_connection(DB_PATH) as conn:
-            query = "SELECT * FROM pmv_plus_gorila"
-            df = pd.read_sql_query(query, conn)
+            if target_date:
+                query = "SELECT * FROM pmv_plus_gorila WHERE reference_date = ?"
+                df = pd.read_sql_query(query, conn, params=(target_date,))
+            else:
+                query = "SELECT * FROM pmv_plus_gorila"
+                df = pd.read_sql_query(query, conn)
         return df
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
@@ -147,11 +166,154 @@ def classify_asset(row, overrides=None):
     
     return "Outros / Não Classificado"
 
+def check_violation(current_pct, current_money, ex):
+    """Check if violation occurs based on limit_mode."""
+    pct_violated = ex.limit_pct is not None and current_pct > ex.limit_pct
+    money_violated = ex.limit_money is not None and current_money > ex.limit_money
+    
+    if ex.limit_mode == "pct":
+        return pct_violated
+    elif ex.limit_mode == "money":
+        return money_violated
+    elif ex.limit_mode == "and":
+        return pct_violated and money_violated
+    else:  # "or"
+        return pct_violated or money_violated
+
+def format_violation_msg(current_pct, current_money, ex, label):
+    """Format violation message based on limit_mode."""
+    if ex.limit_mode == "pct":
+        return f"⚠️ {label}: ocupa {current_pct:.2f}% (Limite: {ex.limit_pct:.1f}%)"
+    elif ex.limit_mode == "money":
+        return f"⚠️ {label}: ocupa R$ {current_money:,.0f} (Limite: R$ {ex.limit_money:,.0f})"
+    elif ex.limit_mode == "and":
+        return f"⚠️ {label}: {current_pct:.2f}% E R$ {current_money:,.0f} > Limites"
+    else:  # "or"
+        return f"⚠️ {label}: {current_pct:.2f}% OU R$ {current_money:,.0f} > Limites"
+
+def check_client_compliance(portfolio_id, client_name, df_positions, overrides, profile):
+    # Filter for this portfolio
+    df_filtered = df_positions[df_positions['portfolio_id'].astype(str) == str(portfolio_id)].copy()
+    
+    if df_filtered.empty:
+        return {
+            "portfolio_id": portfolio_id,
+            "client_name": client_name,
+            "total_equity": 0.0,
+            "has_issues": False,
+            "allocation_violations": [],
+            "exception_violations": [],
+            "df_comparison": pd.DataFrame(),
+            "df_filtered": df_filtered
+        }
+
+    # classify
+    df_filtered['Classe_Adequacao'] = df_filtered.apply(lambda row: classify_asset(row, overrides), axis=1)
+    total_mv = df_filtered['market_value_amount'].sum()
+    
+    # 2. Group by Class
+    df_current = df_filtered.groupby('Classe_Adequacao')['market_value_amount'].sum().reset_index()
+    if total_mv > 0:
+        df_current['Atual (%)'] = (df_current['market_value_amount'] / total_mv) * 100
+    else:
+        df_current['Atual (%)'] = 0.0
+    df_current.rename(columns={'Classe_Adequacao': 'Classe de Ativos'}, inplace=True)
+    
+    # 3. Merge with Target
+    df_target = profile.to_dataframe()
+    df_comparison = pd.merge(df_target, df_current[['Classe de Ativos', 'Atual (%)']], on='Classe de Ativos', how='left').fillna(0)
+    
+    # 4. Check Allocation Violations
+    allocation_violations = []
+    
+    for _, row in df_comparison.iterrows():
+        if not (row['Min (%)'] <= row['Atual (%)'] <= row['Max (%)']):
+             allocation_violations.append(f"{row['Classe de Ativos']}: {row['Atual (%)']:.2f}% (Meta: {row['Min (%)']:.1f}-{row['Max (%)']:.1f}%)")
+
+    # 5. Check Exceptions
+    exception_violations = []
+    if profile.exceptions:
+        for ex in profile.exceptions:
+            target_vals_upper = [v.upper() for v in ex.target_values]
+            
+            if ex.target_type == "security_type":
+                relevant_rows = df_filtered[df_filtered['security_type'].str.upper().isin(target_vals_upper)]
+            elif ex.target_type == "asset_class":
+                relevant_rows = df_filtered[df_filtered['asset_class'].str.upper().isin(target_vals_upper)]
+            else:
+                relevant_rows = pd.DataFrame()
+            
+            if relevant_rows.empty:
+                continue
+                
+            total_value_ex = relevant_rows['market_value_amount'].sum()
+            current_pct_ex = (total_value_ex / total_mv) * 100 if total_mv > 0 else 0.0
+            
+            target_label = ", ".join(ex.target_values)
+            
+            if ex.rule_type == "proibida" and current_pct_ex > 0.001:
+                exception_violations.append(f"❌ Proibido: {target_label} ({current_pct_ex:.2f}%)")
+                
+            elif ex.rule_type == "max_limit":
+                if check_violation(current_pct_ex, total_value_ex, ex):
+                    exception_violations.append(format_violation_msg(current_pct_ex, total_value_ex, ex, f"Classe {target_label}"))
+            
+            elif ex.rule_type == "max_asset_limit":
+                for _, asset_row in relevant_rows.iterrows():
+                    asset_value = asset_row['market_value_amount']
+                    asset_pct = (asset_value / total_mv) * 100 if total_mv > 0 else 0.0
+                    if check_violation(asset_pct, asset_value, ex):
+                        exception_violations.append(format_violation_msg(asset_pct, asset_value, ex, asset_row['security_name']))
+            
+            elif ex.rule_type == "max_issuer_limit":
+                issuer_col = 'parsed_company_name'
+                if issuer_col in relevant_rows.columns:
+                    issuer_groups = relevant_rows.groupby(issuer_col, dropna=False)['market_value_amount'].sum()
+                    for issuer, issuer_value in issuer_groups.items():
+                        issuer_pct = (issuer_value / total_mv) * 100 if total_mv > 0 else 0.0
+                        issuer_name = issuer if issuer else "Emissor Desconhecido"
+                        if check_violation(issuer_pct, issuer_value, ex):
+                            exception_violations.append(format_violation_msg(issuer_pct, issuer_value, ex, f"Emissor: {issuer_name}"))
+
+    return {
+        "portfolio_id": portfolio_id,
+        "client_name": client_name,
+        "total_equity": total_mv,
+        "has_issues": bool(allocation_violations or exception_violations),
+        "allocation_violations": allocation_violations,
+        "exception_violations": exception_violations,
+        "df_comparison": df_comparison,
+        "df_filtered": df_filtered
+    }
+
 # --- UI Layout ---
 st.title("🛡️ Adequação de Perfil de Investimento")
 st.markdown("---")
 
-df_positions = load_data()
+df_positions = pd.DataFrame()
+
+# --- Date Selection ---
+available_dates = get_available_dates()
+selected_date = None
+
+if available_dates:
+    col_date_1, col_date_2 = st.columns([1, 3])
+    with col_date_1:
+        selected_date = st.selectbox(
+            "📅 Data de Referência", 
+            available_dates, 
+            index=0,
+            help="Selecione a data base para a análise das carteiras."
+        )
+else:
+    st.warning("⚠️ Nenhuma data encontrada na base de dados.")
+
+# Load Data based on selection
+if selected_date:
+    df_positions = load_data(selected_date)
+else:
+    # Fallback if no dates found or selection issue, though logic above handles it
+    df_positions = load_data()
 
 if df_positions.empty:
     st.info("Nenhum dado encontrado na tabela 'pmv_plus_gorila'.")
@@ -162,8 +324,26 @@ overrides = load_overrides()
 portfolio_names = load_portfolio_names()
 
 # Portfolio Selection Logic
+df_positions_all = df_positions.copy()
 portfolios_raw = df_positions['portfolio_id'].unique()
 valid_p_ids = [str(p) for p in portfolios_raw if p is not None]
+
+# --- Global Filters (Main Body) ---
+col_gf_1, col_gf_2 = st.columns([3, 1])
+with col_gf_1:
+    only_configured_global = st.checkbox(
+        "⚙️ Somente Perfis Configurados (Filtro Global)", 
+        value=True, 
+        help="Mostrar apenas clientes que já possuem perfil salvo. Isso afeta todas as abas."
+    )
+
+if only_configured_global:
+    configured_ids = profile_manager.list_profiles()
+    valid_p_ids = [pid for pid in valid_p_ids if str(pid) in configured_ids]
+    
+    if not valid_p_ids:
+        st.warning("Nenhum cliente encontrado com perfil configurado.")
+
 
 # Format options as "Name - ID"
 selection_options = []
@@ -179,9 +359,87 @@ for p_id in valid_p_ids:
 selection_options.sort()
 
 # --- Tabs ---
-tab_analysis, tab_manage = st.tabs(["📊 Análise de Adequação", "⚙️ Gerenciar Perfis"])
+tab_overview, tab_analysis, tab_manage = st.tabs(["🔍 Visão Geral", "📊 Análise de Adequação", "⚙️ Gerenciar Perfis"])
 
-# --- TAB 1: Analysis ---
+# --- TAB 1: Overview ---
+with tab_overview:
+    st.header("Visão Geral de Conformidade")
+    
+    col_ov_1, col_ov_2 = st.columns([3, 1])
+    with col_ov_1:
+         # Remove checkbox as it moved to sidebar
+         only_issues = st.checkbox("⚠️ Apenas com Pontos de Atenção", value=True)
+    with col_ov_2:
+         if st.button("🔄 Atualizar Análise"):
+             st.rerun()
+
+    if st.button("Iniciar Análise Completa (Pode demorar um pouco)"):
+        all_results = []
+        progress_bar = st.progress(0)
+        
+        # Determine list of portfolios (Use Global Filter)
+        ids_to_check = valid_p_ids
+        total_p = len(ids_to_check)
+        
+        if total_p == 0:
+            st.warning("Nenhum cliente disponível para análise com os filtros atuais.")
+            st.stop()
+        
+        for idx, p_id_str in enumerate(ids_to_check):
+
+            c_name = portfolio_names.get(p_id_str, "Desconhecido") # portfolio_names loaded globally
+            
+            # Load Profile
+            c_profile = profile_manager.load_profile(p_id_str, client_name=c_name)
+            
+            # Run Check
+            res = check_client_compliance(p_id_str, c_name, df_positions, overrides, c_profile)
+            all_results.append(res)
+            
+            progress_bar.progress((idx + 1) / total_p)
+            
+        progress_bar.empty()
+        
+        # Build DataFrame for display
+        summary_rows = []
+        for res in all_results:
+            if not res: continue
+            
+            if only_issues and not res['has_issues']:
+                continue
+                
+            status_icon = "⚠️" if res['has_issues'] else "✅"
+            
+            violations_text = ""
+            if res['allocation_violations']:
+                violations_text += "Alocação: " + "; ".join(res['allocation_violations']) + ". "
+            if res['exception_violations']:
+                violations_text += "Regras: " + "; ".join(res['exception_violations'])
+            
+            summary_rows.append({
+                "Status": status_icon,
+                "Cliente": res['client_name'],
+                "PL Total": res['total_equity'],
+                "Detalhes": violations_text
+            })
+            
+        df_summary = pd.DataFrame(summary_rows)
+        if not df_summary.empty:
+            st.dataframe(
+                df_summary,
+                column_config={
+                    "Status": st.column_config.TextColumn("Status", width="small"),
+                    "Cliente": st.column_config.TextColumn("Cliente", width="medium"),
+                    "PL Total": st.column_config.NumberColumn("PL Total", format="R$ %.2f"),
+                    "Detalhes": st.column_config.TextColumn("Detalhes", width="large"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.success("Tudo certo! Nenhum cliente com pendências encontrado (nos filtros atuais).")
+
+# --- TAB 2: Analysis ---
 with tab_analysis:
     col_sel_1, col_sel_2 = st.columns(2)
     with col_sel_1:
@@ -194,22 +452,26 @@ with tab_analysis:
     profile = profile_manager.load_profile(selected_portfolio_id, client_name=client_name)
     df_target = profile.to_dataframe()
     
-    # Filter and Map
-    df_filtered = df_positions[df_positions['portfolio_id'].astype(str) == selected_portfolio_id].copy()
-    df_filtered['Classe_Adequacao'] = df_filtered.apply(lambda row: classify_asset(row, overrides), axis=1)
+    # Run Check (using shared function)
+    res = check_client_compliance(selected_portfolio_id, client_name, df_positions, overrides, profile)
     
-    total_mv = df_filtered['market_value_amount'].sum()
+    df_filtered = res['df_filtered']
+    total_mv = res['total_equity']
+    df_comparison = res['df_comparison']
     
-    # Group by Class
-    df_current = df_filtered.groupby('Classe_Adequacao')['market_value_amount'].sum().reset_index()
-    if total_mv > 0:
-        df_current['Atual (%)'] = (df_current['market_value_amount'] / total_mv) * 100
-    else:
-        df_current['Atual (%)'] = 0.0
-    df_current.rename(columns={'Classe_Adequacao': 'Classe de Ativos'}, inplace=True)
-    
-    # Merge with Target from Profile
-    df_comparison = pd.merge(df_target, df_current[['Classe de Ativos', 'Atual (%)']], on='Classe de Ativos', how='left').fillna(0)
+    # Display Status/Violations immediately
+    if res['has_issues']:
+        with st.expander("🚨 Detalhes dos Pontos de Atenção", expanded=True):
+            if res['allocation_violations']:
+                st.write("**Alocação Fora da Meta:**")
+                for v in res['allocation_violations']:
+                    st.write(f"- {v}")
+            
+            if res['exception_violations']:
+                if res['allocation_violations']: st.write("---")
+                st.write("**Violação de Regras de Exceção:**")
+                for v in res['exception_violations']:
+                     st.write(f"- {v}")
     
     # Calculate Deviations
     df_comparison['Status'] = df_comparison.apply(
@@ -223,7 +485,69 @@ with tab_analysis:
     col2.metric("Ativos Classificados", len(df_filtered))
     col3.metric("Status Geral", "Revisão Necessária" if (df_comparison['Status'] == "⚠️ Fora").any() else "Adequado")
     
-    st.subheader("Tabela de Comparação")
+    # Report Generation
+    st.markdown("---")
+    col_rep_1, col_rep_2 = st.columns([1, 1])
+    
+    report_html = None
+    
+    with col_rep_1:
+        if st.button("📄 Gerar Relatório de Conformidade"):
+            with st.spinner("Gerando relatório..."):
+                try:
+                    # Pass the COMPOSITE object `res` which contains violations lists
+                    # Construct specific compliance_data dict expected by generator
+                    compliance_data = {
+                        'has_issues': res['has_issues'],
+                        'allocation_violations': res['allocation_violations'],
+                        'exception_violations': res['exception_violations'],
+                        'df_comparison': df_comparison
+                    }
+                    
+                    report_html = report_gen.generate_compliance_html(
+                        client_name=client_name,
+                        portfolio_id=selected_portfolio_id,
+                        total_equity=total_mv,
+                        compliance_data=compliance_data,
+                        profile=profile
+                    )
+                    
+                    # Store in session state to persist after rerun (if needed, though button press acts as trigger)
+                    st.session_state['last_report_html'] = report_html
+                    st.success("Relatório gerado com sucesso!")
+                    
+                except Exception as e:
+                    st.error(f"Erro ao gerar relatório: {e}")
+
+    with col_rep_2:
+        if st.session_state.get('last_report_html'):
+            report_data = st.session_state['last_report_html']
+            
+            # HTML Download
+            st.download_button(
+                label="⬇️ Baixar Relatório (HTML)",
+                data=report_data,
+                file_name=f"Relatorio_Adequacao_{selected_portfolio_id}.html",
+                mime="text/html"
+            )
+            
+            # PDF Download (Try/Except for Playwright)
+            try:
+                if st.button("⬇️ Baixar Relatório (PDF)"):
+                    with st.spinner("Renderizando PDF... (isso pode levar alguns segundos)"):
+                        pdf_data = report_gen.html_to_pdf(report_data)
+                        st.download_button(
+                            label="Clique para Salvar PDF",
+                            data=pdf_data,
+                            file_name=f"Relatorio_Adequacao_{selected_portfolio_id}.pdf",
+                            mime="application/pdf"
+                        )
+            except ImportError:
+               st.warning("Biblioteca de geração de PDF não disponível (Playwright). Apenas HTML disponível.")
+            except Exception as e:
+               st.error(f"Erro na geração de PDF: {e}")
+
+    st.markdown("---")
     # Formatting for display
     df_display = df_comparison.copy()
     for col in ['Alvo (%)', 'Atual (%)', 'Min (%)', 'Max (%)', 'Diferença (%)']:
@@ -403,7 +727,7 @@ with tab_manage:
     # --- Exceptions Management Section ---
     st.markdown("---")
     st.subheader("⚠️ Regras de Exceção Personalizadas")
-    st.info("Adicione regras específicas para proibir ou limitar ativos ou tipos de ativos.")
+    st.info("Adicione regras específicas para proibir ou limitar ativos, tipos de ativos, ou concentração por ativo/emissor.")
 
     col_ex_1, col_ex_2 = st.columns([1, 2])
     
@@ -411,28 +735,66 @@ with tab_manage:
         st.markdown("##### Adicionar Nova Regra")
         ex_target_type = st.selectbox("Tipo de Alvo", ["security_type", "asset_class"], key="ex_type")
         
-        # Get unique options based on selection
-        # We use df_positions (global loaded data) to find available types
+        # Get unique options based on selection - now using MULTISELECT
         if ex_target_type == "security_type":
              unique_options = sorted([str(x).upper() for x in df_positions['security_type'].dropna().unique()])
         else:
              unique_options = sorted([str(x).upper() for x in df_positions['asset_class'].dropna().unique()])
              
-        ex_target_val = st.selectbox("Valor do Alvo", unique_options, key="ex_val")
+        ex_target_vals = st.multiselect("Valor(es) do Alvo", unique_options, key="ex_vals")
         
-        ex_rule_type = st.selectbox("Tipo de Regra", ["proibida", "max_limit"], key="ex_rule")
+        ex_rule_type = st.selectbox(
+            "Tipo de Regra", 
+            ["proibida", "max_limit", "max_asset_limit", "max_issuer_limit"],
+            format_func=lambda x: {
+                "proibida": "Proibido",
+                "max_limit": "Limite Máximo (Classe)",
+                "max_asset_limit": "Limite por Ativo Único",
+                "max_issuer_limit": "Limite por Emissor"
+            }.get(x, x),
+            key="ex_rule"
+        )
         
-        ex_limit = None
-        if ex_rule_type == "max_limit":
-            ex_limit = st.number_input("Limite Máximo (%)", min_value=0.0, max_value=100.0, value=0.0, key="ex_limit")
+        # Limit mode and inputs (only show for non-prohibited rules)
+        ex_limit_pct = None
+        ex_limit_money = None
+        ex_limit_mode = "pct"
+        
+        if ex_rule_type != "proibida":
+            ex_limit_mode = st.selectbox(
+                "Modo de Limite",
+                ["pct", "money", "and", "or"],
+                format_func=lambda x: {
+                    "pct": "Somente % do PL",
+                    "money": "Somente R$",
+                    "and": "% E R$ (ambos devem ser violados)",
+                    "or": "% OU R$ (qualquer um violado)"
+                }.get(x, x),
+                key="ex_limit_mode"
+            )
+            
+            # Show appropriate inputs based on mode
+            if ex_limit_mode in ["pct", "and", "or"]:
+                ex_limit_pct = st.number_input("Limite Máximo (%)", min_value=0.0, max_value=100.0, value=0.0, key="ex_limit_pct")
+            if ex_limit_mode in ["money", "and", "or"]:
+                ex_limit_money = st.number_input("Limite Máximo (R$)", min_value=0.0, value=0.0, format="%.2f", key="ex_limit_money")
         
         if st.button("Adicionar Regra"):
-            if not ex_target_val:
-                st.error("Selecione um valor alvo.")
+            if not ex_target_vals:
+                st.error("Selecione pelo menos um valor alvo.")
             else:
-                profile_edit.add_exception(ex_target_type, ex_target_val, ex_rule_type, ex_limit)
+                # Create one rule per selected value for easier management
+                for val in ex_target_vals:
+                    profile_edit.add_exception(
+                        ex_target_type, 
+                        [val],  # Single value per rule
+                        ex_rule_type, 
+                        limit_pct=ex_limit_pct,
+                        limit_money=ex_limit_money,
+                        limit_mode=ex_limit_mode
+                    )
                 profile_manager.save_profile(profile_edit)
-                st.success("Regra adicionada!")
+                st.success(f"{len(ex_target_vals)} regra(s) adicionada(s)!")
                 st.rerun()
 
     with col_ex_2:
@@ -442,65 +804,48 @@ with tab_manage:
         else:
             ex_data = []
             for i, ex in enumerate(profile_edit.exceptions):
+                # Format limit display based on mode
+                if ex.rule_type == "proibida":
+                    limit_str = "Proibido"
+                else:
+                    rule_label = {
+                        "max_limit": "Máx Classe",
+                        "max_asset_limit": "Máx/Ativo",
+                        "max_issuer_limit": "Máx/Emissor"
+                    }.get(ex.rule_type, ex.rule_type)
+                    
+                    if ex.limit_mode == "pct":
+                        limit_str = f"{rule_label}: {ex.limit_pct:.1f}%"
+                    elif ex.limit_mode == "money":
+                        limit_str = f"{rule_label}: R$ {ex.limit_money:,.0f}"
+                    elif ex.limit_mode == "and":
+                        limit_str = f"{rule_label}: {ex.limit_pct:.1f}% E R$ {ex.limit_money:,.0f}"
+                    else:  # or
+                        limit_str = f"{rule_label}: {ex.limit_pct:.1f}% OU R$ {ex.limit_money:,.0f}"
+                
                 ex_data.append({
                     "Alvo": ex.target_type,
-                    "Valor": ex.target_value,
-                    "Regra": "Proibido" if ex.rule_type == "proibida" else f"Máx {ex.limit_value}%",
+                    "Valores": ", ".join(ex.target_values),
+                    "Regra": limit_str,
                     "Index": i
                 })
             
             df_ex = pd.DataFrame(ex_data)
-            st.dataframe(df_ex[["Alvo", "Valor", "Regra"]], use_container_width=True, hide_index=True)
+            st.dataframe(df_ex[["Alvo", "Valores", "Regra"]], use_container_width=True, hide_index=True)
             
             # Remove rule
             rule_to_remove = st.selectbox("Selecione a regra para remover", 
-                                          options=[f"{r['Valor']} ({r['Regra']})" for r in ex_data],
+                                          options=[f"{r['Valores']} ({r['Regra']})" for r in ex_data],
                                           index=None,
                                           placeholder="Selecione para remover...")
             
             if rule_to_remove and st.button("Remover Regra Selecionada"):
-                # Find matching rule logic (simple parsing or index based)
-                # Since selectbox just gives string, let's find the index from the list
-                selected_idx = [f"{r['Valor']} ({r['Regra']})" for r in ex_data].index(rule_to_remove)
+                selected_idx = [f"{r['Valores']} ({r['Regra']})" for r in ex_data].index(rule_to_remove)
                 target_to_remove = profile_edit.exceptions[selected_idx]
                 
-                profile_edit.remove_exception(target_to_remove.target_type, target_to_remove.target_value)
+                profile_edit.remove_exception(target_to_remove.target_type, target_to_remove.target_values)
                 profile_manager.save_profile(profile_edit)
                 st.success("Regra removida!")
                 st.rerun()
 
-# --- Logic for Exception Checking in Analysis Tab (Delayed Execution) ---
-# We inject this logic back into the Analysis Tab flow
-if selected_portfolio_id and not df_filtered.empty and profile.exceptions:
-    violations = []
-    
-    # Pre-calculate totals for security types and asset classes
-    # We use the raw dataframe 'df_filtered'
-    
-    for ex in profile.exceptions:
-        current_val = 0.0
-        relevant_rows = pd.DataFrame()
-        
-        if ex.target_type == "security_type":
-            # Match security_type or security_name loose match could be dangerous, strict for now
-            relevant_rows = df_filtered[df_filtered['security_type'].str.upper() == ex.target_value]
-        elif ex.target_type == "asset_class":
-             relevant_rows = df_filtered[df_filtered['asset_class'].str.upper() == ex.target_value]
-        
-        if not relevant_rows.empty:
-            current_pct = (relevant_rows['market_value_amount'].sum() / total_mv) * 100
-        else:
-            current_pct = 0.0
-            
-        # Check Rules
-        if ex.rule_type == "proibida" and current_pct > 0.001: # 0.001 tolerance
-            violations.append(f"❌ **Violação Proibida**: Encontrado {current_pct:.2f}% em {ex.target_value} ({ex.target_type}).")
-            
-        elif ex.rule_type == "max_limit" and current_pct > ex.limit_value:
-             violations.append(f"⚠️ **Violação de Limite**: {current_pct:.2f}% em {ex.target_value} (Limite: {ex.limit_value}%).")
 
-    if violations:
-        with tab_analysis:
-            st.error("### 🚨 Violações de Regras de Exceção Encontradas")
-            for v in violations:
-                st.write(v)

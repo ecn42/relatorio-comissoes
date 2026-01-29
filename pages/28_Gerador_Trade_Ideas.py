@@ -303,6 +303,37 @@ def generate_comparison_chart_b64(
                     x=trade_end, color="#b91c1c", linestyle="-", alpha=0.3, label="Fim"
                 )
 
+            # Horizontal Lines (Levels)
+            if entry_price and entry_price > 0:
+                ax.axhline(
+                    y=entry_price,
+                    color="#333",
+                    linestyle=":",
+                    linewidth=1.5,
+                    alpha=0.8,
+                    label="Entrada",
+                )
+
+            if target_price and target_price > 0:
+                ax.axhline(
+                    y=target_price,
+                    color="#15803d",
+                    linestyle="--",
+                    linewidth=1.5,
+                    alpha=0.9,
+                    label="Alvo",
+                )
+
+            if stop_price and stop_price > 0:
+                ax.axhline(
+                    y=stop_price,
+                    color="#b91c1c",
+                    linestyle="--",
+                    linewidth=1.5,
+                    alpha=0.9,
+                    label="Stop",
+                )
+
             ax.set_title(f"Evolução do Ratio: {ticker}", fontsize=12, fontweight="bold")
             ax.set_ylabel("Ratio", fontsize=10)
             ax.grid(True, alpha=0.2)
