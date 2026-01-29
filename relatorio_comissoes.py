@@ -70,8 +70,11 @@ def home():
             {"title": "Rating to Fitch", "icon": ":material/translate:"},
         ],
         "One Pager Crédito": [
-            {"title": "Database OnePager Crédito", "icon": ":material/database:"},
             {"title": "Gerar OnePager Crédito", "icon": ":material/description:"},
+        ],
+        "Databases": [
+            {"title": "Database Economatica", "icon": ":material/database:"},
+            {"title": "Database OnePager Crédito", "icon": ":material/database:"},
         ],
     }
 
@@ -134,21 +137,6 @@ pages = {
             icon=":material/insert_chart:",
         ),
         st.Page(
-            "pages/4_Financial_Comparator_Plotly.py",
-            title="Comparador de Ações",
-            icon=":material/bar_chart:",
-        ),
-        st.Page(
-            "pages/24_Comparador_Acoes_Novo.py",
-            title="Comparador de Ações Novo",
-            icon=":material/bar_chart:",
-        ),
-        st.Page(
-            "pages/16_API_4int.py",
-            title="API 4intelligence",
-            icon=":material/api:",
-        ),
-        st.Page(
             "pages/25_Carteiras_RV.py",
             title="Carteiras RV",
             icon=":material/account_balance_wallet:",
@@ -163,11 +151,6 @@ pages = {
             "pages/28_Gerador_Trade_Ideas.py",
             title="Gerador de Trade Ideas",
             icon=":material/rocket_launch:",
-        ),
-        st.Page(
-            "pages/29_Database_Economatica.py",
-            title="Database Economatica",
-            icon=":material/database:",
         ),
         st.Page(
             "pages/30_Analise_Acoes_Economatica.py",
@@ -283,14 +266,21 @@ pages = {
     ],
     "One Pager Crédito": [
         st.Page(
-            "pages/32_Database_OnePager_Credito.py",
-            title="Database OnePager Crédito",
-            icon=":material/database:",
-        ),
-        st.Page(
             "pages/33_Gerar_Onepager_Credito.py",
             title="Gerar OnePager Crédito",
             icon=":material/description:",
+        ),
+    ],
+    "Databases": [
+        st.Page(
+            "pages/29_Database_Economatica.py",
+            title="Database Economatica",
+            icon=":material/database:",
+        ),
+        st.Page(
+            "pages/32_Database_OnePager_Credito.py",
+            title="Database OnePager Crédito",
+            icon=":material/database:",
         ),
     ],
 }

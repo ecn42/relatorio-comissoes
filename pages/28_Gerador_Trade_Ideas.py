@@ -566,6 +566,140 @@ def html_to_pdf(html_content):
 # --- HTML Template ---
 # --- HTML Templates ---
 
+# Template for Open Trades Report
+OPEN_TRADES_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
+        
+        @page { margin: 15mm 12mm 20mm 12mm; }
+        
+        * { box-sizing: border-box; }
+        
+        html, body { 
+            font-family: 'Open Sans', 'Segoe UI', Arial, sans-serif; 
+            color: #333; 
+            margin: 0; 
+            padding: 0; 
+            background-color: white;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+        
+        :root {
+            --brand: {{ color_primary }};
+            --brand-dark: #6B4219;
+            --bg: #F8F8F8;
+            --text: #333333;
+            --tbl-border: #E0D5CA;
+            --light: #F5F5F5;
+        }
+
+        .header { 
+            background: var(--brand); 
+            color: white; 
+            padding: 15px 20px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .header-logo { height: 45px; max-width: 140px; object-fit: contain; }
+        .header-text { text-align: right; }
+        .title { font-size: 18px; font-weight: 700; margin: 0; }
+        .period { font-size: 11px; opacity: 0.9; }
+
+        .section-header { 
+            background: var(--bg); 
+            padding: 6px 12px; 
+            border-left: 4px solid var(--brand); 
+            font-weight: 700; 
+            color: var(--brand); 
+            margin: 15px 0 10px 0;
+            font-size: 12px;
+        }
+
+        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 15px; }
+        th { 
+            background-color: var(--light); color: var(--text); padding: 8px 6px; 
+            text-align: center; border-bottom: 2px solid var(--tbl-border); font-weight: 700; 
+        }
+        th:first-child { text-align: left; }
+        
+        td { padding: 6px; border-bottom: 1px solid var(--tbl-border); text-align: center; }
+        td:first-child { text-align: left; font-weight: 600; }
+        
+        tr:nth-child(even) td { background-color: var(--light); }
+        
+        .positive { color: #15803d; font-weight: 700; }
+        .negative { color: #b91c1c; font-weight: 700; }
+        .neutral { color: #555; }
+
+        .footer { 
+            margin-top: 20px; text-align: center; font-size: 8px; color: #999; 
+            border-top: 1px solid #eee; padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        {% if logo %}
+        <img src="{{ logo }}" class="header-logo" alt="Logo">
+        {% else %}<div style="width: 1px;"></div>{% endif %}
+        <div class="header-text">
+            <div class="title">Relatório de Acompanhamento</div>
+            <div class="period">Gerado em: {{ generated_at }}</div>
+        </div>
+    </div>
+
+    <div class="section-header">Trades em Aberto</div>
+    
+    {% if trades %}
+    <table>
+        <thead>
+            <tr>
+                <th>Ativo</th>
+                <th>Tipo</th>
+                <th>Início</th>
+                <th>Entrada</th>
+                <th>Atual</th>
+                <th>Retorno %</th>
+                <th>Alvo</th>
+                <th>Stop</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in trades %}
+            <tr>
+                <td>{{ t.ticker }}</td>
+                <td>{{ t.type }}</td>
+                <td>{{ t.start_date }}</td>
+                <td>{{ t.entry }}</td>
+                <td>{{ t.current }}</td>
+                <td class="{% if t.raw_ret >= 0 %}positive{% else %}negative{% endif %}">{{ t.return_pct }}</td>
+                <td>{{ t.target }}</td>
+                <td>{{ t.stop }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: #666; padding: 20px;">Nenhuma trade em aberto no momento.</p>
+    {% endif %}
+
+    <div class="footer">
+        Ceres Wealth Management
+    </div>
+</body>
+</html>
+"""
+
+# --- HTML Templates ---
+
 # Template for Performance Report (Consolidated)
 PERFORMANCE_REPORT_TEMPLATE = """
 <!DOCTYPE html>
@@ -1250,6 +1384,180 @@ if "generated_html" in st.session_state:
                 mime="application/pdf",
                 key="dl_pdf"
             )
+
+# --- Open Trades Monitoring ---
+st.markdown("---")
+st.subheader("📡 Acompanhamento Atual")
+
+conn = sqlite3.connect(DB_PATH)
+df_open = pd.read_sql_query("SELECT * FROM trade_ideas WHERE status = 'ABERTA' ORDER BY start_date DESC", conn)
+conn.close()
+
+if not df_open.empty:
+    col_mon1, col_mon2 = st.columns([3, 1])
+    with col_mon1:
+        st.info(f"Total de {len(df_open)} operações em aberto.")
+    
+    with col_mon2:
+        if st.button("🔄 Atualizar Cotações Agora", use_container_width=True):
+            with st.spinner("Buscando preços atuais..."):
+                updated_trades = []
+                # Fetch logic
+                for idx, row in df_open.iterrows():
+                    # Determine current price
+                    curr_p = 0.0
+                    
+                    is_ls = (row.get("trade_type") == "LS")
+                    t_clean = row["ticker"]
+                    
+                    if is_ls:
+                        # For LS we need both prices
+                        t_long = row.get("ticker", "").split("/")[0] if "/" in row.get("ticker", "") else row.get("ticker") # Fallback
+                        t_short = row.get("ticker_short", "")
+                        
+                        pl = get_current_price(t_long)
+                        ps = get_current_price(t_short)
+                        
+                        if pl > 0 and ps > 0:
+                            curr_p = pl / ps
+                    else:
+                        # Normal
+                        curr_p = get_current_price(t_clean)
+                    
+                    # Update if valid
+                    if curr_p > 0:
+                        # Calculate return
+                        entry = row["entry_price"]
+                        ret_pct = 0.0
+                        if entry > 0:
+                            if row.get("trade_type") == "SHORT":
+                                ret_pct = 1 - (curr_p / entry)
+                            elif row.get("trade_type") == "LS": # LS is Long the ratio usually?
+                                # Assumption: LS Ratio means Long the Ratio (Entry < Exit/Current is profit)
+                                ret_pct = (curr_p / entry) - 1
+                            else: # LONG
+                                ret_pct = (curr_p / entry) - 1
+                        
+                        # Store updates in a list to bulk update later or display
+                        updated_trades.append({
+                            "id": row["id"],
+                            "current_price": curr_p,
+                            "upside_pct": (row["target_price"]/entry - 1) if entry > 0 else 0, # Static basically
+                            "result_pct": ret_pct # Dynamic result
+                        })
+                
+                # Update DB with new "current_price" AND "result_pct" (temp)
+                if updated_trades:
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    for u in updated_trades:
+                        c.execute("UPDATE trade_ideas SET current_price = ?, result_pct = ? WHERE id = ?", 
+                                  (u["current_price"], u["result_pct"], u["id"]))
+                    conn.commit()
+                    conn.close()
+                    st.success("Cotações atualizadas!")
+                    st.rerun()
+
+    # Prepare Display Data
+    display_data = []
+    
+    # Reload after potential update
+    conn = sqlite3.connect(DB_PATH)
+    df_open = pd.read_sql_query("SELECT * FROM trade_ideas WHERE status = 'ABERTA' ORDER BY start_date DESC", conn)
+    conn.close()
+
+    for _, row in df_open.iterrows():
+        t_type = row.get("trade_type", "LONG")
+        is_ls = (t_type == "LS")
+        prefix = "" if is_ls else "R$"
+        
+        curr = row["current_price"]
+        entry = row["entry_price"]
+        
+        # Recalc return for display just in case
+        ret = 0.0
+        if entry > 0 and curr > 0:
+            if t_type == "SHORT":
+                 ret = 1 - (curr / entry)
+            else:
+                 ret = (curr / entry) - 1
+        
+        display_data.append({
+            "Ativo": row["ticker"],
+            "Tipo": t_type,
+            "Início": row["start_date"],
+            "Entrada": f"{prefix} {entry:.4f}" if is_ls else f"{prefix} {entry:.2f}",
+            "Atual": f"{prefix} {curr:.4f}" if is_ls else f"{prefix} {curr:.2f}",
+            "Retorno": f"{ret:.2%}",
+            "Alvo": f"{prefix} {row['target_price']:.4f}" if is_ls else f"{prefix} {row['target_price']:.2f}",
+            "Stop": f"{prefix} {row['stop_price']:.4f}" if is_ls else f"{prefix} {row['stop_price']:.2f}",
+            "_raw_ret": ret,
+            "_raw_entry": entry,
+            "_raw_curr": curr,
+            "_raw_target": row["target_price"],
+            "_raw_stop": row["stop_price"],
+            "_ticker": row["ticker"],
+            "_type": t_type,
+            "_start": row["start_date"]
+        })
+    
+    df_disp = pd.DataFrame(display_data)
+    
+    # Styling
+    def color_ret(val):
+        color = 'black'
+        if val:
+             v = float(val.strip('%'))
+             if v > 0: color = 'green'
+             elif v < 0: color = 'red'
+        return f'color: {color}; font-weight: bold'
+
+    st.dataframe(
+        df_disp[["Ativo", "Tipo", "Início", "Entrada", "Atual", "Retorno", "Alvo", "Stop"]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Retorno": st.column_config.TextColumn("Retorno", help="Retorno baseado no preço atualizado"),
+        }
+    )
+    
+    # Generate PDF Report for Open Trades
+    if st.button("📄 Baixar Relatório de Acompanhamento (PDF)"):
+        with st.spinner("Gerando PDF..."):
+            trades_for_tmpl = []
+            for d in display_data:
+                trades_for_tmpl.append({
+                    "ticker": d["_ticker"],
+                    "type": d["_type"],
+                    "start_date": datetime.strptime(d["_start"], "%Y-%m-%d").strftime("%d/%m/%Y") if d["_start"] else "-",
+                    "entry": d["Entrada"],
+                    "current": d["Atual"],
+                    "return_pct": d["Retorno"],
+                    "raw_ret": d["_raw_ret"],
+                    "target": d["Alvo"],
+                    "stop": d["Stop"]
+                })
+            
+            tmpl = Template(OPEN_TRADES_TEMPLATE)
+            html_out = tmpl.render(
+                trades=trades_for_tmpl,
+                generated_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
+                color_primary=BRAND_BROWN,
+                logo=logo_b64
+            )
+            
+            pdf_data = html_to_pdf(html_out)
+            if pdf_data:
+                st.session_state["pdf_monitoring"] = pdf_data
+                st.success("Relatório gerado!")
+    
+    if "pdf_monitoring" in st.session_state:
+        st.download_button("⬇️ Baixar Relatório Acompanhamento", 
+                           st.session_state["pdf_monitoring"], 
+                           file_name=f"Trade_Ideas_Open_{datetime.now().strftime('%Y%m%d')}.pdf",
+                           mime="application/pdf")
+else:
+    st.info("Não há operações em aberto no momento.")
 
 # --- Trade Ideas Management ---
 st.markdown("---")

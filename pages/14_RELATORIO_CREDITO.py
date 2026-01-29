@@ -66,6 +66,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from jinja2 import Template
+from utils.credit_report_generator import generate_formatted_report_html, html_to_pdf_formatted
+
 
 # Matplotlib para imagens estáticas no relatório (robusto para Word/PDF)
 try:
@@ -3204,6 +3206,248 @@ def render_maturity_report_html(matrix_df: pd.DataFrame, meta: Dict) -> str:
     )
 
 
+# ---------------------- Formatted Report Logic ----------------------
+
+def _rows_to_html_table(rows: List[Dict], headers: List[str], keys: List[str]) -> str:
+    if not rows:
+        return '<p class="nodata">Sem dados.</p>'
+    
+    html = '<div class="table-wrap"><table><thead><tr>'
+    for h in headers:
+        html += f'<th>{h}</th>'
+    html += '</tr></thead><tbody>'
+    
+    for r in rows:
+        html += '<tr>'
+        for k in keys:
+            val = r.get(k, "")
+            html += f'<td>{val}</td>'
+        html += '</tr>'
+    html += '</tbody></table></div>'
+    return html
+
+# --- Calc vars for formatted report ---
+# We need bank_credit_total specifically as it's not global
+_sov_mv = float(
+    base_df.loc[base_df["issuer_bucket"] == "TESOURO NACIONAL", "mv"].sum()
+)
+_s1_mv = float(base_df.loc[base_df["is_s1"], "mv"].sum())
+_s2_mv = float(base_df.loc[base_df["is_s2"], "mv"].sum())
+bank_credit_total = _sov_mv + _s1_mv + _s2_mv
+
+# Replicate BRL/USD status logic for formatted report (vars were local to render_report_html)
+has_brl = base_total_brl > 0
+has_usd = base_total_usd > 0
+if has_brl:
+    ok_single_brl = conc_brl["largest_share"] <= max_single_issuer
+    ok_top10_brl = conc_brl["top10_share"] <= max_top10_issuers
+    largest_brl = as_pct_str(conc_brl["largest_share"])
+    top10_brl = as_pct_str(conc_brl["top10_share"])
+else:
+    ok_single_brl = True
+    ok_top10_brl = True
+    largest_brl = "—"
+    top10_brl = "—"
+
+if has_usd:
+    ok_single_usd = conc_usd["largest_share"] <= max_single_issuer
+    ok_top10_usd = conc_usd["top10_share"] <= max_top10_issuers
+    largest_usd = as_pct_str(conc_usd["largest_share"])
+    top10_usd = as_pct_str(conc_usd["top10_share"])
+else:
+    ok_single_usd = True
+    ok_top10_usd = True
+    largest_usd = "—"
+    top10_usd = "—"
+
+formatted_html_report = None
+
+# Logic to generate components for the NEW formatted report
+if True: # encapsulate to avoid polluting namespace too much
+    # 1. Re-generate Plots 
+    
+    # Donut: Maturidade
+    p_mat_base = _donut_img_html_from_maturity(
+        mat_buckets_df, "share_base", "Vencimentos (% PL RF)", DONUT_CFG
+    )
+    # Donut: Fator
+    p_factor_brl = _donut_img_html_from_factor_shares(
+        factor_shares_brl, "Fator Risco BRL (% PL RF BRL)", DONUT_CFG
+    )
+    p_factor_usd = _donut_img_html_from_factor_shares(
+        factor_shares_usd, "Fator Risco USD (% PL RF USD)", DONUT_CFG
+    )
+    # Donut: Moeda
+    p_curr_base = _donut_img_html_from_exposure_table(
+        currency_exp_table, "currency_code", "share_base",
+        "Moeda (% PL RF)", top_n=donut_top_n, cfg=DONUT_CFG
+    )
+    # Donut: Tipo
+    p_type_brl = ""
+    if "parsed_bond_type" in df.columns and not bond_type_exp_table_brl.empty:
+        p_type_brl = _donut_img_html_from_exposure_table(
+            bond_type_exp_table_brl, "parsed_bond_type", "share_base",
+            "Tipo BRL (% PL RF BRL)", top_n=donut_top_n, cfg=DONUT_CFG
+        )
+    p_type_usd = ""
+    if "parsed_bond_type" in df.columns and not bond_type_exp_table_usd.empty:
+        p_type_usd = _donut_img_html_from_exposure_table(
+            bond_type_exp_table_usd, "parsed_bond_type", "share_base",
+            "Tipo USD (% PL RF USD)", top_n=donut_top_n, cfg=DONUT_CFG
+        )
+
+    # Bars: Soberano/S1
+    p_sov_s1 = _bar_img_html_sov_s1(base_df, base_total, DONUT_CFG)
+    
+    # Bars: Ratings (Need to rebuild rows first)
+    _brl_rating_rows_fmt = []
+    for r in brl_private_ratings_rows:
+        _brl_rating_rows_fmt.append(
+            {"rating": r["rating"], "mv_fmt": brl(r["mv"]), "pct": r["pct"], "mv": r["mv"]}
+        )
+    _usd_rating_rows_fmt = []
+    for r in usd_corporate_ratings_rows:
+        _usd_rating_rows_fmt.append(
+            {"rating": r["rating"], "mv_fmt": brl(r["mv"]), "pct": r["pct"], "mv": r["mv"]}
+        )
+        
+    p_ratings_brl = _bar_img_html_ratings(
+        _brl_rating_rows_fmt, "Rating BRL (% do Total)", DONUT_CFG
+    )
+    p_ratings_usd = _bar_img_html_ratings(
+        _usd_rating_rows_fmt, "Rating USD (% do Total)", DONUT_CFG
+    )
+    
+    # 2. Prepare Tables (HTML Strings)
+    
+    # Issuer BRL Top 10
+    _iss_brl_rows = []
+    if base_total_brl > 0:
+        _exp_brl = exposure_table_by_bucket(
+            df_pl=df.loc[df["currency_code"] == "BRL"],
+            df_base=base_df_brl,
+            pl_total=pl_total_brl,
+            base_total=base_total_brl,
+            bucket_col="issuer_bucket",
+        )
+        _exp_brl = _exp_brl.loc[~_exp_brl["issuer_bucket"].isin(EXCLUDE_IN_LIMITS)]
+        _top_brl = _exp_brl.head(10)
+        _iss_brl_rows = [
+            {"name": str(r["issuer_bucket"]), "pct": as_pct_str(float(r["share_base"]))}
+            for _, r in _top_brl.iterrows()
+        ]
+    tbl_issuers_brl = _rows_to_html_table(
+        _iss_brl_rows, ["Emissor", "% PL RF BRL"], ["name", "pct"]
+    )
+    
+    # Issuer USD Top 10
+    _iss_usd_rows = []
+    if base_total_usd > 0:
+        _exp_usd = exposure_table_by_bucket(
+            df_pl=df.loc[df["currency_code"] == "USD"],
+            df_base=base_df_usd,
+            pl_total=pl_total_usd,
+            base_total=base_total_usd,
+            bucket_col="issuer_bucket",
+        )
+        _exp_usd = _exp_usd.loc[~_exp_usd["issuer_bucket"].isin(EXCLUDE_IN_LIMITS)]
+        _top_usd = _exp_usd.head(10)
+        _iss_usd_rows = [
+            {"name": str(r["issuer_bucket"]), "pct": as_pct_str(float(r["share_base"]))}
+            for _, r in _top_usd.iterrows()
+        ]
+    tbl_issuers_usd = _rows_to_html_table(
+        _iss_usd_rows, ["Emissor", "% PL RF USD"], ["name", "pct"]
+    )
+    
+    # Country Table
+    _ctry_rows = []
+    if not country_exp_table.empty:
+        _top_ctry = country_exp_table.head(10)
+        for _, r in _top_ctry.iterrows():
+            _ctry_rows.append({
+                "name": str(r["country_bucket"]),
+                "pct": as_pct_str(float(r["share_base"]))
+            })
+    tbl_country = _rows_to_html_table(
+        _ctry_rows, ["País", "% PL RF"], ["name", "pct"]
+    )
+
+    # 3. Assemble Data Bags
+    # 3. Assemble Data Bags
+    _metrics = {
+        'pl_total': brl(pl_total),
+        'base_total': brl(base_total),
+        'pl_credit': brl(pl_credit),
+        'credit_share_base': as_pct_str(pct(pl_credit, base_total)),
+        'credit_share_pl': as_pct_str(pct(pl_credit, pl_total)),
+        'aaa_share_base_pct': as_pct_str(aaa_share_base),
+        'aaa_share_pl_pct': as_pct_str(aaa_share_pl),
+        'min_aaa_pct': as_pct_str(DEFAULT_LIMITS["min_sovereign_or_aaa"]),
+        'max_single_pct': as_pct_str(max_single_issuer),
+        'largest_share_base': as_pct_str(conc_base["largest_share"]),
+        'largest_share_pl': as_pct_str(largest_share_pl),
+        'max_top10_pct': as_pct_str(max_top10_issuers),
+        'top10_share_base': as_pct_str(conc_base["top10_share"]),
+        'top10_share_pl': as_pct_str(top10_share_pl),
+        'over5y_pct_base': as_pct_str(over5y_share_base),
+        'over5y_pct_pl': as_pct_str(over5y_share_pl),
+        'max_over5y_pct': as_pct_str(max_over5y),
+        'default_rate': "0.00%",
+        # New additions for full alignment
+        'brl_private_total': brl(brl_private_total),
+        'usd_corporate_total': brl(usd_corporate_total),
+        'bank_credit_total': brl(bank_credit_total),
+        'largest_share_base_brl': largest_brl,
+        'top10_share_base_brl': top10_brl,
+        'largest_share_base_usd': largest_usd,
+        'top10_share_base_usd': top10_usd
+    }
+    
+    _checks = {
+        'ok_aaa': ok_aaa, 'conf_aaa': status_tag(ok_aaa),
+        'ok_single': ok_single, 'conf_single': status_tag(ok_single),
+        'ok_top10': ok_top10, 'conf_top10': status_tag(ok_top10),
+        'ok_over5y': ok_over5y, 'conf_over5y': status_tag(ok_over5y),
+        'ok_single_brl': ok_single_brl, 'conf_single_brl': status_tag(ok_single_brl),
+        'ok_top10_brl': ok_top10_brl, 'conf_top10_brl': status_tag(ok_top10_brl),
+        'ok_single_usd': ok_single_usd, 'conf_single_usd': status_tag(ok_single_usd),
+        'ok_top10_usd': ok_top10_usd, 'conf_top10_usd': status_tag(ok_top10_usd),
+    }
+    
+    _tables = {
+        'issuers_brl': tbl_issuers_brl,
+        'issuers_usd': tbl_issuers_usd,
+        'country_table': tbl_country,
+        'events_text': events_text if events_text else "Sem eventos relevantes."
+    }
+    
+    _plots = {
+        'maturity_base': p_mat_base,
+        'factor_brl': p_factor_brl,
+        'factor_usd': p_factor_usd,
+        'currency_base': p_curr_base,
+        'bondtype_brl': p_type_brl,
+        'bondtype_usd': p_type_usd,
+        'sov_s1': p_sov_s1,
+        'ratings_brl': p_ratings_brl,
+        'ratings_usd': p_ratings_usd
+    }
+
+    formatted_html_report = generate_formatted_report_html(
+        manager_name=manager_name,
+        manager_cnpj=manager_cnpj,
+        responsible_name=responsible_name,
+        period_label=period_label,
+        emission_date=datetime.today().strftime("%d/%m/%Y"),
+        metrics=_metrics,
+        compliance_checks=_checks,
+        tables=_tables,
+        plots=_plots,
+        show_ratings=show_ratings_section
+    )
+
+
 st.subheader("Exportar Relatório")
 if not HAS_MPL:
     st.warning(
@@ -3218,6 +3462,26 @@ st.download_button(
     file_name="relatorio_risco_credito.html",
     mime="text/html",
 )
+
+# --- New Formatted Download ---
+c_fmt1, c_fmt2 = st.columns(2)
+with c_fmt1:
+    if formatted_html_report:
+        st.download_button(
+            "📄 Baixar PDF (Formatado)",
+            data=html_to_pdf_formatted(formatted_html_report),
+            file_name=f"relatorio_credito_formatado_{ref_dt.strftime('%Y%m%d')}.pdf",
+            mime="application/pdf"
+        )
+with c_fmt2:
+    if formatted_html_report:
+        st.download_button(
+            "🌐 Baixar HTML (Formatado)",
+            data=formatted_html_report.encode("utf-8"),
+            file_name=f"relatorio_credito_formatado_{ref_dt.strftime('%Y%m%d')}.html",
+            mime="text/html"
+        )
+# ------------------------------
 
 st.markdown("---")
 st.subheader("Tabela de Vencimentos")

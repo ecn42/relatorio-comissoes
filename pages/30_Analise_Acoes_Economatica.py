@@ -6,7 +6,10 @@ import unicodedata
 import html as _html
 from datetime import datetime
 import json
+import os
 from pages.ceres_logo import LOGO_BASE64
+
+PRESETS_FILE = "databases/presets_economatica.json"
 
 # -------------------- Configuration & Theme --------------------
 st.set_page_config(page_title="Análise Ações Economatica", layout="wide")
@@ -183,6 +186,20 @@ def load_economatica_data():
     except Exception as e:
         st.error(f"Erro ao carregar banco de dados: {e}")
         return pd.DataFrame()
+
+# -------------------- Presets Logic --------------------
+def load_presets():
+    if not os.path.exists(PRESETS_FILE):
+        return {}
+    try:
+        with open(PRESETS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_presets(presets):
+    with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+        json.dump(presets, f, indent=4, ensure_ascii=False)
 
 # -------------------- PDF Generator --------------------
 def html_to_pdf_playwright(html_content: str) -> bytes:
@@ -621,11 +638,121 @@ if df_raw.empty:
     st.warning("Banco de dados não encontrado ou vazio. Vá em 'Database Economatica' para fazer o upload.")
     st.stop()
 
+# -------------------- PRESETS MANAGER --------------------
+with st.expander("📂 Gerenciador de Presets (Salvar/Carregar Configurações)", expanded=False):
+    col_p1, col_p2, col_p3 = st.columns([2, 1, 1])
+    
+    presets_data = load_presets()
+    preset_names = list(presets_data.keys())
+    
+    with col_p1:
+        sel_preset = st.selectbox("Selecione um Preset", [""] + preset_names, index=0)
+        
+    with col_p2:
+        st.write("") # Spacer
+        st.write("")
+        if st.button("📥 Carregar Preset", use_container_width=True):
+            if sel_preset and sel_preset in presets_data:
+                p = presets_data[sel_preset]
+                
+                # Apply Metrics (Validate against available)
+                valid_metrics = [m for m in p.get("metrics", []) if m in df_raw.columns]
+                st.session_state["widget_sel_metrics"] = valid_metrics
+                
+                # Apply Sectors
+                valid_sectors = [s for s in p.get("setores", []) if s in df_raw["Setor Economatica"].unique()]
+                st.session_state["widget_sel_setor"] = valid_sectors
+                
+                # Apply Tickers (override auto-select)
+                # Note: sel_tickers uses 'sel_tickers_widget' key
+                valid_tickers = [t for t in p.get("tickers", []) if t in df_raw["Ticker"].values]
+                st.session_state["sel_tickers_widget"] = valid_tickers
+                st.session_state.sel_tickers = valid_tickers # Sync logic variable
+                
+                # Apply Filters
+                for m, rng in p.get("filters", {}).items():
+                    if len(rng) == 2:
+                        st.session_state[f"filter_{m}"] = tuple(rng)
+                
+                # Apply MC Range
+                mc_rng = p.get("market_cap_range", [])
+                if len(mc_rng) == 2:
+                    st.session_state["widget_sel_mc"] = tuple(mc_rng)
+
+                # Apply Settings
+                settings = p.get("settings", {})
+                st.session_state["widget_show_bar"] = settings.get("show_bar", True)
+                st.session_state["widget_show_hbar"] = settings.get("show_hbar", True)
+                st.session_state["widget_show_radar"] = settings.get("show_radar", True)
+                st.session_state["widget_order_opt"] = "Gráficos" if settings.get("order", "graphs_first") == "graphs_first" else "Tabela"
+                st.session_state["widget_transpose_table"] = settings.get("transpose", False)
+                
+                # Custom Metrics
+                st.session_state["widget_custom_metrics"] = settings.get("custom_metrics", False)
+                cust_lists = p.get("custom_lists", {})
+                st.session_state["widget_m_table"] = [m for m in cust_lists.get("table", []) if m in df_raw.columns]
+                st.session_state["widget_m_bar"] = [m for m in cust_lists.get("bar", []) if m in df_raw.columns]
+                st.session_state["widget_m_hbar"] = [m for m in cust_lists.get("hbar", []) if m in df_raw.columns]
+                st.session_state["widget_m_radar"] = [m for m in cust_lists.get("radar", []) if m in df_raw.columns]
+                
+                st.success(f"Preset '{sel_preset}' carregado!")
+                st.rerun()
+
+    with col_p3:
+        st.write("") # Spacer
+        st.write("") 
+        
+    st.markdown("---")
+    c_save1, c_save2 = st.columns([2, 1])
+    with c_save1:
+        new_preset_name = st.text_input("Nome para Salvar/Atualizar Preset")
+    with c_save2:
+        st.write("")
+        st.write("")
+        if st.button("💾 Salvar Configuração Atual", use_container_width=True):
+            if not new_preset_name:
+                st.error("Digite um nome para o preset.")
+            else:
+                # Gather state
+                current_config = {
+                    "metrics": st.session_state.get("widget_sel_metrics", []),
+                    "setores": st.session_state.get("widget_sel_setor", []),
+                    "tickers": st.session_state.get("sel_tickers_widget", []),
+                    "market_cap_range": st.session_state.get("widget_sel_mc", []),
+                    "filters": {}, # Will populate from filters in session state matching current metrics
+                    "settings": {
+                        "show_bar": st.session_state.get("widget_show_bar", True),
+                        "show_hbar": st.session_state.get("widget_show_hbar", True),
+                        "show_radar": st.session_state.get("widget_show_radar", True),
+                        "order": "graphs_first" if st.session_state.get("widget_order_opt", "Gráficos") == "Gráficos" else "table_first",
+                        "transpose": st.session_state.get("widget_transpose_table", False),
+                        "custom_metrics": st.session_state.get("widget_custom_metrics", False)
+                    },
+                    "custom_lists": {
+                        "table": st.session_state.get("widget_m_table", []),
+                        "bar": st.session_state.get("widget_m_bar", []),
+                        "hbar": st.session_state.get("widget_m_hbar", []),
+                        "radar": st.session_state.get("widget_m_radar", [])
+                    }
+                }
+                
+                # Gather active filters
+                # We iterate over selected metrics and check if a filter key exists
+                for m in current_config["metrics"]:
+                    f_key = f"filter_{m}"
+                    if f_key in st.session_state:
+                        current_config["filters"][m] = st.session_state[f_key]
+                
+                presets_data[new_preset_name] = current_config
+                save_presets(presets_data)
+                st.success(f"Preset '{new_preset_name}' salvo com sucesso!")
+                st.rerun()
+
 # Filters on Main Page
 col_f1, col_f2 = st.columns(2)
 with col_f1:
     setores = sorted(df_raw["Setor Economatica"].dropna().unique().tolist())
-    sel_setor = st.multiselect("Filtrar por Setor", setores)
+    sel_setor = st.multiselect("Filtrar por Setor", setores, key="widget_sel_setor")
 
 with col_f2:
     # Market Cap Filter
@@ -636,7 +763,20 @@ with col_f2:
         if not mc_series.empty:
             min_mc = float(mc_series.min())
             max_mc = float(mc_series.max())
-            sel_mc = st.slider("Filtrar por Valor de Mercado (milhares)", min_mc, max_mc, (min_mc, max_mc))
+            
+            # SAFEGUARD: Clamp session state value if present
+            if "widget_sel_mc" in st.session_state:
+                curr = st.session_state["widget_sel_mc"]
+                # Ensure tuple has 2 elements
+                if isinstance(curr, (tuple, list)) and len(curr) == 2:
+                    safe_min = max(min_mc, min(curr[0], max_mc))
+                    safe_max = min(max_mc, max(curr[1], min_mc))
+                    st.session_state["widget_sel_mc"] = (safe_min, safe_max)
+            else:
+                 # Ensure default is set if not present
+                 st.session_state["widget_sel_mc"] = (min_mc, max_mc)
+
+            sel_mc = st.slider("Filtrar por Valor de Mercado (milhares)", min_mc, max_mc, key="widget_sel_mc")
         else:
             sel_mc = None
     else:
@@ -658,7 +798,7 @@ select_defaults = ["P / VPA", "Preço / Lucro 12 meses", "Dividend Yield 12 mese
 select_defaults = [d for d in select_defaults if d in metric_candidates]
 
 st.markdown("### 1. Seleção de Métricas e Filtros de Valor")
-sel_metrics = st.multiselect("Selecionar Métricas Base", metric_candidates, default=select_defaults)
+sel_metrics = st.multiselect("Selecionar Métricas Base", metric_candidates, default=select_defaults, key="widget_sel_metrics")
 
 # -------------------- Metric Range Filtering --------------------
 with st.expander("🔍 Filtrar por Valores das Métricas", expanded=False):
@@ -681,10 +821,20 @@ with st.expander("🔍 Filtrar por Valores das Métricas", expanded=False):
                         metric_filters[m] = (m_min, m_max)
                     else:
                         suffix = "%" if _is_percent_col(m) else "x" if _is_multiple_col(m) else ""
+                        
+                        f_key = f"filter_{m}"
+                        # SAFEGUARD: Clamp session state value if present
+                        if f_key in st.session_state:
+                            curr = st.session_state[f_key]
+                            if isinstance(curr, (tuple, list)) and len(curr) == 2:
+                                safe_min = max(m_min, min(curr[0], m_max))
+                                safe_max = min(m_max, max(curr[1], m_min))
+                                st.session_state[f_key] = (safe_min, safe_max)
+                        
                         metric_filters[m] = st.slider(
                             f"{m} ({suffix})", 
                             m_min, m_max, (m_min, m_max),
-                            key=f"filter_{m}_{idx}"
+                            key=f_key
                         )
                 else:
                     st.write(f"**{m}**: Sem dados numéricos para filtrar")
@@ -751,9 +901,9 @@ with st.expander("⚙️ Configurações do Relatório", expanded=True):
     col_s1, col_s2, col_s3 = st.columns(3)
     with col_s1:
         st.write("**Gráficos a incluir:**")
-        show_bar = st.checkbox("Barras Verticais", value=True)
-        show_hbar = st.checkbox("Barras Horizontais", value=True)
-        show_radar = st.checkbox("Radar", value=True)
+        show_bar = st.checkbox("Barras Verticais", value=True, key="widget_show_bar")
+        show_hbar = st.checkbox("Barras Horizontais", value=True, key="widget_show_hbar")
+        show_radar = st.checkbox("Radar", value=True, key="widget_show_radar")
         selected_graphs = []
         if show_bar: selected_graphs.append("bar")
         if show_hbar: selected_graphs.append("hbar")
@@ -761,23 +911,23 @@ with st.expander("⚙️ Configurações do Relatório", expanded=True):
     
     with col_s2:
         st.write("**Ordem das Seções:**")
-        order_opt = st.radio("Mostrar primeiro:", ["Gráficos", "Tabela"], index=0)
+        order_opt = st.radio("Mostrar primeiro:", ["Gráficos", "Tabela"], index=0, key="widget_order_opt")
         report_order = "graphs_first" if order_opt == "Gráficos" else "table_first"
         
     with col_s3:
         st.write("**Estrutura da Tabela:**")
-        transpose_table = st.toggle("Inverter Tabela (Transpor)", value=False)
-        custom_metrics = st.toggle("Customizar métricas por componente", value=False)
+        transpose_table = st.toggle("Inverter Tabela (Transpor)", value=False, key="widget_transpose_table")
+        custom_metrics = st.toggle("Customizar métricas por componente", value=False, key="widget_custom_metrics")
 
 if custom_metrics:
     st.info("Personalize as métricas para cada parte do relatório abaixo:")
     m_col1, m_col2 = st.columns(2)
     with m_col1:
-        m_table = st.multiselect("Métricas da Tabela", metric_candidates, default=sel_metrics)
-        m_bar = st.multiselect("Métricas do Gráfico Barras", metric_candidates, default=sel_metrics)
+        m_table = st.multiselect("Métricas da Tabela", metric_candidates, default=sel_metrics, key="widget_m_table")
+        m_bar = st.multiselect("Métricas do Gráfico Barras", metric_candidates, default=sel_metrics, key="widget_m_bar")
     with m_col2:
-        m_hbar = st.multiselect("Métricas do Gráfico Horizontal", metric_candidates, default=sel_metrics)
-        m_radar = st.multiselect("Métricas do Gráfico Radar", metric_candidates, default=sel_metrics)
+        m_hbar = st.multiselect("Métricas do Gráfico Horizontal", metric_candidates, default=sel_metrics, key="widget_m_hbar")
+        m_radar = st.multiselect("Métricas do Gráfico Radar", metric_candidates, default=sel_metrics, key="widget_m_radar")
 else:
     m_table = m_bar = m_hbar = m_radar = sel_metrics
 
