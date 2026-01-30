@@ -1087,7 +1087,7 @@ st.title("🚀 Gerador de Trade Ideas")
 st.write("Preencha os dados abaixo para gerar um relatório de Trade Idea.")
 
 # --- Trade Type selection ---
-trade_type = st.radio("Tipo de Operação", ["LONG (Compra)", "SHORT (Venda)", "LONG & SHORT (Pair)"], horizontal=True)
+trade_type = st.radio("Tipo de Operação", ["LONG (Compra)", "SHORT (Venda)", "LONG & SHORT (Pair)", "OPÇÕES (Options)"], horizontal=True)
 
 col1, col2 = st.columns(2)
 
@@ -1128,7 +1128,18 @@ if trade_type == "LONG & SHORT (Pair)":
     target_price = target_ratio
     stop_price = stop_ratio
     current_price = current_ratio
+
+elif trade_type == "OPÇÕES (Options)":
+    with col1:
+        ticker = st.text_input("Ticker da Opção (ex: PETRB400)", "").upper().strip()
+        current_price = st.number_input("Preço Atual (R$)", value=0.0, step=0.01, format="%.2f")
+        entry_price = st.number_input("Preço de Entrada (R$)", value=current_price if current_price > 0 else 0.0, step=0.01, format="%.2f")
     
+    with col2:
+        entry_date = st.date_input("Data de Entrada", value=datetime.today())
+        target_price = st.number_input("Preço Alvo (R$)", value=entry_price * 1.5 if entry_price > 0 else 0.0, step=0.01, format="%.2f")
+        stop_price = st.number_input("Preço Stop (Loss) (R$)", value=entry_price * 0.5 if entry_price > 0 else 0.0, step=0.01, format="%.2f")
+
 else: # LONG or SHORT
     is_short = (trade_type == "SHORT (Venda)")
     with col1:
@@ -1232,7 +1243,7 @@ else: # LONG or SHORT
                                        step=0.01, format="%.2f")
 
         entry_price = st.number_input("Preço de Entrada (R$)", value=current_price if current_price > 0 else 0.0, step=0.01, format="%.2f")
-
+    
     with col2:
         entry_date = st.date_input("Data de Entrada", value=datetime.today())
         if not is_short:
@@ -1249,6 +1260,9 @@ if entry_price > 0:
     if trade_type == "SHORT (Venda)":
         upside_pct = 1 - (target_price / entry_price)
         downside_pct = 1 - (stop_price / entry_price)
+    elif trade_type == "OPÇÕES (Options)": # Similar to Long
+        upside_pct = (target_price / entry_price) - 1
+        downside_pct = (stop_price / entry_price) - 1
     else: # LONG or L&S Ratio
         upside_pct = (target_price / entry_price) - 1
         downside_pct = (stop_price / entry_price) - 1
@@ -1275,6 +1289,7 @@ if st.button("Gerar Trade Idea e Salvar"):
         t_type = "LONG"
         if trade_type == "SHORT (Venda)": t_type = "SHORT"
         elif trade_type == "LONG & SHORT (Pair)": t_type = "LS"
+        elif trade_type == "OPÇÕES (Options)": t_type = "OPTION"
         
         t_long = ticker
         t_short = ""
@@ -1299,8 +1314,12 @@ if st.button("Gerar Trade Idea e Salvar"):
             t_type_val = "LONG"
             if trade_type == "SHORT (Venda)": t_type_val = "SHORT"
             elif trade_type == "LONG & SHORT (Pair)": t_type_val = "LS"
+            elif trade_type == "OPÇÕES (Options)": t_type_val = "OPTION"
             
-            chart_b64 = generate_comparison_chart_b64(ticker, entry_date_str, None, t_type_val, entry_price, target_price, stop_price)
+            if t_type_val != "OPTION":
+                chart_b64 = generate_comparison_chart_b64(ticker, entry_date_str, None, t_type_val, entry_price, target_price, stop_price)
+            else:
+                chart_b64 = ""
 
         template = Template(REPORT_HTML_TEMPLATE)
         
@@ -1315,6 +1334,7 @@ if st.button("Gerar Trade Idea e Salvar"):
         t_label = "Trade Idea - Compra"
         if t_type_val == "SHORT": t_label = "Trade Idea - Venda"
         elif t_type_val == "LS": t_label = "Trade Idea - Long & Short"
+        elif t_type_val == "OPTION": t_label = "Trade Idea - Opção"
 
         html_content = template.render(
             ticker=ticker,
@@ -1340,8 +1360,8 @@ if st.button("Gerar Trade Idea e Salvar"):
             label_target=l_target,
             label_stop=l_stop,
             label_exit=l_exit,
-            comparison_table=st.session_state.get("peer_comparison_html", ""),
-            comparison_title=st.session_state.get("peer_comparison_title", "Comparação Setorial"),
+            comparison_table=st.session_state.get("peer_comparison_html", "") if t_type_val != "OPTION" else "", # No peer table for Options either
+            comparison_title=st.session_state.get("peer_comparison_title", "Comparação Setorial") if t_type_val != "OPTION" else "",
             casa_analise=casa_analise
         )
         
@@ -1408,9 +1428,13 @@ if not df_open.empty:
                     curr_p = 0.0
                     
                     is_ls = (row.get("trade_type") == "LS")
+                    is_option = (row.get("trade_type") == "OPTION")
                     t_clean = row["ticker"]
                     
-                    if is_ls:
+                    if is_option:
+                        # Skip auto-update for options, preserve existing current price
+                        curr_p = row["current_price"]
+                    elif is_ls:
                         # For LS we need both prices
                         t_long = row.get("ticker", "").split("/")[0] if "/" in row.get("ticker", "") else row.get("ticker") # Fallback
                         t_short = row.get("ticker_short", "")
@@ -1432,10 +1456,10 @@ if not df_open.empty:
                         if entry > 0:
                             if row.get("trade_type") == "SHORT":
                                 ret_pct = 1 - (curr_p / entry)
-                            elif row.get("trade_type") == "LS": # LS is Long the ratio usually?
+                            elif row.get("trade_type") == "LS": 
                                 # Assumption: LS Ratio means Long the Ratio (Entry < Exit/Current is profit)
                                 ret_pct = (curr_p / entry) - 1
-                            else: # LONG
+                            else: # LONG or OPTION
                                 ret_pct = (curr_p / entry) - 1
                         
                         # Store updates in a list to bulk update later or display
@@ -1580,14 +1604,15 @@ if not df_all.empty:
         col_ed1, col_ed2 = st.columns(2)
         with col_ed1:
             m_ticker = st.text_input("Ticker", value=row["ticker"], key=f"ed_ticker_{selected_id}")
-            m_type = st.selectbox("Tipo", options=["LONG", "SHORT", "LS"], 
-                                  index=["LONG", "SHORT", "LS"].index(r_type) if r_type in ["LONG", "SHORT", "LS"] else 0,
+            m_type = st.selectbox("Tipo", options=["LONG", "SHORT", "LS", "OPTION"], 
+                                  index=["LONG", "SHORT", "LS", "OPTION"].index(r_type) if r_type in ["LONG", "SHORT", "LS", "OPTION"] else 0,
                                   key=f"ed_type_{selected_id}")
             m_status = st.selectbox("Status", options=["ABERTA", "ENCERRADA"], 
                                     index=0 if row["status"] == "ABERTA" else 1, 
                                     key=f"ed_status_{selected_id}")
             label_e = "Ratio de Entrada" if m_type == "LS" else "Entrada (R$)"
             m_entry = st.number_input(label_e, value=float(row["entry_price"] or 0), format="%.4f" if m_type == "LS" else "%.2f", key=f"ed_entry_{selected_id}")
+            m_current = st.number_input("Preço Atual (R$)", value=float(row["current_price"] or 0), format="%.4f" if m_type == "LS" else "%.2f", key=f"ed_curr_{selected_id}")
             m_start_date = st.text_input("Data Início", value=row["start_date"] or "", key=f"ed_start_{selected_id}")
 
         with col_ed2:
@@ -1689,7 +1714,7 @@ if not df_all.empty:
         if btn_col1.button("💾 Salvar Alterações", key=f"save_btn_{selected_id}"):
             if m_type == "SHORT":
                 r_pct = 1 - (m_exit / m_entry) if m_entry > 0 and m_exit > 0 else 0
-            else: # LONG or LS
+            else: # LONG or LS or OPTION
                 r_pct = (m_exit / m_entry) - 1 if m_entry > 0 and m_exit > 0 else 0
             
             final_status = m_status
@@ -1710,9 +1735,9 @@ if not df_all.empty:
             conn.execute("""
                 UPDATE trade_ideas SET 
                 ticker=?, status=?, entry_price=?, target_price=?, stop_price=?, 
-                exit_price=?, start_date=?, end_date=?, notes=?, result_pct=?, trade_type=?, casa_analise=?
+                exit_price=?, start_date=?, end_date=?, notes=?, result_pct=?, trade_type=?, casa_analise=?, current_price=?
                 WHERE id=?
-            """, (m_ticker, final_status, m_entry, m_target, m_stop, m_exit, m_start_date, final_end_date, m_notes, r_pct, m_type, m_casa_analise, selected_id))
+            """, (m_ticker, final_status, m_entry, m_target, m_stop, m_exit, m_start_date, final_end_date, m_notes, r_pct, m_type, m_casa_analise, m_current, selected_id))
             conn.commit()
             conn.close()
             st.success(f"Registro atualizado! Status: {final_status}")
@@ -1724,7 +1749,7 @@ if not df_all.empty:
                 r_pct_val = 1 - (m_exit / m_entry) if m_entry > 0 and m_exit > 0 else 0
                 u_pct_val = 1 - (m_target / m_entry) if m_entry > 0 else 0
                 d_pct_val = 1 - (m_stop / m_entry) if m_entry > 0 else 0
-            else: # LONG or LS
+            else: # LONG or LS or OPTION
                 r_pct_val = (m_exit / m_entry) - 1 if m_entry > 0 and m_exit > 0 else 0
                 u_pct_val = (m_target / m_entry) - 1 if m_entry > 0 else 0
                 d_pct_val = (m_stop / m_entry) - 1 if m_entry > 0 else 0
@@ -1750,7 +1775,10 @@ if not df_all.empty:
 
             template = Template(REPORT_HTML_TEMPLATE)
             with st.spinner("Gerando gráfico de performance..."):
-                chart_b64 = generate_comparison_chart_b64(m_ticker, m_start_date, preview_end_date, m_type, m_entry, m_target, m_stop)
+                if m_type != "OPTION":
+                    chart_b64 = generate_comparison_chart_b64(m_ticker, m_start_date, preview_end_date, m_type, m_entry, m_target, m_stop)
+                else:
+                    chart_b64 = ""
 
             # Labels and formatting for report
             is_ls_report = (m_type == "LS")
@@ -1763,6 +1791,7 @@ if not df_all.empty:
             t_label = "Trade Idea - Compra"
             if m_type == "SHORT": t_label = "Trade Idea - Venda"
             elif m_type == "LS": t_label = "Trade Idea - Long & Short"
+            elif m_type == "OPTION": t_label = "Trade Idea - Opção"
 
             h_content = template.render(
                 ticker=m_ticker,
@@ -1788,8 +1817,8 @@ if not df_all.empty:
                 label_target=l_target,
                 label_stop=l_stop,
                 label_exit=l_exit,
-                comparison_table=st.session_state.get(f"peer_html_{selected_id}", ""),
-                comparison_title=st.session_state.get(f"peer_title_{selected_id}", "Comparação Setorial"),
+                comparison_table=st.session_state.get(f"peer_html_{selected_id}", "") if m_type != "OPTION" else "",
+                comparison_title=st.session_state.get(f"peer_title_{selected_id}", "Comparação Setorial") if m_type != "OPTION" else "",
                 casa_analise=m_casa_analise
             )
             
