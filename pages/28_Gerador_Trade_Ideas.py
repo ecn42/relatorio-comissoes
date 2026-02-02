@@ -541,7 +541,8 @@ def html_to_pdf(html_content):
             # Calculate content height dynamically
             content_height = page.evaluate("() => document.body.scrollHeight")
             # Add margins (top 15mm + bottom 20mm = 35mm ≈ 132px at 96dpi)
-            total_height_px = content_height + 140
+            # Increased buffer to avoid blank second page
+            total_height_px = content_height + 180
             # Convert to mm (96 dpi: 1mm ≈ 3.78px)
             total_height_mm = total_height_px / 3.78
             
@@ -1050,6 +1051,13 @@ REPORT_HTML_TEMPLATE = """
             <div class="metric-card"><div class="metric-label">Upside Est.</div><div class="metric-value positive">{{ upside_pct }}</div></div>
             <div class="metric-card"><div class="metric-label">Downside Est.</div><div class="metric-value negative">{{ downside_pct }}</div></div>
             <div class="metric-card"><div class="metric-label">Status</div><div class="metric-value">{{ status }}</div></div>
+            
+            {% if status == 'ENCERRADA' or exit_price_raw > 0 %}
+            <div class="metric-card"><div class="metric-label">{{ label_exit }}</div><div class="metric-value" style="color: #333;">{{ prefix }} {{ exit_price }}</div></div>
+            <div class="metric-card"><div class="metric-label">Resultado Final</div><div class="metric-value {% if result_raw >= 0 %}positive{% else %}negative{% endif %}">{{ result_pct }}</div></div>
+            <div class="metric-card"><div class="metric-label">Duração</div><div class="metric-value">{{ duration_days }} dias</div></div>
+            <div class="metric-card"><div class="metric-label">Data Fim</div><div class="metric-value">{{ end_date }}</div></div>
+            {% endif %}
         </div>
 
         {% if comparison_chart %}
@@ -1342,6 +1350,7 @@ if st.button("Gerar Trade Idea e Salvar"):
             target_price=brl(target_price) if not is_ls else f"{target_price:.4f}",
             stop_price=brl(stop_price) if not is_ls else f"{stop_price:.4f}",
             exit_price="0,00",
+            exit_price_raw=0,
             upside_pct=pct(upside_pct),
             downside_pct=pct(downside_pct),
             result_pct="0,00%",
@@ -1799,6 +1808,7 @@ if not df_all.empty:
                 target_price=brl(m_target) if not is_ls_report else f"{m_target:.4f}",
                 stop_price=brl(m_stop) if not is_ls_report else f"{m_stop:.4f}",
                 exit_price=brl(m_exit) if not is_ls_report else f"{m_exit:.4f}",
+                exit_price_raw=m_exit, # Added raw for logic
                 upside_pct=pct(u_pct_val),
                 downside_pct=pct(d_pct_val),
                 result_pct=pct(r_pct_val),
