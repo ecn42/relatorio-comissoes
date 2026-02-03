@@ -165,8 +165,20 @@ def generate_html_report(fig, legs_df, explanation, initial_cost_str, brokerage_
             font-weight: 700; 
             display: inline-block;
         }
+        .footer {
+            margin_top: 40px;
+            font-size: 8px;
+            color: #777;
+            text-align: justify;
+            border-top: 1px solid #E0D5CA;
+            padding-top: 10px;
+        }
     </style>
     """
+    
+    # Disclaimer Texts
+    top_disc = "Esta é uma simulação meramente ilustrativa com valores indicativos. Não configura oferta pública, oferta particular ou recomendação de investimento de valores mobiliários. Os valores apresentados são estimativas sujeitas a alteração sem aviso prévio."
+    bottom_disc = "As informações aqui contidas têm caráter meramente indicativo e ilustrativo, não representando oferta pública, oferta particular, ou solicitação de oferta para aquisição de valores mobiliários. Não constitui, ainda, recomendação de investimento, análise de risco ou garantia de rentabilidade. Os valores e cenários apresentados são simulações baseadas em premissas variáveis e podem não refletir resultados futuros. Recomenda-se a leitura cuidadosa do regulamento/prospecto antes de qualquer decisão de investimento."
     
     html = f"""
     <!DOCTYPE html>
@@ -174,7 +186,7 @@ def generate_html_report(fig, legs_df, explanation, initial_cost_str, brokerage_
     <head>{css}</head>
     <body>
         <h1>Simulação de Estrutura de Opções</h1>
-        
+        <p style="font-size: 10px; color: #555;">{top_disc}</p>
         
         <div class="cost-box">
             Resultado Inicial (Prêmio): {initial_cost_str}<br>
@@ -189,6 +201,10 @@ def generate_html_report(fig, legs_df, explanation, initial_cost_str, brokerage_
         
         <h2>Análise de Cenários</h2>
         <div class="scenario-box">{explanation_html}</div>
+        
+        <div class="footer">
+            {bottom_disc}
+        </div>
     </body>
     </html>
     """
@@ -196,6 +212,7 @@ def generate_html_report(fig, legs_df, explanation, initial_cost_str, brokerage_
 
 # Page Layout
 st.title("🛠️ Calculadora de Payoff de Opções")
+st.caption("Esta é uma simulação meramente ilustrativa com valores indicativos. Não configura oferta pública, oferta particular ou recomendação de investimento de valores mobiliários. Os valores apresentados são estimativas sujeitas a alteração sem aviso prévio.")
 st.markdown("---")
 
 col_config, col_graph = st.columns([1, 2])
@@ -605,3 +622,6 @@ with col_graph:
                     except Exception as e:
                         st.error(f"Erro ao gerar PDF: {e}")
                         st.caption("Verifique se o Playwright está instalado ou utilize a opção HTML.")
+        
+        st.markdown("---")
+        st.caption("As informações aqui contidas têm caráter meramente indicativo e ilustrativo, não representando oferta pública, oferta particular, ou solicitação de oferta para aquisição de valores mobiliários. Não constitui, ainda, recomendação de investimento, análise de risco ou garantia de rentabilidade. Os valores e cenários apresentados são simulações baseadas em premissas variáveis e podem não refletir resultados futuros. Recomenda-se a leitura cuidadosa do regulamento/prospecto antes de qualquer decisão de investimento.")
