@@ -48,6 +48,7 @@ def home():
             {"title": "Gerador de Trade Ideas", "icon": ":material/rocket_launch:"},
             {"title": "API 4intelligence", "icon": ":material/api:"},
             {"title": "Database Economatica", "icon": ":material/database:"},
+            {"title": "Calculadora Payoff", "icon": ":material/functions:"},
 
         ],
         "One Pager Fundos": [
@@ -161,6 +162,11 @@ pages = {
             "pages/31_Adequacao_Perfil_Inv.py",
             title="Adequação Perfil Investidor",
             icon=":material/bar_chart:",
+        ),
+        st.Page(
+            "pages/34_Ferramentas_Payoff.py",
+            title="Calculadora Payoff",
+            icon=":material/functions:",
         )
     ],
     "One Pager Fundos": [
