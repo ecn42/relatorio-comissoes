@@ -18,7 +18,7 @@ CSS_STYLES = """
 
 @page {
   size: A4;
-  margin: 0;
+  margin: 15mm 12mm 15mm 12mm;
 }
 
 :root {
@@ -35,7 +35,7 @@ CSS_STYLES = """
 h1, h2, h3, h4, h5, h6 {
   page-break-after: avoid;
   break-after: avoid;
-  margin-bottom: 5px; /* Ensure close proximity to content */
+  margin-bottom: 5px;
 }
 
 html, body {
@@ -49,8 +49,8 @@ body {
   font-family: 'Open Sans', 'Segoe UI', Arial, sans-serif;
   background: #f0f0f0;
   color: var(--text);
-  padding: 0;
-  font-size: 10px;
+  padding: 10px;
+  font-size: 11px; /* Increased from 10px */
 }
 
 .page {
@@ -60,8 +60,8 @@ body {
   background: white;
   box-shadow: 0 2px 15px rgba(0,0,0,0.1);
   overflow: hidden;
-  /* Padding acts as margin for content, allowing header to bleed */
-  padding: 10mm; 
+  border: 1px solid var(--tbl-border);
+  padding: 0 0 20px 0;
   page-break-after: always;
 }
 
@@ -69,36 +69,34 @@ body {
   page-break-after: auto;
 }
 
+/* HEADER */
 .main-header {
   background: var(--brand);
   color: #fff;
-  /* Top/Bottom padding, Left/Right matching page padding for alignment */
-  padding: 20px 10mm;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
-  gap: 15px;
-  /* Negative margin pulls it to the very edge of the page */
-  margin: -10mm -10mm 15px -10mm;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
 }
 
 .header-logo {
-  height: 50px;
+  height: 45px;
   max-width: 120px;
   object-fit: contain;
-  filter: brightness(0) invert(1);
 }
 
 .header-content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: flex-end; /* Right align flex items */
-  text-align: right;     /* Right align text */
+  align-items: flex-end;
+  text-align: right;
 }
 
 .main-title {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -106,54 +104,80 @@ body {
 }
 
 .header-info {
-  font-size: 9px;
-  line-height: 1.2;
+  font-size: 11px;
+  line-height: 1.4;
   opacity: 0.9;
   text-align: right;
 }
 
+/* SECTIONS */
 .section-header {
   background: var(--bg);
-  padding: 5px 15px;
+  padding: 10px 24px;
   border-bottom: 1px solid var(--tbl-border);
   border-top: 1px solid var(--tbl-border);
   font-weight: 700;
   color: var(--brand-dark);
-  font-size: 13px;
-  margin-top: 0;
+  font-size: 14px; /* Increased from 13px */
+  margin-top: 8px;
   page-break-after: avoid;
+  break-after: avoid;
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
 
 .content-block {
-    padding: 8px 5px;
+    padding: 12px 24px;
+    /* Removed page-break-inside: avoid to prevent huge blank spaces */
 }
 
+.content-block p {
+    margin: 5px 0;
+    line-height: 1.6; /* Increased line-height */
+}
+
+.content-block ul {
+    margin: 5px 0 10px 0;
+    padding-left: 20px;
+}
+
+.content-block li {
+    margin: 4px 0; /* Increased margin */
+    line-height: 1.5;
+}
+
+/* CHARTS & IMAGES */
 .chart-container {
-  padding: 5px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--tbl-border);
-  page-break-inside: avoid;
   text-align: center;
+  page-break-inside: avoid; /* Charts should stay together */
+  break-inside: avoid;
 }
 
 .chart-container img {
-    max-width: 100%;
-    height: auto;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #eee;
 }
 
+/* TABLES */
 .table-wrap {
   width: 100%;
   overflow-x: auto;
-  padding: 0 5px;
-  margin-bottom: 8px;
+  padding: 12px 24px;
   page-break-inside: avoid;
+  break-inside: avoid;
 }
 
 table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 10px;
+  font-size: 11px; /* Increased from 10px */
   margin-top: 4px;
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
 
 thead th {
@@ -163,7 +187,7 @@ thead th {
   background: var(--light);
   color: var(--text);
   text-align: center;
-  padding: 3px 4px;
+  padding: 6px 5px;
   font-weight: 700;
   border-bottom: 2px solid var(--tbl-border);
   white-space: nowrap;
@@ -174,7 +198,7 @@ thead th:first-child {
 }
 
 tbody td {
-  padding: 3px 4px;
+  padding: 5px 5px;
   border-bottom: 1px solid var(--tbl-border);
   text-align: right;
   white-space: nowrap;
@@ -189,24 +213,20 @@ tbody tr:nth-child(even) td {
   background: var(--light);
 }
 
-.footer {
-  padding: 5px 15px;
-  color: #666;
-  font-size: 10px;
-  border-top: 1px solid var(--tbl-border);
-  background: #fff;
-  text-align: center;
+tbody tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
 }
 
-/* Specific Utilities */
+/* UTILS */
 .status-ok { color: green; font-weight: bold; }
 .status-bad { color: red; font-weight: bold; }
-.small-note { font-size: 9px; color: #777; font-style: italic; margin-top: 4px; }
+.small-note { font-size: 10px; color: #777; font-style: italic; margin-top: 4px; } /* Increased from 9px */
 
-/* Enforce max height on images to prevent them from being too huge */
+/* Enforce max height on images */
 .content-block img, .chart-container img {
   max-width: 100%;
-  max-height: 250px;
+  max-height: 300px;
   height: auto;
   object-fit: contain;
   display: inline-block;
@@ -219,16 +239,16 @@ tbody tr:nth-child(even) td {
   }
   .page {
     box-shadow: none;
-    page-break-inside: avoid; /* Prevent page breaking inside container if possible */
+    /* Allow breaking specific to page container if needed, but 'always' rule handles sections */
+    page-break-inside: avoid;
     break-inside: avoid;
     border: none;
     margin: 0;
-    padding: 10mm; /* Print padding */
+    padding: 0 0 20px 0; 
   }
   .main-header {
-      /* Re-apply bleed margin for print context - matches padding */
-      margin: -10mm -10mm 15px -10mm;
-      padding: 20px 10mm;
+      margin: 0;
+      padding: 14px 24px;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
   }
@@ -260,7 +280,8 @@ def generate_formatted_report_html(
     compliance_checks: dict,
     tables: dict,
     plots: dict,
-    show_ratings: bool
+    show_ratings: bool,
+    custom_conclusions: str = None
 ) -> str:
     """
     Generates the full HTML report string using the strictly defined template.
@@ -270,6 +291,21 @@ def generate_formatted_report_html(
     # --- Prepare Header ---
     logo_src = LOGO_BASE64 if LOGO_BASE64.startswith("data:") else f"data:image/png;base64,{LOGO_BASE64}"
     
+    # Default conclusions if none provided
+    if custom_conclusions and custom_conclusions.strip():
+        # Convert newlines to breaks or paragraphs if user input is raw text
+        # Simple approach: preserve line breaks
+        conclusions_html = custom_conclusions.replace("\n", "<br/>")
+        conclusions_content = f"<p>{conclusions_html}</p>"
+    else:
+        conclusions_content = """
+            <ul>
+              <li>Os níveis de risco de crédito são compatíveis com o perfil estabelecido.</li>
+              <li>Não foram identificadas exposições que comprometam a estabilidade financeira das carteiras.</li>
+              <li>As políticas de risco são seguidas com monitoramento contínuo.</li>
+            </ul>
+        """
+
     html = f"""
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -505,11 +541,7 @@ def generate_formatted_report_html(
         <!-- 6. CONCLUSOES -->
         <div class="section-header">6. CONCLUSÕES</div>
         <div class="content-block">
-            <ul>
-              <li>Os níveis de risco de crédito são compatíveis com o perfil estabelecido.</li>
-              <li>Não foram identificadas exposições que comprometam a estabilidade financeira das carteiras.</li>
-              <li>As políticas de risco são seguidas com monitoramento contínuo.</li>
-            </ul>
+            {conclusions_content}
         </div>
         
         <!-- 7. RECOMENDACOES -->
@@ -525,16 +557,6 @@ def generate_formatted_report_html(
         <div class="content-block" style="margin-top:20px;">
             Assinatura: {responsible_name} – Diretor de Risco
         </div>
-        
-        <div class="content-block" style="border-top:1px solid #ccc; margin-top:15px; padding-top:10px;">
-            <h3>Anexos</h3>
-            <div class="small-note">
-              Figuras geradas no app (por classe, por rating, por emissor, por fator,
-              por vencimento, por país, por moeda e por tipo) podem ser exportadas
-              separadamente.
-            </div>
-        </div>
-        
       </div>
     </body>
     </html>
@@ -554,6 +576,7 @@ def html_to_pdf_formatted(html_content: str) -> bytes:
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
         page = browser.new_page()
+        page.set_viewport_size({"width": 794, "height": 1123})
         
         # Set content
         page.set_content(html_content, wait_until="load")
@@ -562,12 +585,11 @@ def html_to_pdf_formatted(html_content: str) -> bytes:
         pdf_bytes = page.pdf(
             format="A4",
             print_background=True,
-            # We use CSS margins/padding for content, so PDF margin is minimal
             margin={
-                "top": "0",
-                "right": "0",
-                "bottom": "0",
-                "left": "0"
+                "top": "15mm",
+                "right": "12mm",
+                "bottom": "15mm",
+                "left": "12mm"
             }
         )
         browser.close()

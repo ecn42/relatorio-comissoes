@@ -60,12 +60,24 @@ from contextlib import closing
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
 import unicodedata  # Para matching acento-insensível das S1
+import sys
+import importlib
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from jinja2 import Template
+
+# Add project root to sys.path if not present (helps with imports)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+# Helper function
+from utils import credit_report_generator
+importlib.reload(credit_report_generator)
 from utils.credit_report_generator import generate_formatted_report_html, html_to_pdf_formatted
 
 
@@ -3434,6 +3446,20 @@ if True: # encapsulate to avoid polluting namespace too much
         'ratings_usd': p_ratings_usd
     }
 
+    # Custom dashboard field for conclusions
+    default_conclusions = (
+        "- Os níveis de risco de crédito são compatíveis com o perfil estabelecido.\n"
+        "- Não foram identificadas exposições que comprometam a estabilidade financeira das carteiras.\n"
+        "- As políticas de risco são seguidas com monitoramento contínuo."
+    )
+    st.subheader("Configurações do Relatório")
+    custom_conclusions = st.text_area(
+        "Conclusões do Relatório:",
+        value=default_conclusions,
+        height=150,
+        help="Edite o texto que aparecerá na seção 6. CONCLUSÕES. Mantenha os hífens para simular tópicos."
+    )
+
     formatted_html_report = generate_formatted_report_html(
         manager_name=manager_name,
         manager_cnpj=manager_cnpj,
@@ -3444,7 +3470,8 @@ if True: # encapsulate to avoid polluting namespace too much
         compliance_checks=_checks,
         tables=_tables,
         plots=_plots,
-        show_ratings=show_ratings_section
+        show_ratings=show_ratings_section,
+        custom_conclusions=custom_conclusions
     )
 
 

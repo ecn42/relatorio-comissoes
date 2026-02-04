@@ -2595,7 +2595,7 @@ REPORT_HTML = """
 """
 
 
-def render_report_html():
+def render_report_html(conclusions_text):
     if not HAS_MPL:
         return "Matplotlib não disponível para geração de gráficos."
     
@@ -2901,11 +2901,8 @@ def render_report_html():
     ok_pos_local = max_pos_local <= 0.15
     ok_pos_offshore = max_pos_offshore <= 0.15
     
-    # Conclusions
-    if ok_pos_local and ok_pos_offshore:
-        conclusions = "As carteiras administradas apresentam níveis de risco de mercado compatíveis com o perfil de risco estabelecido. Não foram identificadas exposições significativas que possam comprometer a estabilidade financeira das carteiras."
-    else:
-        conclusions = "As carteiras administradas pela Ceres Asset Gestão de Investimentos Ltda apresentam, temporariamente, níveis de risco de mercado não compatíveis com o perfil de risco estabelecido. O período atual é de construção e tombamento de carteiras."
+    # Conclusions - Now passed as argument
+    conclusions = conclusions_text
 
     t = Template(REPORT_HTML)
     return t.render(
@@ -2960,11 +2957,19 @@ def render_report_html():
         fig_offshore_reits_dd_1y=fig_offshore_reits_dd_1y,
         offshore_reits_periods=offshore_reits_periods,
         offshore_reits_1y=offshore_reits_1y,
+
         conclusions=conclusions
     )
 
 
 # ---------------------------- Auto Report Generation ---------------------------- #
+
+st.markdown("---")
+st.subheader("Configurações do Relatório")
+
+default_conclusion = "O nível de risco atual foi considerado adequado para a carteira atual, e continuará a ser monitorado com atenção."
+conclusions_input = st.text_area("Conclusões do Relatório", value=default_conclusion, height=100)
+
 
 st.markdown("---")
 st.subheader("📄 Relatórios Gerados")
@@ -2986,7 +2991,7 @@ if not base_df.empty:
         with st.spinner("Gerando relatórios HTML e PDF automaticamente..."):
             try:
                 # Generate HTML
-                html_content = render_report_html()
+                html_content = render_report_html(conclusions_input)
                 st.session_state.report_html = html_content
                 st.session_state.data_hash = current_data_hash
                 st.session_state.report_generated_at = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
