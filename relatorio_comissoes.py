@@ -32,80 +32,49 @@ def home():
         "Use o menu superior para navegar."
     )
 
-    # Estrutura do resumo (sem paths)
-    sections = {
-        "": [
-            {"title": "Home", "icon": ":material/home:", "default": True},
-        ],
-        "Legado (XP)": [
-            {"title": "Relatório Comissões", "icon": ":material/trending_up:"},
-            {"title": "Relatório Positivador", "icon": ":material/trending_up:"},
-        ],
-        "Ferramentas": [
-            {"title": "Estúdio de Gráficos", "icon": ":material/insert_chart:"},
-            {"title": "Comparador de Ações", "icon": ":material/bar_chart:"},
-            {"title": "Análise Ações Economatica", "icon": ":material/bar_chart:"},
-            {"title": "Gerador de Trade Ideas", "icon": ":material/rocket_launch:"},
-            {"title": "API 4intelligence", "icon": ":material/api:"},
-            {"title": "Database Economatica", "icon": ":material/database:"},
-            {"title": "Calculadora Payoff", "icon": ":material/functions:"},
+    st.divider()
 
-        ],
-        "One Pager Fundos": [
-            {"title": "1. Baixar CDI", "icon": ":material/download:"},
-            {"title": "2. Carteira Fundos", "icon": ":material/account_balance_wallet:"},
-            {"title": "3. Rent. Fundos", "icon": ":material/trending_up:"},
-            {"title": "4. Gerar Excel One Pager", "icon": ":material/description:"},
-            {"title": "5. Gerar HTML/PDF", "icon": ":material/html:"},
-            {"title": "6. Puxar Lâmina", "icon": ":material/description:"},
-        ],
-        "Formatação": [
-            {"title": "Texto Carteira Ações", "icon": ":material/article:"},
-            {"title": "Texto Asset Allocation", "icon": ":material/file_download:"},
-            {"title": "Tabela Asset Allocation", "icon": ":material/table_chart:"},
-        ],
-        "Gorila/Relatórios de Risco": [
-            {"title": "Gorila API Novo", "icon": ":material/api:"},
-            {"title": "Relatório de Crédito", "icon": ":material/account_balance:"},
-            {"title": "Add Ratings BR", "icon": ":material/star:"},
-            {"title": "Rating to Fitch", "icon": ":material/translate:"},
-        ],
-        "One Pager Crédito": [
-            {"title": "Gerar OnePager Crédito", "icon": ":material/description:"},
-        ],
-        "Databases": [
-            {"title": "Database Economatica", "icon": ":material/database:"},
-            {"title": "Database OnePager Crédito", "icon": ":material/database:"},
-        ],
-    }
+    st.subheader("Acesso Rápido")
+    
+    # Ferramentas
+    st.markdown("##### 🛠️ Ferramentas")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.page_link("pages/3_Graph_Studio.py", label="Estúdio de Gráficos", icon="📊")
+        st.page_link("pages/25_Carteiras_RV.py", label="Carteiras RV", icon="💼")
+    with c2:
+        st.page_link("pages/26_Carteiras_Mes_Atual.py", label="Carteiras Mês Atual", icon="📅")
+        st.page_link("pages/28_Gerador_Trade_Ideas.py", label="Gerador de Trade Ideas", icon="🚀")
+    with c3:
+        st.page_link("pages/30_Analise_Acoes_Economatica.py", label="Análise Ações Economatica", icon="📈")
+        st.page_link("pages/31_Adequacao_Perfil_Inv.py", label="Adequação Perfil", icon="⚖️")
+    with c4:
+        st.page_link("pages/34_Ferramentas_Payoff.py", label="Calculadora Payoff", icon="🔢")
+        
+    st.divider()
 
-    # Renderiza SEÇÕES em colunas (cada coluna é uma seção)
-    # Ajuste n_cols conforme preferir (2 ou 3).
-    n_cols = 3
-    section_items = list(sections.items())
+    # Relatórios
+    st.markdown("##### 📑 Relatórios")
+    r1, r2, r3, r4 = st.columns(4)
+    with r1:
+         st.page_link("pages/14_RELATORIO_CREDITO.py", label="Relatório de Crédito", icon="🏦")
+    with r2:
+         st.page_link("pages/27_Relatorio_Mercado.py", label="Relatório de Mercado", icon="📉")
+         
+    st.divider()
 
-    # Quebra a lista de seções em linhas de n_cols colunas
-    for row_start in range(0, len(section_items), n_cols):
-        row = section_items[row_start : row_start + n_cols]
-        cols = st.columns(len(row))
-        for c, (section_name, items) in zip(cols, row):
-            with c:
-                # Título da seção
-                if section_name == "":
-                    st.subheader("Home e Início")
-                else:
-                    st.subheader(section_name)
+    # Formatação
+    st.markdown("##### 📝 Formatação")
+    f1, f2, f3, f4 = st.columns(4)
+    with f1:
+        st.page_link("pages/15_Texto_Carteira_Acoes.py", label="Texto Carteira Ações", icon="📄")
+    with f2:
+        st.page_link("pages/9_NEW_Portfolio_parser.py", label="Texto Asset Allocation", icon="📥")
+    with f3:
+        st.page_link("pages/10_tabela_fornico.py", label="Tabela Asset Allocation", icon="📊")
+        
+    st.divider()
 
-                # Lista das páginas da seção (subseções apenas como bullet list)
-                for it in items:
-                    icon = it.get("icon", "")
-                    title = it.get("title", "Sem título")
-                    c.markdown(f"- {icon} {title}")
-
-    st.info(
-        "Dica: Utilize o menu superior para abrir as páginas. "
-        "Este resumo é apenas informativo."
-    )
 
 
 # ---------- NAV SETUP (the real page map for navigation) ----------

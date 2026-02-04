@@ -228,6 +228,35 @@ def save_ratings(df: pd.DataFrame, db_path: str = DB_PATH) -> bool:
         return False
 
 
+from io import BytesIO
+
+def get_template_excel() -> bytes:
+    """
+    Generate an Excel template for ratings upload.
+    Returns bytes of the Excel file.
+    """
+    # Create sample data
+    data = {
+        "TIPO": ["CRI", "DEB.", "CRA", "DEBENTURE ISENTA"],
+        "CÓDIGO": ["CRI11", "DEB11", "CRA11", "DEB12"],
+        "AGÊNCIA": ["AAA", "AA+", "A-", "BBB+"],
+    }
+    df = pd.DataFrame(data)
+    
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="Ratings")
+        
+        # Adjust column width
+        workbook = writer.book
+        worksheet = writer.sheets["Ratings"]
+        for i, col in enumerate(df.columns):
+            column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
+            worksheet.set_column(i, i, column_len)
+            
+    return output.getvalue()
+
+
 def main() -> None:
     st.title("Add Ratings BR")
     
@@ -265,25 +294,104 @@ def main() -> None:
         f"**{len(df_db.columns)}** columns."
     )
     
-    # Upload Excel file
-    excel_file = st.file_uploader(
-        "Upload Excel file with rating data",
-        type=["xls", "xlsx", "xlsm", "xlsb", "ods"],
-        key="ratings_excel_file",
+    # Download Template Button
+    st.subheader("1. Download Template")
+    st.markdown("Download the template sheet below to fill in your rating updates.")
+    
+    template_bytes = get_template_excel()
+    st.download_button(
+        label="Download Template Excel",
+        data=template_bytes,
+        file_name="ratings_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     
-    if excel_file is None:
-        st.info("Upload an Excel file to proceed.")
-        return
+    st.divider()
     
-    # Load Excel file
-    df_excel = load_sheet(excel_file)
-    if df_excel is None or df_excel.empty:
-        st.error("Could not read the uploaded Excel file or file is empty.")
+
+    # Upload Excel file
+    st.subheader("2. Upload Filled Template OR Paste Data")
+    
+    col_upload, col_paste = st.columns(2)
+    
+    with col_upload:
+        excel_file = st.file_uploader(
+            "Upload Excel file",
+            type=["xls", "xlsx", "xlsm", "xlsb", "ods"],
+            key="ratings_excel_file",
+        )
+        
+    with col_paste:
+        paste_text = st.text_area(
+            "Paste Data (TIPO, CÓDIGO, AGÊNCIA)", 
+            height=150, 
+            placeholder="CRI\tCRI11\tAAA\nDEB.\tDEB11\tAA+"
+        )
+        st.caption("Copy from Excel (tab-separated) or use semicolon (;). Must have 3 columns.")
+
+    df_excel = None
+    
+    if excel_file is not None:
+        # Load Excel file
+        df_excel = load_sheet(excel_file)
+        if df_excel is None or df_excel.empty:
+            st.error("Could not read the uploaded Excel file or file is empty.")
+            return
+            
+    elif paste_text:
+        # Process pasted text
+        from io import StringIO
+        import csv
+        
+        try:
+            # Try to sniff separator
+            sniffer = csv.Sniffer()
+            # Sample first few lines
+            sample = "\n".join(paste_text.splitlines()[:5])
+            try:
+                dialect = sniffer.sniff(sample)
+                sep = dialect.delimiter
+            except:
+                # Fallback to tab
+                sep = "\t"
+                
+            # Read CSV
+            df_excel = pd.read_csv(StringIO(paste_text), sep=sep, engine="python", header=None)
+            
+            # If header is likely missing (first row doesn't look like header), try to assign checks
+            # But usually paste from Excel won't have headers if user just selects data, 
+            # OR they will copy headers.
+            # Let's try to detect if first row matches our expected headers
+            first_row_vals = [str(x).upper().strip() for x in df_excel.iloc[0].tolist()]
+            expected_headers = ["TIPO", "CÓDIGO", "AGÊNCIA"] # Agência might be tricky with accent
+            
+            # Simple check: if first row contains "TIPO", use it as header
+            if "TIPO" in first_row_vals:
+                df_excel.columns = df_excel.iloc[0]
+                df_excel = df_excel[1:]
+            else:
+                # Assign default headers if 3 columns
+                if len(df_excel.columns) >= 3:
+                     # Rename first 3 columns
+                     cols = list(df_excel.columns)
+                     cols[0] = "TIPO"
+                     cols[1] = "CÓDIGO"
+                     cols[2] = "AGÊNCIA"
+                     df_excel.columns = cols
+                else:
+                    st.error(f"Pasted data has {len(df_excel.columns)} columns, expected at least 3 (TIPO, CÓDIGO, AGÊNCIA).")
+                    return
+                    
+        except Exception as e:
+            st.error(f"Error parsing text: {e}")
+            return
+
+    if df_excel is None:
+        st.info("Upload an Excel file or paste data to proceed.")
         return
     
     st.markdown(
-        f"Loaded Excel file with **{len(df_excel)}** rows and "
+        f"Loaded data with **{len(df_excel)}** rows and "
         f"**{len(df_excel.columns)}** columns."
     )
     
