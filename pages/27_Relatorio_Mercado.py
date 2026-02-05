@@ -351,15 +351,30 @@ def download_price_data(
                 st.warning("yfinance returned empty data")
             return None
         
-        if isinstance(data.columns, pd.MultiIndex):
+        # Enhanced Data Extraction
+        if "Adj Close" in data:
             adj_close = data["Adj Close"].copy()
+        elif "Close" in data:
+            if debug:
+                st.warning("'Adj Close' not found, using 'Close'")
+            adj_close = data["Close"].copy()
         else:
-            adj_close = pd.DataFrame(data["Adj Close"])
+            if debug:
+                st.error(f"Price columns not found. Columns: {data.columns}")
+            return None
+
+        # Handle Single Ticker Case (Series -> DataFrame)
+        if isinstance(adj_close, pd.Series):
+            adj_close = adj_close.to_frame()
             adj_close.columns = [all_tickers[0]]
-        
+            
         if debug:
             st.success(f"Downloaded {len(adj_close)} rows, {len(adj_close.columns)} columns")
             st.caption(f"Available columns: {list(adj_close.columns)[:10]}")
+            
+            with st.expander("🔍 Raw yfinance Data Structure", expanded=False):
+                st.write("Columns:", data.columns)
+                st.dataframe(data.head())
         
         return adj_close
         
@@ -378,10 +393,14 @@ def calculate_portfolio_returns(
     """
     Calculate portfolio and benchmark returns.
     Returns: (portfolio_returns, benchmark_returns, valid_items_used, var_data)
-    var_data contains: portfolio_weights, returns_matrix, portfolio_tickers, total_mv
+    var_data contains: portfolio_weights, returns_matrix, portfolio_tickers, total_mv,
+                       debug_prices (df), debug_returns (df)
     """
     
-    empty_var_data = {"weights": None, "returns_matrix": None, "tickers": [], "total_mv": 0}
+    empty_var_data = {
+        "weights": None, "returns_matrix": None, "tickers": [], "total_mv": 0,
+        "debug_prices": None, "debug_returns": None
+    }
     
     if adj_close is None or adj_close.empty:
         return None, None, [], empty_var_data
@@ -444,12 +463,14 @@ def calculate_portfolio_returns(
     
     valid_items = [{"yf_ticker": t, "mv": ticker_mv[t]} for t in portfolio_tickers]
     
-    # Data for VaR calculation
+    # Data for VaR calculation and Debugging
     var_data = {
         "weights": portfolio_weights,
         "returns_matrix": returns_matrix,
         "tickers": portfolio_tickers,
         "total_mv": total_mv,
+        "debug_prices": price_df,
+        "debug_returns": returns
     }
     
     return port_returns, bench_returns, valid_items, var_data
@@ -747,6 +768,19 @@ def calculate_backtest_multi_period(
         if debug:
             st.error("Failed to download price data")
         return {}
+
+    # Editable Debug Dataframes
+    if debug:
+        st.markdown(f"#### 🛠️ Edit Prices (Debug - {benchmark_label})")
+        with st.expander("📝 Editor de Preços", expanded=False):
+            st.info("Edite os valores abaixo e pressione Ctrl+Enter para aplicar.")
+            edited_adj_close = st.data_editor(
+                adj_close, 
+                key=f"editor_prices_{benchmark_label}_{len(adj_close)}",
+                num_rows="dynamic",
+                use_container_width=True
+            )
+            adj_close = edited_adj_close
     
     results = {}
     
@@ -1189,6 +1223,18 @@ def display_backtest_section(results: Dict[str, Dict], title: str, df_track: pd.
         start_str = start_dt.strftime("%d/%m/%Y") if hasattr(start_dt, 'strftime') else str(start_dt)[:10]
         end_str = end_dt.strftime("%d/%m/%Y") if hasattr(end_dt, 'strftime') else str(end_dt)[:10]
         st.caption(f"Dados: {start_str} a {end_str} ({data_points} pontos)")
+
+    # Debug Section (New)
+    debug_prices = res.get("debug_prices")
+    debug_returns = res.get("debug_returns")
+    if debug_prices is not None or debug_returns is not None:
+        with st.expander("🐞 Debug Data (Prices & Variations)", expanded=False):
+            if debug_prices is not None:
+                st.markdown("#### 📉 Preços (Cleaned)")
+                st.dataframe(debug_prices.tail(10))
+            if debug_returns is not None:
+                st.markdown("#### 📈 Variações Diárias (Returns)")
+                st.dataframe(debug_returns.tail(10))
     
     # Portfolio Composition Expander
     with st.expander(f"📊 Composição do Portfólio ({res.get('n_assets', 0)} ativos)", expanded=False):
