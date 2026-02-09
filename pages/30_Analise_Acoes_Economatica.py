@@ -10,6 +10,7 @@ import os
 from pages.ceres_logo import LOGO_BASE64
 
 PRESETS_FILE = "databases/presets_economatica.json"
+CUSTOM_ASSETS_FILE = "databases/custom_assets_economatica.json"
 
 # -------------------- Configuration & Theme --------------------
 st.set_page_config(page_title="Análise Ações Economatica", layout="wide")
@@ -200,6 +201,20 @@ def load_presets():
 def save_presets(presets):
     with open(PRESETS_FILE, "w", encoding="utf-8") as f:
         json.dump(presets, f, indent=4, ensure_ascii=False)
+
+# -------------------- Custom Assets Logic --------------------
+def load_custom_assets():
+    if not os.path.exists(CUSTOM_ASSETS_FILE):
+        return {}
+    try:
+        with open(CUSTOM_ASSETS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_custom_assets(assets):
+    with open(CUSTOM_ASSETS_FILE, "w", encoding="utf-8") as f:
+        json.dump(assets, f, indent=4, ensure_ascii=False)
 
 # -------------------- PDF Generator --------------------
 def html_to_pdf_playwright(html_content: str) -> bytes:
@@ -634,9 +649,30 @@ st.markdown("Comparador de ações utilizando os dados extraídos do Economatica
 
 df_raw = load_economatica_data()
 
+# -------------------- Inject Custom Assets --------------------
+custom_assets_dict = load_custom_assets()
+if custom_assets_dict:
+    custom_rows = []
+    for t_id, data in custom_assets_dict.items():
+        # Create a row with all columns as NA
+        row = {col: pd.NA for col in df_raw.columns}
+        # Update with custom data (Name, Sector, and Metrics)
+        row.update(data)
+        row['Ticker'] = t_id
+        custom_rows.append(row)
+    
+    df_custom = pd.DataFrame(custom_rows)
+    df_raw = pd.concat([df_raw, df_custom], ignore_index=True)
+
 if df_raw.empty:
     st.warning("Banco de dados não encontrado ou vazio. Vá em 'Database Economatica' para fazer o upload.")
     st.stop()
+
+# -------------------- Metrics Initialization --------------------
+base_cols_info = ["Ticker", "Nome", "Setor Economatica", "Setor NAICS ult disponiv", "Classe", "Bolsa / Fonte", "Tipo de Ativo", "Ativo / Cancelado", "Data da Últ Cotação", "Data do Último Balanço", "Unnamed: 0", "Consolidado", "Link da Última Nota Explicativa"]
+metric_candidates = [c for c in df_raw.columns if c not in base_cols_info]
+select_defaults = ["P / VPA", "Preço / Lucro 12 meses", "Dividend Yield 12 meses", "EV vs EBITDA 12 meses", "ROE 12 meses", "Dívida Líquida vs EBITDA 12 meses"]
+select_defaults = [d for d in select_defaults if d in metric_candidates]
 
 # -------------------- PRESETS MANAGER --------------------
 with st.expander("📂 Gerenciador de Presets (Salvar/Carregar Configurações)", expanded=False):
@@ -748,6 +784,100 @@ with st.expander("📂 Gerenciador de Presets (Salvar/Carregar Configurações)"
                 st.success(f"Preset '{new_preset_name}' salvo com sucesso!")
                 st.rerun()
 
+# -------------------- CUSTOM ASSETS MANAGER --------------------
+with st.expander("🛠️ Gerenciador de Ativos Customizados", expanded=False):
+    st.markdown("Crie ativos manuais para comparar com os dados do Economatica.")
+    
+    # Load current custom assets
+    cur_assets = load_custom_assets()
+    
+    # State for editing
+    if "editing_custom_ticker" not in st.session_state:
+        st.session_state.editing_custom_ticker = None
+
+    editing_ticker = st.session_state.editing_custom_ticker
+    editing_data = cur_assets.get(editing_ticker, {}) if editing_ticker else {}
+
+    if editing_ticker:
+        st.info(f"Editando Ativo: **{editing_ticker}**")
+        if st.button("🆕 Criar Novo em vez de Editar"):
+            st.session_state.editing_custom_ticker = None
+            st.rerun()
+
+    # Form to add/edit
+    with st.form("form_custom_asset"):
+        c_a1, c_a2, c_a3 = st.columns([1, 2, 1])
+        with c_a1:
+            a_ticker = st.text_input("Ticker do Ativo", value=editing_ticker if editing_ticker else "", placeholder="EX: MEU_ATIVO")
+        with c_a2:
+            a_nome = st.text_input("Nome da Empresa", value=editing_data.get("Nome", ""), placeholder="EX: Minha Empresa SA")
+        with c_a3:
+            a_setor = st.text_input("Setor", value=editing_data.get("Setor Economatica", "Custom"), placeholder="EX: Custom")
+        
+        st.write("Valores para as métricas selecionadas atualmente:")
+        
+        # Display inputs for currently selected metrics
+        metric_values = {}
+        curr_sel_metrics = st.session_state.get("widget_sel_metrics", select_defaults)
+        
+        m_cols = st.columns(3)
+        for idx, m in enumerate(curr_sel_metrics):
+            with m_cols[idx % 3]:
+                # Try to get existing value if editing
+                val = editing_data.get(m, "")
+                if pd.isna(val): val = ""
+                metric_values[m] = st.text_input(f"{m}", value=str(val), key=f"custom_val_{m}")
+        
+        submit_custom = st.form_submit_button("💾 Salvar Ativo Customizado", use_container_width=True)
+        
+        if submit_custom:
+            if not a_ticker or not a_nome:
+                st.error("Ticker e Nome são obrigatórios.")
+            else:
+                asset_data = {
+                    "Nome": a_nome,
+                    "Setor Economatica": a_setor or "Custom"
+                }
+                # Keep existing metrics that might not be in the current view
+                if editing_ticker:
+                    asset_data.update({k: v for k, v in editing_data.items() if k not in ["Nome", "Setor Economatica"]})
+
+                for m, v in metric_values.items():
+                    if v.strip():
+                        asset_data[m] = parse_br_number(v)
+                    else:
+                        asset_data[m] = pd.NA
+                
+                # If ticker changed, delete old one
+                if editing_ticker and editing_ticker != a_ticker:
+                    if editing_ticker in cur_assets:
+                        del cur_assets[editing_ticker]
+                
+                cur_assets[a_ticker] = asset_data
+                save_custom_assets(cur_assets)
+                st.session_state.editing_custom_ticker = None
+                st.success(f"Ativo '{a_ticker}' salvo!")
+                st.rerun()
+
+    if cur_assets:
+        st.markdown("---")
+        st.subheader("Ativos Cadastrados")
+        for t_k, t_v in list(cur_assets.items()):
+            col_d1, col_d2, col_d3 = st.columns([3, 1, 1])
+            col_d1.write(f"**{t_k}** - {t_v.get('Nome')} ({t_v.get('Setor Economatica')})")
+            
+            if col_d2.button(f"✏️ Editar", key=f"edit_{t_k}", use_container_width=True):
+                st.session_state.editing_custom_ticker = t_k
+                st.rerun()
+                
+            if col_d3.button(f"🗑️ Excluir", key=f"del_{t_k}", use_container_width=True):
+                del cur_assets[t_k]
+                save_custom_assets(cur_assets)
+                if st.session_state.editing_custom_ticker == t_k:
+                    st.session_state.editing_custom_ticker = None
+                st.success(f"Ativo {t_k} removido.")
+                st.rerun()
+
 # Filters on Main Page
 col_f1, col_f2 = st.columns(2)
 with col_f1:
@@ -792,11 +922,6 @@ if sel_mc:
     df_filtered = df_filtered.drop(columns=["_mc_tmp"])
 
 # Select Base Metrics First (needed for range filtering)
-base_cols_info = ["Ticker", "Nome", "Setor Economatica", "Setor NAICS ult disponiv", "Classe", "Bolsa / Fonte", "Tipo de Ativo", "Ativo / Cancelado", "Data da Últ Cotação", "Data do Último Balanço", "Unnamed: 0", "Consolidado", "Link da Última Nota Explicativa"]
-metric_candidates = [c for c in df_raw.columns if c not in base_cols_info]
-select_defaults = ["P / VPA", "Preço / Lucro 12 meses", "Dividend Yield 12 meses", "EV vs EBITDA 12 meses", "ROE 12 meses", "Dívida Líquida vs EBITDA 12 meses"]
-select_defaults = [d for d in select_defaults if d in metric_candidates]
-
 st.markdown("### 1. Seleção de Métricas e Filtros de Valor")
 sel_metrics = st.multiselect("Selecionar Métricas Base", metric_candidates, default=select_defaults, key="widget_sel_metrics")
 
@@ -888,13 +1013,27 @@ if 'sel_tickers' not in st.session_state:
 
 all_tickers = sorted(df_filtered["Ticker"].unique().tolist())
 sel_tickers = st.multiselect(
-    "Selecionar Ações (após filtros)", 
+    "Selecionar Ações (Base Filtered)", 
     all_tickers, 
     key='sel_tickers_widget', 
     default=st.session_state.sel_tickers if all(t in all_tickers for t in st.session_state.sel_tickers) else []
 )
 # Sync back to session state
 st.session_state.sel_tickers = sel_tickers
+
+# -------------------- Custom Assets Selector --------------------
+# Show available custom assets regardless of filters
+cust_asset_tickers = list(custom_assets_dict.keys()) if custom_assets_dict else []
+sel_custom_tickers = []
+if cust_asset_tickers:
+    sel_custom_tickers = st.multiselect(
+        "Selecionar Ativos Customizados (Adicionar ao Relatório)",
+        cust_asset_tickers,
+        default=[]
+    )
+
+# Combine for final report
+final_selected_tickers = list(set(sel_tickers + sel_custom_tickers))
 
 # Additional Report Settings
 with st.expander("⚙️ Configurações do Relatório", expanded=True):
@@ -934,15 +1073,15 @@ else:
 tab1, = st.tabs(["📊 Relatório Consolidado"])
 
 with tab1:
-    if st.button("Gerar Relatório Completo") or (sel_tickers and sel_metrics):
-        if not sel_tickers:
-            st.info("Selecione pelo menos uma ação.")
+    if st.button("Gerar Relatório Completo") or (final_selected_tickers and sel_metrics):
+        if not final_selected_tickers:
+            st.info("Selecione pelo menos uma ação (Base ou Customizada).")
         elif not m_table and not any([m_bar, m_hbar, m_radar]):
             st.info("Selecione pelo menos uma métrica.")
         else:
             html_content = generate_consolidated_report_html(
                 df_raw, 
-                sel_tickers, 
+                final_selected_tickers, 
                 metrics_table=m_table,
                 metrics_bar=m_bar if show_bar else None,
                 metrics_hbar=m_hbar if show_hbar else None,
