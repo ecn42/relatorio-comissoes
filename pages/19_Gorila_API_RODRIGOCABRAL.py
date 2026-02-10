@@ -27,36 +27,31 @@ if not st.session_state.get("authenticated", False):
 
 st.write("Autenticado")
 
+
 # -------------------------------
-# Portfolio/Broker to Conta Mapping
+# Portfolio/Broker to Conta Mapping (JSON)
 # -------------------------------
 
-PORTFOLIO_BROKER_CONTA_MAP = {
-('14b315dc-8298-414a-89d3-e128fd292add','34904571000172'):'2538001',
-('14b315dc-8298-414a-89d3-e128fd292add','90400888000142'):'290274117',
-('b974d0f2-74fc-45be-b2e5-bce4e4dcea0e','39582666000130'):'2538003',
-('b974d0f2-74fc-45be-b2e5-bce4e4dcea0e','OUTROS'):'2538002',
-('dc44f575-66e8-426a-862a-b3949f64a27b','90400888000142'):'10075814',
-('dc44f575-66e8-426a-862a-b3949f64a27b','60701190000104'):'6093',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','33264668000103'):'1020910999',
-('dc44f575-66e8-426a-862a-b3949f64a27b','33264668000103'):'1020910',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','32062580000138'):'719431999',
-('dc44f575-66e8-426a-86-2a-b3949f64a27b','32062580000138'):'719431',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','-'):'30435001',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','62285390000140'):'30435002',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','00360305000104'):'30435003',
-('dc44f575-66e8-426a-862a-b3949f64a27b','62232889000190'):'30435004',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','33336454000197'):'30435005',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','57061997000107'):'30435006',
-('8ebea19c-1806-4141-80a3-b8c31a1f957e','OUTROS'):'30435007',
-('fbfb1464-92ef-4630-affc-608930e02f9e','06332955000122'):'30435008',
-('e860e317-584f-43fe-8a0a-512a8660cf4a','34904571000172'):'76001',
-('e617307e-908f-4284-8f69-6f962deedc7b','34904571000172'):'368931',
-('2e41fcb9-5b28-403d-872f-213dd54f610f','CHARLES'):'75013579',
-('2e41fcb9-5b28-403d-872f-213dd54f610f','34904571000172'):'424471',
-('2c868362-69a0-4884-9ba3-856f4547db72','06332955000122'):'30435009',
+CONTA_MAP_PATH = "databases/portfolio_broker_conta_map.json"
 
-}
+def load_conta_map_df() -> pd.DataFrame:
+    if not os.path.exists(CONTA_MAP_PATH):
+        return pd.DataFrame(columns=["portfolio_id", "broker_id", "conta"])
+    try:
+        with open(CONTA_MAP_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return pd.DataFrame(data)
+    except Exception:
+        return pd.DataFrame(columns=["portfolio_id", "broker_id", "conta"])
+
+def save_conta_map_df(df: pd.DataFrame) -> None:
+    os.makedirs(os.path.dirname(CONTA_MAP_PATH), exist_ok=True)
+    # Ensure all columns are strings
+    df = df.astype(str)
+    data = df.to_dict(orient="records")
+    with open(CONTA_MAP_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
 
 
 # Asset Class Mapping
@@ -73,25 +68,45 @@ ASSET_CLASS_MAP = {
 
 def add_conta_column(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add 'Conta' column to dataframe by matching portfolio_id and broker_id.
+    Add 'Conta' column to dataframe by matching portfolio_id and broker_id
+    against the JSON mapping file.
     """
     if df.empty:
         return df
     
     df_copy = df.copy()
     
-    # Create Conta column with NaN initially
-    df_copy["Conta"] = None
+    # Load mapping
+    map_df = load_conta_map_df()
+    if map_df.empty:
+        df_copy["Conta"] = None
+        return df_copy
+
+    # Prepare keys for merge
+    # Ensure correct types
+    df_copy["portfolio_id_str"] = df_copy["portfolio_id"].astype(str)
+    df_copy["broker_id_str"] = df_copy["broker_id"].astype(str)
     
-    # Apply mapping for each row
-    for idx, row in df_copy.iterrows():
-        portfolio_id = row.get("portfolio_id")
-        broker_id = row.get("broker_id")
+    map_df["portfolio_id"] = map_df["portfolio_id"].astype(str)
+    map_df["broker_id"] = map_df["broker_id"].astype(str)
+    
+    # Merge
+    merged = pd.merge(
+        df_copy,
+        map_df,
+        left_on=["portfolio_id_str", "broker_id_str"],
+        right_on=["portfolio_id", "broker_id"],
+        how="left",
+        suffixes=("", "_mapped")
+    )
+    
+    # Fill Conta
+    if "conta" in merged.columns:
+        df_copy["Conta"] = merged["conta"]
+    else:
+        df_copy["Conta"] = None
         
-        if pd.notna(portfolio_id) and pd.notna(broker_id):
-            key = (str(portfolio_id), str(broker_id))
-            if key in PORTFOLIO_BROKER_CONTA_MAP:
-                df_copy.at[idx, "Conta"] = PORTFOLIO_BROKER_CONTA_MAP[key]
+    df_copy.drop(columns=["portfolio_id_str", "broker_id_str"], inplace=True)
     
     return df_copy
 
@@ -1591,6 +1606,16 @@ if st.button("Run All", type="primary"):
                 if dfs_pos
                 else pd.DataFrame()
             )
+            
+            if not df_pos_all.empty and "df_portfolios" in st.session_state and not st.session_state["df_portfolios"].empty:
+                 port_df = st.session_state["df_portfolios"]
+                 port_map = pd.Series(
+                     port_df["name"].values,
+                     index=port_df["id"].astype(str)
+                 ).to_dict()
+                 if "portfolio_id" in df_pos_all.columns:
+                     df_pos_all["portfolio_name"] = df_pos_all["portfolio_id"].astype(str).map(port_map)
+
             st.session_state["df_positions"] = df_pos_all
 
         st.success(
@@ -1636,6 +1661,20 @@ if st.button("Run All", type="primary"):
 
         # Enrich PMV
         if not df_pmv_all.empty:
+            # Add portfolio_name mapping
+            if "df_portfolios" in st.session_state and not st.session_state["df_portfolios"].empty:
+                # Create validation map with string keys
+                port_df = st.session_state["df_portfolios"]
+                port_map = pd.Series(
+                    port_df["name"].values,
+                    index=port_df["id"].astype(str)
+                ).to_dict()
+                
+                # Ensure id is string for mapping match
+                df_pmv_all["portfolio_name"] = df_pmv_all["portfolio_id"].astype(str).map(port_map)
+            else:
+                df_pmv_all["portfolio_name"] = None
+
             df_pmv_all = map_issuer_name_from_json(
                 df_pmv_all, issuer_json_path
             )
@@ -1652,6 +1691,12 @@ if st.button("Run All", type="primary"):
 
             # Ensure broker_id / broker_name from raw if missing
             df_pmv_all = ensure_broker_cols_from_raw(df_pmv_all)
+
+            # Create gorila_id = portfolio_id + broker_id
+            df_pmv_all["gorila_id"] = (
+                df_pmv_all["portfolio_id"].astype(str) + 
+                df_pmv_all["broker_id"].astype(str)
+            )
 
         st.session_state["df_position_market_values"] = df_pmv_all
 
@@ -1680,6 +1725,8 @@ if st.button("Run All", type="primary"):
         # Filter PMV columns for CSV export
         pmv_csv_columns = [
             "portfolio_id",
+            "portfolio_name",
+            "gorila_id",
             "reference_date",
             "security_type",
             "asset_class",
@@ -1737,3 +1784,127 @@ if st.button("Run All", type="primary"):
 
     except Exception as e:
         st.error(f"Run All failed: {e}")
+
+# -------------------------------
+# Account Mapping Manager
+# -------------------------------
+st.markdown("---")
+st.header("Gerenciamento de Contas (De-Para)")
+
+if "df_position_market_values" in st.session_state:
+    df_pmv_curr = st.session_state["df_position_market_values"]
+    if not df_pmv_curr.empty:
+        
+        # Identify missing mappings (where Conta is null/NaN)
+        # We process unique pairs of (portfolio_id, broker_id)
+        # We also want to show portfolio_name, broker_name, gorila_id for context
+        
+        needed_cols = ["portfolio_id", "broker_id", "portfolio_name", "broker_name", "gorila_id", "Conta"]
+        # Ensure cols exist
+        for c in needed_cols:
+            if c not in df_pmv_curr.columns:
+                df_pmv_curr[c] = None
+
+        unique_pairs = df_pmv_curr[needed_cols].drop_duplicates(subset=["portfolio_id", "broker_id"])
+        
+        missing_mask = unique_pairs["Conta"].isna() | (unique_pairs["Conta"] == "")
+        df_missing = unique_pairs[missing_mask].copy()
+        
+        st.subheader("Mapeamentos Faltantes")
+        if not df_missing.empty:
+            ignore_btg = st.checkbox(
+                "Ocultar BTG PACTUAL DTVM", value=True
+            )
+            if ignore_btg:
+                # Filter out rows where broker_name is BTG
+                # Make sure broker_name is string
+                df_missing = df_missing[
+                    df_missing["broker_name"].astype(str) != "BTG PACTUAL DTVM"
+                ]
+
+            st.info("Adicione o número da conta para os itens abaixo e clique em Salvar.")
+            # Editor for missing items
+            # We only let user edit 'Conta'
+            df_missing_edited = st.data_editor(
+                df_missing,
+                column_config={
+                    "portfolio_id": st.column_config.TextColumn(disabled=True),
+                    "broker_id": st.column_config.TextColumn(disabled=True),
+                    "portfolio_name": st.column_config.TextColumn(disabled=True),
+                    "broker_name": st.column_config.TextColumn(disabled=True),
+                    "gorila_id": st.column_config.TextColumn(disabled=True),
+                    "Conta": st.column_config.TextColumn(required=True)
+                },
+                hide_index=True,
+                key="missing_editor"
+            )
+            
+            if st.button("Salvar Novos Cabeçalhos"):
+                # Filter out rows that still have empty Conta
+                to_save = df_missing_edited[df_missing_edited["Conta"].notna() & (df_missing_edited["Conta"] != "")].copy()
+                if not to_save.empty:
+                    current_map = load_conta_map_df()
+                    # Prepare new entries
+                    new_entries = to_save[["portfolio_id", "broker_id", "Conta"]].rename(columns={"Conta": "conta"})
+                    
+                    # Concat and deduplicate (keep last)
+                    updated_map = pd.concat([current_map, new_entries], ignore_index=True)
+                    updated_map = updated_map.drop_duplicates(subset=["portfolio_id", "broker_id"], keep="last")
+                    
+                    save_conta_map_df(updated_map)
+                    st.success("Mapeamentos salvos! Recarregue a página ou clique em 'Run All' novamente para atualizar a tabela principal.")
+        else:
+            st.success("Todos os pares Portfolio/Broker encontrados possuem conta mapeada.")
+
+        st.subheader("Todos os Mapeamentos (Editar Correções)")
+        # Load full map again to be sure
+        full_map = load_conta_map_df()
+        
+        # Enrich full map with names if available in current session vars
+        # This is strictly for display convenience
+        display_map = full_map.copy()
+        
+        # Try to attach names from df_pmv context if possible
+        # Create a lookup from the current PMV data
+        lookup = df_pmv_curr[["portfolio_id", "broker_id", "portfolio_name", "broker_name"]].drop_duplicates()
+        lookup["match_key"] = lookup["portfolio_id"].astype(str) + "_" + lookup["broker_id"].astype(str)
+        
+        display_map["match_key"] = display_map["portfolio_id"].astype(str) + "_" + display_map["broker_id"].astype(str)
+        
+        display_map = pd.merge(display_map, lookup[["match_key", "portfolio_name", "broker_name"]], on="match_key", how="left")
+        display_map.drop(columns=["match_key"], inplace=True)
+        
+        # Also create gorila_id for valid rows
+        display_map["gorila_id"] = display_map["portfolio_id"].astype(str) + display_map["broker_id"].astype(str)
+        
+        # Reorder columns
+        cols_order = ["portfolio_name", "broker_name", "conta", "gorila_id", "portfolio_id", "broker_id"]
+        # Ensure cols exist
+        for c in cols_order:
+            if c not in display_map.columns:
+                display_map[c] = None
+        display_map = display_map[cols_order]
+
+        df_full_edited = st.data_editor(
+            display_map,
+            column_config={
+                "portfolio_name": st.column_config.TextColumn(disabled=True),
+                "broker_name": st.column_config.TextColumn(disabled=True),
+                "gorila_id": st.column_config.TextColumn(disabled=True),
+                "portfolio_id": st.column_config.TextColumn(disabled=True),
+                "broker_id": st.column_config.TextColumn(disabled=True),
+                "conta": st.column_config.TextColumn()
+            },
+            hide_index=True,
+            num_rows="dynamic",
+            key="full_editor"
+        )
+        
+        if st.button("Salvar Edições Completa"):
+            # We need to save portfolio_id, broker_id, conta.
+            # Use the edited dataframe but strip display columns
+            to_save_full = df_full_edited[["portfolio_id", "broker_id", "conta"]].copy()
+            # drop rows where critical keys are missing
+            to_save_full = to_save_full.dropna(subset=["portfolio_id", "broker_id"])
+            save_conta_map_df(to_save_full)
+            st.success("Tabela completa atualizada com sucesso.")
