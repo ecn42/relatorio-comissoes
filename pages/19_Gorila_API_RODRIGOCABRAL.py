@@ -7,6 +7,7 @@ import re
 import io
 import unicodedata
 import sqlite3
+import zipfile
 
 import pandas as pd
 import requests
@@ -1781,6 +1782,52 @@ if st.button("Run All", type="primary"):
                     "spreadsheetml.sheet"
                 ),
             )
+
+        # ---------------------------------------------------------------------
+        # NEW: Download filtered (No BTG + No Empty Conta)
+        # ---------------------------------------------------------------------
+        
+        # We already have df_pmv_sem_btg (No BTG)
+        # Now filter out rows where 'Conta' is null/empty
+        
+        df_pmv_filtered = df_pmv_sem_btg[
+            df_pmv_sem_btg["Conta"].notna() & (df_pmv_sem_btg["Conta"] != "")
+        ]
+
+        csv_filtered_bytes = df_to_csv_bytes(df_pmv_filtered)
+
+        st.download_button(
+            label="Download CSV filtrado (sem BTG + com Conta)",
+            data=csv_filtered_bytes,
+            file_name="position_market_values_filtrado.csv",
+            mime="text/csv;charset=utf-8",
+        )
+
+        # ---------------------------------------------------------------------
+        # NEW: Download ALL in ZIP
+        # ---------------------------------------------------------------------
+        
+        # Prepare bytes for all files
+        csv_full_bytes = df_to_csv_bytes(df_pmv_for_csv)
+        csv_sem_btg_bytes = df_to_csv_bytes(df_pmv_sem_btg)
+        # csv_filtered_bytes is already computed
+        # xlsx_bytes is computed above if wb_sheets is not empty
+        
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("position_market_values.csv", csv_full_bytes)
+            zf.writestr("position_market_values_sem_btg.csv", csv_sem_btg_bytes)
+            zf.writestr("position_market_values_filtrado.csv", csv_filtered_bytes)
+            
+            if wb_sheets and 'xlsx_bytes' in locals():
+                 zf.writestr("gorila_core_snapshot.xlsx", xlsx_bytes)
+        
+        st.download_button(
+            label="Download ZIP (Todos os arquivos)",
+            data=zip_buf.getvalue(),
+            file_name="relatorios_gorila.zip",
+            mime="application/zip",
+        )
 
     except Exception as e:
         st.error(f"Run All failed: {e}")
